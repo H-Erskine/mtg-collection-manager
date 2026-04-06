@@ -104,7 +104,7 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
     canonical_name: dict[str, str] = {}
 
     for dl in decklists:
-        cards = dl.cards if sideboard else dl.maindeck
+        cards = dl.cards
         for card in cards:
             key = card.name.lower()
             canonical_name[key] = card.name
@@ -214,7 +214,7 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
                 f"Send 'unbox {dl.name}' first to rebuild it."
             )
 
-        cards = dl.cards if sideboard else dl.maindeck
+        cards = dl.cards
         needed: dict[str, int] = defaultdict(int)
         for card in cards:
             needed[card.name] += card.quantity

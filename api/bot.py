@@ -170,15 +170,12 @@ async def cmd_card(interaction: discord.Interaction, name: str):
 
 @client.event
 async def on_ready():
-    for guild in client.guilds:
-        tree.copy_global_to(guild=guild)
-        synced = await tree.sync(guild=guild)
-        logger.info(
-            "Synced %d commands to guild '%s': %s",
-            len(synced),
-            guild.name,
-            [cmd.name for cmd in synced],
-        )
+    synced = await tree.sync()
+    logger.info(
+        "Synced %d global commands: %s",
+        len(synced),
+        [cmd.name for cmd in synced],
+    )
     logger.info("Logged in as %s", client.user)
 
 

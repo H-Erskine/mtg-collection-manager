@@ -25,7 +25,8 @@
       "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/Scripts/mtg.exe\" sync:*)",
       "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/Scripts/mtg.exe\" missing:*)",
       "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/Scripts/mtg.exe\" build:*)",
-      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/Scripts/mtg.exe\" extras:*)"
+      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/Scripts/mtg.exe\" extras:*)",
+      "Bash(wc -l /c/Users/Harry/mtg-manager/mtg_manager/*.py /c/Users/Harry/mtg-manager/api/*.py)"
     ]
   }
 }
