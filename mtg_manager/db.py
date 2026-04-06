@@ -112,12 +112,16 @@ def clear_color_group(conn: sqlite3.Connection, color_group: str) -> None:
     conn.execute("DELETE FROM owned_cards WHERE color_group = ?", (color_group,))
 
 
+BASIC_LANDS = {"forest", "island", "mountain", "plains", "swamp"}
+
+
 def get_cards_over_limit(conn: sqlite3.Connection, limit: int = 4) -> list[sqlite3.Row]:
-    """Return cards whose total quantity across all printings exceeds `limit`, sorted by count desc."""
+    """Return cards whose total quantity exceeds `limit`, excluding basic lands."""
     return conn.execute(
         """
         SELECT name, SUM(quantity) AS total, color_group
         FROM owned_cards
+        WHERE LOWER(name) NOT IN ('forest','island','mountain','plains','swamp')
         GROUP BY LOWER(name)
         HAVING total > ?
         ORDER BY total DESC, name ASC
@@ -174,6 +178,12 @@ def get_deck(conn: sqlite3.Connection, deck_id: str) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT * FROM built_decks WHERE deck_id = ?", (deck_id,)
     ).fetchone()
+
+
+def get_decks_by_name(conn: sqlite3.Connection, deck_name: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM built_decks WHERE LOWER(deck_name) = LOWER(?)", (deck_name,)
+    ).fetchall()
 
 
 def insert_built_deck(

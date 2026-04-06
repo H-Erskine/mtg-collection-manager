@@ -15,8 +15,10 @@ from mtg_manager.db import (
     delete_built_deck,
     get_available_quantity,
     get_card_allocations,
+    get_cards_over_limit,
     get_conn,
     get_deck,
+    get_decks_by_name,
     get_owned_quantity,
     insert_built_deck,
     list_built_decks,
@@ -208,8 +210,8 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
         existing = get_deck(conn, dl.deck_id)
         if existing:
             return (
-                f"Deck '{dl.name}' ({dl.deck_id}) is already built and in [{existing['box_name']}].\n"
-                f"Send 'unbox {dl.deck_id}' first to rebuild it."
+                f"Deck '{dl.name}' is already built and in [{existing['box_name']}].\n"
+                f"Send 'unbox {dl.name}' first to rebuild it."
             )
 
         cards = dl.cards if sideboard else dl.maindeck
@@ -247,7 +249,7 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
             cards=list(needed.items()),
         )
 
-    lines = [f"Built: {dl.name}", f"Box:   {box}", f"Deck ID: {dl.deck_id}"]
+    lines = [f"Built: {dl.name}", f"Box:   {box}"]
     if conflict_lines:
         lines.append("\nWarning — some cards were in other boxes:")
         lines.extend(conflict_lines)
@@ -286,20 +288,26 @@ def handle_boxes() -> str:
 # unbox
 # ---------------------------------------------------------------------------
 
-def handle_unbox(deck_id: str) -> str:
+def handle_unbox(deck_name: str) -> str:
     try:
         cfg = _load_cfg()
     except FileNotFoundError as e:
         return f"Error: {e}"
 
     with get_conn(cfg.db_path) as conn:
-        row = get_deck(conn, deck_id)
-        if not row:
-            return f"No built deck found with ID '{deck_id}'.\nSend 'boxes' to see built decks."
+        rows = get_decks_by_name(conn, deck_name)
+        if not rows:
+            return f"No built deck found named '{deck_name}'.\nSend 'boxes' to see built decks."
+        if len(rows) > 1:
+            lines = [f"Multiple decks named '{deck_name}' found:"]
+            for r in rows:
+                lines.append(f"  [{r['box_name']}] {r['deck_name']}  (id: {r['deck_id']})")
+            return "\n".join(lines)
 
+        row = rows[0]
         name = row["deck_name"]
         box = row["box_name"]
-        delete_built_deck(conn, deck_id)
+        delete_built_deck(conn, row["deck_id"])
 
     return f"Unboxed: {name} (was in [{box}])\nCards returned to available pool."
 
@@ -311,33 +319,64 @@ def handle_unbox(deck_id: str) -> str:
 HELP_TEXT = """\
 MTG Manager commands:
 
-sync
-  Sync all Moxfield packages
+/sync [color_group]
+  Fetch Moxfield packages and update your collection.
+  Optionally sync only one color group (e.g. White).
 
-sync <color>
-  Sync one color group (e.g. sync White)
+/missing <url> [min_variants] [sideboard]
+  Show cards you need to order for a MTGTop8 deck or compare URL.
+  Use min_variants to filter to cards in N+ variants.
 
-missing <url>
-  Missing cards for a deck or compare URL
+/build <url> <box_name> [sideboard]
+  Mark a deck as built and allocate its cards to a named box.
 
-missing <url> -m <n>
-  Only cards in N+ variants
+/boxes
+  List all built decks grouped by box.
 
-build <url> box <name>
-  Mark a deck as built in a named box
+/unbox <deck_name>
+  Remove a built deck and return its cards to the available pool.
+  Deck names are shown in /boxes.
 
-boxes
-  List all built decks by box
+/extras [limit]
+  List cards you own more than limit copies of (default 4).
+  Useful for identifying trade/sell stock.
 
-unbox <deck_id>
-  Remove a deck and return cards to pool
+/search <query>
+  Search your collection for cards matching a name.
 
-help
-  Show this message"""
+/stats
+  Show collection stats: total cards, unique cards, breakdown by color group.
+
+/card <name>
+  Look up a card on Scryfall. Shows mana cost, type, oracle text, and price.
+  Supports fuzzy name matching."""
 
 
 def handle_help() -> str:
     return HELP_TEXT
+
+
+# ---------------------------------------------------------------------------
+# extras
+# ---------------------------------------------------------------------------
+
+def handle_extras(limit: int = 4) -> str:
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    with get_conn(cfg.db_path) as conn:
+        _auto_sync(cfg, conn)
+        rows = get_cards_over_limit(conn, limit)
+
+    if not rows:
+        return f"No cards with more than {limit} copies."
+
+    lines = [f"Cards with more than {limit} copies ({len(rows)} total):\n"]
+    for row in rows:
+        lines.append(f"  {row['total']}x {row['name']}  ({row['color_group']})")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

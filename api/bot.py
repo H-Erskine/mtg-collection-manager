@@ -20,6 +20,7 @@ from .handlers import (
     handle_boxes,
     handle_build,
     handle_card,
+    handle_extras,
     handle_help,
     handle_missing,
     handle_search,
@@ -125,10 +126,18 @@ async def cmd_boxes(interaction: discord.Interaction):
 
 
 @tree.command(name="unbox", description="Remove a built deck and return its cards to the pool")
-@app_commands.describe(deck_id="Deck ID shown in /boxes")
-async def cmd_unbox(interaction: discord.Interaction, deck_id: str):
+@app_commands.describe(deck_name="Deck name shown in /boxes")
+async def cmd_unbox(interaction: discord.Interaction, deck_name: str):
     await interaction.response.defer()
-    reply = await asyncio.get_event_loop().run_in_executor(None, handle_unbox, deck_id)
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_unbox, deck_name)
+    await _send(interaction, reply)
+
+
+@tree.command(name="extras", description="List cards you own more than N copies of — potential trade stock")
+@app_commands.describe(limit="Flag cards with more than this many copies (default 4)")
+async def cmd_extras(interaction: discord.Interaction, limit: int = 4):
+    await interaction.response.defer()
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_extras, limit)
     await _send(interaction, reply)
 
 
@@ -161,10 +170,15 @@ async def cmd_card(interaction: discord.Interaction, name: str):
 
 @client.event
 async def on_ready():
-    # Sync to each guild the bot is in — instant, no propagation delay
     for guild in client.guilds:
-        await tree.sync(guild=guild)
-        logger.info("Slash commands synced to guild: %s", guild.name)
+        tree.copy_global_to(guild=guild)
+        synced = await tree.sync(guild=guild)
+        logger.info(
+            "Synced %d commands to guild '%s': %s",
+            len(synced),
+            guild.name,
+            [cmd.name for cmd in synced],
+        )
     logger.info("Logged in as %s", client.user)
 
 
