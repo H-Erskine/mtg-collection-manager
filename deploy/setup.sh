@@ -5,7 +5,6 @@
 #
 # Before running, set these at the top of the script or export them:
 #   DOMAIN      — your domain pointing at this EC2 instance's Elastic IP
-#   AUTH_TOKEN  — your Twilio Auth Token (from console.twilio.com)
 
 set -euo pipefail
 

@@ -2,6 +2,3 @@
 # Install alongside the main package: pip install -e . && pip install -r requirements-api.txt
 discord.py>=2.3.0
 python-dotenv>=1.0.0
-
-# Only needed on EC2 (Linux) — not required locally
-gunicorn>=21.0.0; sys_platform != "win32"
