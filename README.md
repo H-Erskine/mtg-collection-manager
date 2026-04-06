@@ -109,7 +109,7 @@ All CLI commands are available as Discord slash commands (`/sync`, `/missing`, `
 
 Every read command silently re-syncs your Moxfield collection first, so the database is always current before any comparison is made.
 
-Card availability accounts for copies already allocated to built decks — if you own 4x Lightning Bolt but 4x are in a built deck, `missing` will report you as short. When `build` is called and a card is unavailable, it is marked as a proxy (listed in the pick list output but not deducted from your available count).
+Card availability is tracked separately from ownership. `missing` distinguishes between two situations: cards you don't own enough of (listed under "need to order") and cards you own but are currently locked in a built deck (listed separately as "in boxes"). So if you own 4x Lightning Bolt but all 4 are allocated to a built deck, `missing` will not tell you to order more — it will tell you they're already in use. When `build` is called and a card is genuinely unavailable, it is marked as a proxy (listed in the pick list output but not deducted from your available count).
 
 Double-faced cards are handled automatically: MTGTop8 uses only the front face name (`Ral, Monsoon Mage`) while Moxfield stores the full name (`Ral, Monsoon Mage // Ral, Leyline Prodigy`). Both forms resolve to the same owned quantity.
 
