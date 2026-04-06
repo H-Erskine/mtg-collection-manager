@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS allocated_cards (
     deck_id     TEXT NOT NULL REFERENCES built_decks(deck_id),
     card_name   TEXT NOT NULL,
     quantity    INTEGER NOT NULL DEFAULT 1,
+    is_proxy    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (deck_id, card_name)
 );
 
@@ -53,6 +54,12 @@ def get_conn(db_path: Path):
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(SCHEMA)
+        # Migration: add is_proxy to existing databases
+        try:
+            conn.execute("ALTER TABLE allocated_cards ADD COLUMN is_proxy INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         yield conn
         conn.commit()
     except Exception:
@@ -167,7 +174,7 @@ def get_allocated_quantity(conn: sqlite3.Connection, card_name: str) -> int:
         """
         SELECT COALESCE(SUM(quantity), 0) AS total
         FROM allocated_cards
-        WHERE LOWER(card_name) = ?
+        WHERE LOWER(card_name) = ? AND is_proxy = 0
         """,
         (name_lower,),
     ).fetchone()
@@ -213,9 +220,9 @@ def insert_built_deck(
     deck_name: str,
     deck_url: str,
     box_name: str,
-    cards: list[tuple[str, int]],
+    cards: list[tuple[str, int, bool]],
 ) -> None:
-    """Record a built deck and allocate its cards."""
+    """Record a built deck and allocate its cards. cards is (name, qty, is_proxy)."""
     conn.execute(
         """
         INSERT INTO built_decks (deck_id, deck_name, deck_url, box_name)
@@ -224,8 +231,8 @@ def insert_built_deck(
         (deck_id, deck_name, deck_url, box_name),
     )
     conn.executemany(
-        "INSERT INTO allocated_cards (deck_id, card_name, quantity) VALUES (?, ?, ?)",
-        [(deck_id, name, qty) for name, qty in cards],
+        "INSERT INTO allocated_cards (deck_id, card_name, quantity, is_proxy) VALUES (?, ?, ?, ?)",
+        [(deck_id, name, qty, int(is_proxy)) for name, qty, is_proxy in cards],
     )
 
 

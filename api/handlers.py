@@ -220,8 +220,8 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
         for card in cards:
             needed[card.name] += card.quantity
 
-        short_cards: list[tuple[str, int, int]] = []
         conflict_lines: list[str] = []
+        card_entries: list[tuple[str, int, bool]] = []  # (name, qty, is_proxy)
 
         for name, qty in sorted(needed.items()):
             available = get_available_quantity(conn, name)
@@ -229,17 +229,8 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
             if allocs:
                 for a in allocs:
                     conflict_lines.append(f"  {name}: {a.quantity}x in [{a.box_name}] ({a.deck_name})")
-            if available < qty:
-                short_cards.append((name, qty, available))
-
-        if short_cards:
-            lines = [f"Cannot build — {len(short_cards)} card(s) unavailable:"]
-            for name, qty, available in short_cards:
-                lines.append(f"  need {qty}x {name}, have {available} available")
-            if conflict_lines:
-                lines.append("\nCards in other boxes:")
-                lines.extend(conflict_lines)
-            return "\n".join(lines)
+            is_proxy = available < qty
+            card_entries.append((name, qty, is_proxy))
 
         insert_built_deck(
             conn,
@@ -247,16 +238,25 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
             deck_name=dl.name,
             deck_url=url,
             box_name=box,
-            cards=list(needed.items()),
+            cards=card_entries,
         )
 
-        # Build pick list grouped by color group
+        # Build pick list: owned cards grouped by color group, proxies separate
         pick: dict[str, list[str]] = defaultdict(list)
-        for name, qty in sorted(needed.items()):
-            group = get_card_color_group(conn, name)
-            pick[group].append(f"  {qty}x {name}")
+        proxy_lines: list[str] = []
+        for name, qty, is_proxy in card_entries:
+            if is_proxy:
+                proxy_lines.append(f"  {qty}x {name}")
+            else:
+                group = get_card_color_group(conn, name)
+                pick[group].append(f"  {qty}x {name}")
 
-    lines = [f"Built: {dl.name}", f"Box:   {box}", ""]
+    proxy_count = sum(1 for _, _, p in card_entries if p)
+    lines = [f"Built: {dl.name}", f"Box:   {box}"]
+    if proxy_count:
+        lines.append(f"Proxies: {proxy_count} card(s) not owned — marked in box, not deducted from collection")
+    lines.append("")
+
     if conflict_lines:
         lines.append("Warning — some cards were in other boxes:")
         lines.extend(conflict_lines)
@@ -266,6 +266,10 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
     for group in sorted(pick):
         lines.append(f"[{group}]")
         lines.extend(pick[group])
+
+    if proxy_lines:
+        lines.append("[Proxies — print or substitute]")
+        lines.extend(proxy_lines)
 
     return "\n".join(lines)
 
