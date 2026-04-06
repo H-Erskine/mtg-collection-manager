@@ -51,8 +51,8 @@ def _validate_twilio(req) -> bool:
         logger.warning("Twilio signature validation DISABLED (SKIP_TWILIO_VALIDATION=true)")
         return True
     if not _AUTH_TOKEN:
-        logger.warning("TWILIO_AUTH_TOKEN not set — skipping signature validation")
-        return True
+        logger.error("TWILIO_AUTH_TOKEN not set — refusing all requests")
+        abort(500)
     validator = RequestValidator(_AUTH_TOKEN)
     signature = req.headers.get("X-Twilio-Signature", "")
     # Twilio always signs against the public HTTPS URL. Force https here
