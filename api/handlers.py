@@ -373,9 +373,28 @@ def handle_extras(limit: int = 4) -> str:
     if not rows:
         return f"No cards with more than {limit} copies."
 
-    lines = [f"Cards with more than {limit} copies ({len(rows)} total):\n"]
+    # Group versions by card name (already sorted quantity DESC from SQL)
+    by_name: dict[str, list] = defaultdict(list)
     for row in rows:
-        lines.append(f"  {row['total']}x {row['name']}  ({row['color_group']})")
+        by_name[row["name"]].append(row)
+
+    excess_lines = []
+    for name, versions in sorted(by_name.items()):
+        remaining = limit
+        for v in versions:
+            allocated = min(v["quantity"], remaining)
+            remaining -= allocated
+            spare = v["quantity"] - allocated
+            if spare > 0:
+                foil_tag = " [foil]" if v["foil"] else ""
+                set_tag = f" ({v['set_code'].upper()})" if v["set_code"] else ""
+                excess_lines.append(f"  {spare}x {name}{foil_tag}{set_tag}")
+
+    if not excess_lines:
+        return f"No spare cards beyond {limit} copies."
+
+    lines = [f"Spare cards beyond a playset of {limit} ({len(by_name)} card(s) with extras):\n"]
+    lines.extend(excess_lines)
     return "\n".join(lines)
 
 

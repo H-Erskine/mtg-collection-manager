@@ -116,15 +116,19 @@ BASIC_LANDS = {"forest", "island", "mountain", "plains", "swamp"}
 
 
 def get_cards_over_limit(conn: sqlite3.Connection, limit: int = 4) -> list[sqlite3.Row]:
-    """Return cards whose total quantity exceeds `limit`, excluding basic lands."""
+    """Return all versions of cards whose total quantity exceeds `limit`, excluding basic lands.
+    Rows are ordered by name then quantity DESC so the largest version comes first."""
     return conn.execute(
         """
-        SELECT name, SUM(quantity) AS total, color_group
+        SELECT name, set_code, foil, quantity, color_group
         FROM owned_cards
         WHERE LOWER(name) NOT IN ('forest','island','mountain','plains','swamp')
-        GROUP BY LOWER(name)
-        HAVING total > ?
-        ORDER BY total DESC, name ASC
+          AND LOWER(name) IN (
+            SELECT LOWER(name) FROM owned_cards
+            GROUP BY LOWER(name)
+            HAVING SUM(quantity) > ?
+          )
+        ORDER BY LOWER(name), quantity DESC
         """,
         (limit,),
     ).fetchall()
