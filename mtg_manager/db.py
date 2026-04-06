@@ -107,6 +107,23 @@ def get_owned_quantity(conn: sqlite3.Connection, card_name: str) -> int:
     return row["total"] if row else 0
 
 
+def get_card_color_group(conn: sqlite3.Connection, card_name: str) -> str:
+    """Return the color group(s) that own copies of a card, as a display string."""
+    name_lower = card_name.lower()
+    rows = conn.execute(
+        """
+        SELECT DISTINCT color_group
+        FROM owned_cards
+        WHERE LOWER(name) = ?
+           OR LOWER(SUBSTR(name, 1, INSTR(name, ' // ') - 1)) = ?
+        ORDER BY color_group
+        """,
+        (name_lower, name_lower),
+    ).fetchall()
+    groups = [r["color_group"] for r in rows if r["color_group"]]
+    return ", ".join(groups) if groups else "?"
+
+
 def clear_color_group(conn: sqlite3.Connection, color_group: str) -> None:
     """Remove all cards for a color group before re-syncing it."""
     conn.execute("DELETE FROM owned_cards WHERE color_group = ?", (color_group,))

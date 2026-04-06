@@ -15,6 +15,7 @@ from mtg_manager.db import (
     delete_built_deck,
     get_available_quantity,
     get_card_allocations,
+    get_card_color_group,
     get_cards_over_limit,
     get_conn,
     get_deck,
@@ -249,10 +250,23 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
             cards=list(needed.items()),
         )
 
-    lines = [f"Built: {dl.name}", f"Box:   {box}"]
+        # Build pick list grouped by color group
+        pick: dict[str, list[str]] = defaultdict(list)
+        for name, qty in sorted(needed.items()):
+            group = get_card_color_group(conn, name)
+            pick[group].append(f"  {qty}x {name}")
+
+    lines = [f"Built: {dl.name}", f"Box:   {box}", ""]
     if conflict_lines:
-        lines.append("\nWarning — some cards were in other boxes:")
+        lines.append("Warning — some cards were in other boxes:")
         lines.extend(conflict_lines)
+        lines.append("")
+
+    lines.append("Pick list:")
+    for group in sorted(pick):
+        lines.append(f"[{group}]")
+        lines.extend(pick[group])
+
     return "\n".join(lines)
 
 
@@ -360,7 +374,7 @@ def handle_help() -> str:
 # extras
 # ---------------------------------------------------------------------------
 
-def handle_extras(limit: int = 4) -> str:
+def handle_extras(limit: int = 4, basic: bool = False) -> str:
     try:
         cfg = _load_cfg()
     except FileNotFoundError as e:
@@ -387,7 +401,7 @@ def handle_extras(limit: int = 4) -> str:
             spare = v["quantity"] - allocated
             if spare > 0:
                 foil_tag = " [foil]" if v["foil"] else ""
-                set_tag = f" ({v['set_code'].upper()})" if v["set_code"] else ""
+                set_tag = f" ({v['set_code'].upper()})" if (v["set_code"] and not basic) else ""
                 excess_lines.append(f"  {spare}x {name}{foil_tag}{set_tag}")
 
     if not excess_lines:

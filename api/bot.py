@@ -134,10 +134,13 @@ async def cmd_unbox(interaction: discord.Interaction, deck_name: str):
 
 
 @tree.command(name="extras", description="List cards you own more than N copies of — potential trade stock")
-@app_commands.describe(limit="Flag cards with more than this many copies (default 4)")
-async def cmd_extras(interaction: discord.Interaction, limit: int = 4):
+@app_commands.describe(
+    limit="Flag cards with more than this many copies (default 4)",
+    basic="Just list card names without set codes",
+)
+async def cmd_extras(interaction: discord.Interaction, limit: int = 4, basic: bool = False):
     await interaction.response.defer()
-    reply = await asyncio.get_event_loop().run_in_executor(None, handle_extras, limit)
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_extras, limit, basic)
     await _send(interaction, reply)
 
 
