@@ -19,6 +19,7 @@ from mtg_manager.db import (
     get_cards_over_limit,
     get_conn,
     get_deck,
+    get_deck_by_url,
     get_decks_by_name,
     get_owned_quantity,
     insert_built_deck,
@@ -27,7 +28,7 @@ from mtg_manager.db import (
 )
 from mtg_manager.models import BoxedCard, MissingCard
 from mtg_manager.moxfield import fetch_package_cards
-from mtg_manager.mtgtop8 import fetch_decklists
+from mtg_manager.sources import fetch_decklists
 
 
 def _load_cfg():
@@ -106,12 +107,14 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
 
     for dl in decklists:
         cards = dl.cards
+        print(f"[missing] deck='{dl.name}' cards={len(cards)}", flush=True)
         for card in cards:
             key = card.name.lower()
             canonical_name[key] = card.name
             max_needed[key] = max(max_needed[key], card.quantity)
             variant_count[key] += 1
 
+    print(f"[missing] unique cards needed: {len(max_needed)}", flush=True)
     keys = [k for k in max_needed if variant_count[k] >= min_variants]
 
     with get_conn(cfg.db_path) as conn:
@@ -208,14 +211,18 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
     with get_conn(cfg.db_path) as conn:
         _auto_sync(cfg, conn)
 
-        existing = get_deck(conn, dl.deck_id)
+        # Duplicate check: URL is the most reliable identifier across all sources
+        existing = get_deck_by_url(conn, url) or get_deck(conn, dl.deck_id)
         if existing:
             return (
-                f"Deck '{dl.name}' is already built and in [{existing['box_name']}].\n"
-                f"Send 'unbox {dl.name}' first to rebuild it."
+                f"Deck '{existing['deck_name']}' is already built and in [{existing['box_name']}].\n"
+                f"Send 'unbox {existing['deck_name']}' first to rebuild it."
             )
 
         cards = dl.cards
+        if not cards:
+            return f"Deck '{dl.name}' returned no cards — it may be private or empty."
+
         needed: dict[str, int] = defaultdict(int)
         for card in cards:
             needed[card.name] += card.quantity
@@ -232,16 +239,7 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
             is_proxy = available < qty
             card_entries.append((name, qty, is_proxy))
 
-        insert_built_deck(
-            conn,
-            deck_id=dl.deck_id,
-            deck_name=dl.name,
-            deck_url=url,
-            box_name=box,
-            cards=card_entries,
-        )
-
-        # Build pick list: owned cards grouped by color group, proxies separate
+        # Build pick list before insert so it's always available
         pick: dict[str, list[str]] = defaultdict(list)
         proxy_lines: list[str] = []
         for name, qty, is_proxy in card_entries:
@@ -250,6 +248,15 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
             else:
                 group = get_card_color_group(conn, name)
                 pick[group].append(f"  {qty}x {name}")
+
+        insert_built_deck(
+            conn,
+            deck_id=dl.deck_id,
+            deck_name=dl.name,
+            deck_url=url,
+            box_name=box,
+            cards=card_entries,
+        )
 
     proxy_count = sum(1 for _, _, p in card_entries if p)
     lines = [f"Built: {dl.name}", f"Box:   {box}"]
@@ -297,9 +304,21 @@ def handle_boxes() -> str:
         if row["box_name"] != current_box:
             current_box = row["box_name"]
             lines.append(f"\n[{current_box}]")
-        lines.append(f"  {row['deck_name']}  ({row['deck_id']})")
+        source = _source_tag(row["deck_url"])
+        lines.append(f"  {row['deck_name']}  [{source}]")
+        lines.append(f"    {row['deck_url']}")
 
     return "\n".join(lines).strip()
+
+
+def _source_tag(url: str) -> str:
+    if "moxfield.com" in url:
+        return "Moxfield"
+    if "mtgtop8.com" in url:
+        return "MTGTop8"
+    if "mtggoldfish.com" in url:
+        return "MTGGoldfish"
+    return "Unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -391,10 +410,21 @@ def handle_extras(limit: int = 4, basic: bool = False) -> str:
     if not rows:
         return f"No cards with more than {limit} copies."
 
-    # Group versions by card name (already sorted quantity DESC from SQL)
-    by_name: dict[str, list] = defaultdict(list)
+    # Aggregate by (name, set_code, foil) — multiple collector numbers can exist per set
+    aggregated: dict[str, dict[tuple, dict]] = defaultdict(dict)
     for row in rows:
-        by_name[row["name"]].append(row)
+        name = row["name"]
+        key = (row["set_code"], row["foil"])
+        if key not in aggregated[name]:
+            aggregated[name][key] = {"set_code": row["set_code"], "foil": row["foil"],
+                                     "quantity": 0, "color_group": row["color_group"]}
+        aggregated[name][key]["quantity"] += row["quantity"]
+
+    # Sort each card's versions by quantity DESC so we fill playset from the largest first
+    by_name: dict[str, list] = {
+        name: sorted(versions.values(), key=lambda v: v["quantity"], reverse=True)
+        for name, versions in aggregated.items()
+    }
 
     excess_lines = []
     for name, versions in sorted(by_name.items()):
@@ -430,11 +460,10 @@ def handle_search(query: str) -> str:
     with get_conn(cfg.db_path) as conn:
         rows = conn.execute(
             """
-            SELECT name, color_group, foil, SUM(quantity) AS total
+            SELECT name, set_code, color_group, foil, quantity
             FROM owned_cards
             WHERE LOWER(name) LIKE ?
-            GROUP BY name, color_group, foil
-            ORDER BY name, foil
+            ORDER BY name, quantity DESC, foil
             """,
             (query_lower,),
         ).fetchall()
@@ -442,10 +471,18 @@ def handle_search(query: str) -> str:
     if not rows:
         return f'No cards found matching "{query}".'
 
-    lines = [f'Results for "{query}":']
+    by_name: dict[str, list] = defaultdict(list)
     for row in rows:
-        foil_tag = " [foil]" if row["foil"] else ""
-        lines.append(f"  {row['total']}x {row['name']}{foil_tag}  ({row['color_group']})")
+        by_name[row["name"]].append(row)
+
+    lines = [f'Results for "{query}":']
+    for name, versions in by_name.items():
+        total = sum(v["quantity"] for v in versions)
+        lines.append(f"\n  {name}  ({total} total)")
+        for v in versions:
+            foil_tag = " [foil]" if v["foil"] else ""
+            set_tag = f" ({v['set_code'].upper()})" if v["set_code"] else ""
+            lines.append(f"    {v['quantity']}x{foil_tag}{set_tag}  [{v['color_group']}]")
     return "\n".join(lines)
 
 
@@ -502,7 +539,13 @@ def handle_stats() -> str:
 
 import requests as _requests
 
-def handle_card(name: str) -> str:
+
+def fetch_card_data(name: str) -> dict | str:
+    """
+    Fetch a card from Scryfall by fuzzy name.
+
+    Returns a dict with card data on success, or an error string on failure.
+    """
     try:
         resp = _requests.get(
             "https://api.scryfall.com/cards/named",
@@ -520,29 +563,49 @@ def handle_card(name: str) -> str:
         return f"Scryfall error {resp.status_code}"
 
     c = resp.json()
-    lines = [f"**{c['name']}**"]
-
-    mana = c.get("mana_cost", "")
-    if mana:
-        lines.append(f"Mana: {mana}")
-
-    lines.append(f"Type: {c.get('type_line', '')}")
 
     oracle = c.get("oracle_text", "")
     if not oracle and "card_faces" in c:
         oracle = "\n//\n".join(
             face.get("oracle_text", "") for face in c["card_faces"]
         )
-    if oracle:
-        lines.append(f"\n{oracle}")
 
     prices = c.get("prices", {})
-    price_usd = prices.get("usd")
-    price_usd_foil = prices.get("usd_foil")
-    if price_usd or price_usd_foil:
-        price_str = f"${price_usd}" if price_usd else "—"
-        foil_str = f"${price_usd_foil} foil" if price_usd_foil else ""
-        lines.append(f"\nPrice: {price_str}" + (f"  |  {foil_str}" if foil_str else ""))
 
-    lines.append(f"\n{c.get('scryfall_uri', '')}")
+    # Image: prefer the front face for double-faced cards
+    image_uris = c.get("image_uris") or (
+        c["card_faces"][0].get("image_uris") if "card_faces" in c else {}
+    )
+
+    return {
+        "name": c["name"],
+        "mana_cost": c.get("mana_cost", "") or (
+            c["card_faces"][0].get("mana_cost", "") if "card_faces" in c else ""
+        ),
+        "type_line": c.get("type_line", ""),
+        "oracle_text": oracle,
+        "colors": c.get("colors", []),
+        "price_usd": prices.get("usd"),
+        "price_usd_foil": prices.get("usd_foil"),
+        "scryfall_uri": c.get("scryfall_uri", ""),
+        "image_uri": (image_uris or {}).get("normal", ""),
+    }
+
+
+def handle_card(name: str) -> str:
+    data = fetch_card_data(name)
+    if isinstance(data, str):
+        return data
+
+    lines = [f"**{data['name']}**"]
+    if data["mana_cost"]:
+        lines.append(f"Mana: {data['mana_cost']}")
+    lines.append(f"Type: {data['type_line']}")
+    if data["oracle_text"]:
+        lines.append(f"\n{data['oracle_text']}")
+    if data["price_usd"] or data["price_usd_foil"]:
+        price_str = f"${data['price_usd']}" if data["price_usd"] else "—"
+        foil_str = f"${data['price_usd_foil']} foil" if data["price_usd_foil"] else ""
+        lines.append(f"\nPrice: {price_str}" + (f"  |  {foil_str}" if foil_str else ""))
+    lines.append(f"\n{data['scryfall_uri']}")
     return "\n".join(lines)

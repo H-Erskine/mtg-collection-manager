@@ -1,32 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(winget --version)",
-      "Bash(winget install:*)",
-      "Bash(pip --version)",
-      "Bash(py --version)",
-      "Bash(py -m pip --version)",
-      "Bash(cmd.exe /c \"python --version && pip --version\")",
-      "Bash(cmd.exe /c \"py --version && py -m pip --version\")",
-      "Bash(cmd.exe /c \"where python\")",
-      "Bash(cmd.exe /c \"where py\")",
-      "Read(//c/Users/Harry/AppData/Local/Programs/Python//**)",
-      "Read(//c/Program Files/**)",
-      "Read(//c/Users/Harry/**)",
-      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/python.exe\" --version)",
-      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/python.exe\" -m pip --version)",
-      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/python.exe\" -m pip install -e \"c:/Users/Harry/mtg-manager\")",
-      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/python.exe\" -m pip install --upgrade setuptools)",
-      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/Scripts/mtg.exe\" --help)",
-      "Bash(cmd.exe /c 'setx PATH \"%PATH%;C:\\\\Users\\\\Harry\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313;C:\\\\Users\\\\Harry\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\Scripts\"')",
-      "Bash(cmd.exe /c 'echo %ERRORLEVEL%')",
-      "Bash(powershell.exe -Command '[System.Environment]::SetEnvironmentVariable\\(\"Path\", [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\) + \";C:\\\\Users\\\\Harry\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313;C:\\\\Users\\\\Harry\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\Scripts\", \"User\"\\); Write-Host \"Done\"')",
-      "Bash(/c/Users/Harry/AppData/Local/Programs/Python/Python313/python.exe -c ':*)",
-      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/Scripts/mtg.exe\" sync:*)",
-      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/Scripts/mtg.exe\" missing:*)",
-      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/Scripts/mtg.exe\" build:*)",
-      "Bash(\"/c/Users/Harry/AppData/Local/Programs/Python/Python313/Scripts/mtg.exe\" extras:*)",
-      "Bash(wc -l /c/Users/Harry/mtg-manager/mtg_manager/*.py /c/Users/Harry/mtg-manager/api/*.py)"
+      "Bash(*)"
     ]
   }
 }

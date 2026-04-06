@@ -16,10 +16,9 @@ from discord import app_commands
 from dotenv import load_dotenv
 
 from .handlers import (
-    HELP_TEXT,
+    fetch_card_data,
     handle_boxes,
     handle_build,
-    handle_card,
     handle_extras,
     handle_help,
     handle_missing,
@@ -40,8 +39,39 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
 
+# ---------------------------------------------------------------------------
+# Embed colour palette
+# ---------------------------------------------------------------------------
+
+COLOR_SUCCESS = 0x57F287  # green  — sync OK, build, unbox, all cards owned
+COLOR_ERROR   = 0xED4245  # red    — errors, missing cards
+COLOR_INFO    = 0x5865F2  # blurple — help, boxes, search, stats
+COLOR_WARNING = 0xFEE75C  # yellow — extras / spare cards
+
+# MTG colour identity → embed sidebar colour
+_MTG_COLOR_MAP = {
+    "W": 0xF8F6F1,  # White
+    "U": 0x0E68AB,  # Blue
+    "B": 0x2C2C2C,  # Black
+    "R": 0xD3202A,  # Red
+    "G": 0x00733E,  # Green
+}
+
+
+def _card_embed_color(colors: list[str]) -> int:
+    if not colors:
+        return 0x9C9C9C      # colourless
+    if len(colors) > 1:
+        return 0xC8A227      # gold / multicolour
+    return _MTG_COLOR_MAP.get(colors[0], COLOR_INFO)
+
+
+# ---------------------------------------------------------------------------
+# Message / embed helpers
+# ---------------------------------------------------------------------------
+
 def _split_message(text: str, limit: int = 1990) -> list[str]:
-    """Split a long string into chunks that fit within Discord's 2000 char limit."""
+    """Split a long string into chunks that each fit within *limit* chars."""
     chunks = []
     while len(text) > limit:
         split_at = text.rfind("\n", 0, limit)
@@ -54,12 +84,64 @@ def _split_message(text: str, limit: int = 1990) -> list[str]:
     return chunks
 
 
-async def _send(interaction: discord.Interaction, text: str) -> None:
-    """Send a reply, splitting into follow-up messages if over 2000 chars."""
-    chunks = _split_message(text)
-    await interaction.followup.send(chunks[0])
-    for chunk in chunks[1:]:
-        await interaction.followup.send(chunk)
+async def _send_embed(
+    interaction: discord.Interaction,
+    text: str,
+    title: str = "",
+    color: int = COLOR_INFO,
+    code_block: bool = False,
+) -> None:
+    """
+    Send *text* as one or more Discord embeds.
+
+    When *code_block* is True the text is wrapped in a monospace code fence,
+    which is useful for card lists and tabular data.
+    """
+    WRAP = ("```\n", "\n```") if code_block else ("", "")
+    # Reserve space for the code-fence wrapper inside the 4096-char embed limit
+    content_limit = 4096 - len(WRAP[0]) - len(WRAP[1])
+
+    chunks = _split_message(text, limit=content_limit)
+    first = True
+    for chunk in chunks:
+        description = WRAP[0] + chunk + WRAP[1]
+        embed = discord.Embed(
+            title=title if first else "",
+            description=description,
+            color=color,
+        )
+        await interaction.followup.send(embed=embed)
+        first = False
+
+
+async def _send_card_embed(interaction: discord.Interaction, data: dict) -> None:
+    """Send a rich Discord embed for a pre-fetched Scryfall card dict."""
+    color = _card_embed_color(data["colors"])
+    embed = discord.Embed(
+        title=data["name"],
+        url=data["scryfall_uri"] or None,
+        color=color,
+    )
+
+    if data["mana_cost"]:
+        embed.add_field(name="Mana Cost", value=data["mana_cost"], inline=True)
+    if data["type_line"]:
+        embed.add_field(name="Type", value=data["type_line"], inline=True)
+    if data["oracle_text"]:
+        embed.description = data["oracle_text"]
+
+    price_parts = []
+    if data["price_usd"]:
+        price_parts.append(f"${data['price_usd']}")
+    if data["price_usd_foil"]:
+        price_parts.append(f"${data['price_usd_foil']} foil")
+    if price_parts:
+        embed.add_field(name="Price (USD)", value=" | ".join(price_parts), inline=False)
+
+    if data["image_uri"]:
+        embed.set_thumbnail(url=data["image_uri"])
+
+    await interaction.followup.send(embed=embed)
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +151,12 @@ async def _send(interaction: discord.Interaction, text: str) -> None:
 @tree.command(name="help", description="Show all available MTG Manager commands")
 async def cmd_help(interaction: discord.Interaction):
     await interaction.response.defer()
-    await _send(interaction, handle_help())
+    await _send_embed(
+        interaction, handle_help(),
+        title="MTG Manager — Commands",
+        color=COLOR_INFO,
+        code_block=True,
+    )
 
 
 @tree.command(name="sync", description="Fetch Moxfield packages and update the local collection")
@@ -77,7 +164,12 @@ async def cmd_help(interaction: discord.Interaction):
 async def cmd_sync(interaction: discord.Interaction, color_group: str = None):
     await interaction.response.defer()
     reply = await asyncio.get_event_loop().run_in_executor(None, handle_sync, color_group)
-    await _send(interaction, reply)
+    is_error = reply.startswith("Error:") or "Failed" in reply
+    await _send_embed(
+        interaction, reply,
+        title="Collection Sync",
+        color=COLOR_ERROR if is_error else COLOR_SUCCESS,
+    )
 
 
 @tree.command(name="missing", description="Show cards you need to order for a deck or compare URL")
@@ -96,7 +188,15 @@ async def cmd_missing(
     reply = await asyncio.get_event_loop().run_in_executor(
         None, handle_missing, url, sideboard, min_variants
     )
-    await _send(interaction, reply)
+    is_error = reply.startswith("Error:") or reply.startswith("Failed") or reply.startswith("No decklist")
+    all_good = "You have all the cards" in reply
+    color = COLOR_ERROR if is_error else (COLOR_SUCCESS if all_good else COLOR_WARNING)
+    await _send_embed(
+        interaction, reply,
+        title="Missing Cards",
+        color=color,
+        code_block=True,
+    )
 
 
 @tree.command(name="build", description="Mark a deck as built and allocate its cards to a box")
@@ -115,14 +215,27 @@ async def cmd_build(
     reply = await asyncio.get_event_loop().run_in_executor(
         None, handle_build, url, box_name, sideboard
     )
-    await _send(interaction, reply)
+    is_error = reply.startswith("Error:") or reply.startswith("Failed") or reply.startswith("No decklist")
+    has_warning = "Warning" in reply
+    color = COLOR_ERROR if is_error else (COLOR_WARNING if has_warning else COLOR_SUCCESS)
+    await _send_embed(
+        interaction, reply,
+        title="Deck Built",
+        color=color,
+        code_block=True,
+    )
 
 
 @tree.command(name="boxes", description="List all built decks grouped by box")
 async def cmd_boxes(interaction: discord.Interaction):
     await interaction.response.defer()
     reply = await asyncio.get_event_loop().run_in_executor(None, handle_boxes)
-    await _send(interaction, reply)
+    await _send_embed(
+        interaction, reply,
+        title="Built Decks",
+        color=COLOR_INFO,
+        code_block=True,
+    )
 
 
 @tree.command(name="unbox", description="Remove a built deck and return its cards to the pool")
@@ -130,7 +243,12 @@ async def cmd_boxes(interaction: discord.Interaction):
 async def cmd_unbox(interaction: discord.Interaction, deck_name: str):
     await interaction.response.defer()
     reply = await asyncio.get_event_loop().run_in_executor(None, handle_unbox, deck_name)
-    await _send(interaction, reply)
+    is_error = "No built deck found" in reply or "Multiple decks" in reply
+    await _send_embed(
+        interaction, reply,
+        title="Deck Unboxed",
+        color=COLOR_WARNING if "Multiple decks" in reply else (COLOR_ERROR if is_error else COLOR_SUCCESS),
+    )
 
 
 @tree.command(name="extras", description="List cards you own more than N copies of — potential trade stock")
@@ -141,7 +259,12 @@ async def cmd_unbox(interaction: discord.Interaction, deck_name: str):
 async def cmd_extras(interaction: discord.Interaction, limit: int = 4, basic: bool = False):
     await interaction.response.defer()
     reply = await asyncio.get_event_loop().run_in_executor(None, handle_extras, limit, basic)
-    await _send(interaction, reply)
+    await _send_embed(
+        interaction, reply,
+        title=f"Spare Cards (>{limit} copies)",
+        color=COLOR_WARNING,
+        code_block=True,
+    )
 
 
 @tree.command(name="search", description="Search your collection for a card by name")
@@ -149,22 +272,35 @@ async def cmd_extras(interaction: discord.Interaction, limit: int = 4, basic: bo
 async def cmd_search(interaction: discord.Interaction, query: str):
     await interaction.response.defer()
     reply = await asyncio.get_event_loop().run_in_executor(None, handle_search, query)
-    await _send(interaction, reply)
+    not_found = reply.startswith("No cards found")
+    await _send_embed(
+        interaction, reply,
+        title=f'Search: "{query}"',
+        color=COLOR_WARNING if not_found else COLOR_INFO,
+        code_block=not not_found,
+    )
 
 
 @tree.command(name="stats", description="Show collection stats and breakdown by color group")
 async def cmd_stats(interaction: discord.Interaction):
     await interaction.response.defer()
     reply = await asyncio.get_event_loop().run_in_executor(None, handle_stats)
-    await _send(interaction, reply)
+    await _send_embed(
+        interaction, reply,
+        title="Collection Stats",
+        color=COLOR_INFO,
+    )
 
 
 @tree.command(name="card", description="Look up a card on Scryfall — shows type, text, and price")
 @app_commands.describe(name="Card name (fuzzy search supported)")
 async def cmd_card(interaction: discord.Interaction, name: str):
     await interaction.response.defer()
-    reply = await asyncio.get_event_loop().run_in_executor(None, handle_card, name)
-    await _send(interaction, reply)
+    data = await asyncio.get_event_loop().run_in_executor(None, fetch_card_data, name)
+    if isinstance(data, str):
+        await _send_embed(interaction, data, title="Card Lookup", color=COLOR_ERROR)
+        return
+    await _send_card_embed(interaction, data)
 
 
 # ---------------------------------------------------------------------------

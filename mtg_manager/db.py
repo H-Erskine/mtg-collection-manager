@@ -208,6 +208,12 @@ def get_deck(conn: sqlite3.Connection, deck_id: str) -> sqlite3.Row | None:
     ).fetchone()
 
 
+def get_deck_by_url(conn: sqlite3.Connection, url: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM built_decks WHERE deck_url = ?", (url,)
+    ).fetchone()
+
+
 def get_decks_by_name(conn: sqlite3.Connection, deck_name: str) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM built_decks WHERE LOWER(deck_name) = LOWER(?)", (deck_name,)

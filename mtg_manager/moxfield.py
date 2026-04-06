@@ -8,12 +8,15 @@ Cards are returned in data["boards"]["mainboard"]["cards"] (a dict keyed by
 internal card ID). Each value has: quantity, isFoil, finish, card.name, card.set, card.cn.
 """
 
+import logging
 import re
 
 import cloudscraper
 
 from .config import MoxfieldPackage
 from .models import DeckCard, Decklist, OwnedCard
+
+logger = logging.getLogger(__name__)
 
 
 BASE_URL = "https://api2.moxfield.com/v3/decks/all"
@@ -105,11 +108,15 @@ def fetch_moxfield_deck(url: str) -> Decklist:
     boards = data.get("boards", {})
     cards: list[DeckCard] = []
 
+    print(f"[moxfield] deck='{deck_name}' boards={list(boards.keys())}", flush=True)
+
     for board_name, board in boards.items():
         if board_name not in MAINDECK_BOARDS | SIDEBOARD_BOARDS:
             continue
         is_side = board_name in SIDEBOARD_BOARDS
-        for item in board.get("cards", {}).values():
+        board_cards = board.get("cards", {})
+        print(f"[moxfield]   {board_name}: {len(board_cards)} cards", flush=True)
+        for item in board_cards.values():
             name = item.get("card", {}).get("name", "")
             if name:
                 cards.append(DeckCard(
@@ -117,5 +124,15 @@ def fetch_moxfield_deck(url: str) -> Decklist:
                     quantity=item.get("quantity", 1),
                     is_sideboard=is_side,
                 ))
+
+    print(f"[moxfield]   total parsed: {len(cards)}", flush=True)
+
+    if not cards:
+        print(f"[moxfield] ERROR: 0 cards. Top-level keys: {list(data.keys())}", flush=True)
+        print(f"[moxfield] Raw boards value: {boards}", flush=True)
+        raise ValueError(
+            f"No cards found in Moxfield deck '{deck_name}'. "
+            "The deck may be private, empty, or the API format may have changed."
+        )
 
     return Decklist(deck_id=public_id, name=deck_name, url=url, cards=cards)
