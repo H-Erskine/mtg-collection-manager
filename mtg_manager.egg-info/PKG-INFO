@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: mtg-manager
+Version: 0.1.0
+Requires-Python: >=3.11
+Requires-Dist: cloudscraper>=1.2.71
+Requires-Dist: requests>=2.31.0
+Requires-Dist: beautifulsoup4>=4.12.0
+Requires-Dist: lxml>=5.1.0
+Requires-Dist: click>=8.1.7
+Requires-Dist: rich>=13.7.0

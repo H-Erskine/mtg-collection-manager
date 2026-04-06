@@ -1,0 +1,14 @@
+pyproject.toml
+mtg_manager/__init__.py
+mtg_manager/cli.py
+mtg_manager/config.py
+mtg_manager/db.py
+mtg_manager/models.py
+mtg_manager/moxfield.py
+mtg_manager/mtgtop8.py
+mtg_manager.egg-info/PKG-INFO
+mtg_manager.egg-info/SOURCES.txt
+mtg_manager.egg-info/dependency_links.txt
+mtg_manager.egg-info/entry_points.txt
+mtg_manager.egg-info/requires.txt
+mtg_manager.egg-info/top_level.txt

@@ -1,0 +1,23 @@
+[moxfield]
+# Each entry is one of your public Moxfield packages.
+# public_id = the slug at the end of your Moxfield deck URL:
+#   e.g. for https://www.moxfield.com/decks/abc123XYZ  →  public_id = "abc123XYZ"
+packages = [
+    { color_group = "White",      public_id = "REPLACE_ME" },
+    { color_group = "Blue",       public_id = "REPLACE_ME" },
+    { color_group = "Black",      public_id = "REPLACE_ME" },
+    { color_group = "Red",        public_id = "REPLACE_ME" },
+    { color_group = "Green",      public_id = "REPLACE_ME" },
+    { color_group = "Multicolor", public_id = "REPLACE_ME" },
+    { color_group = "Lands",      public_id = "REPLACE_ME" },
+    { color_group = "Colorless",  public_id = "REPLACE_ME" },
+]
+request_delay_seconds = 1.0
+
+[mtgtop8]
+request_delay_seconds = 1.5
+cache_ttl_hours = 24
+
+[database]
+# Path to your local SQLite database. ~ is expanded automatically.
+path = "~/.mtg_manager/collection.db"

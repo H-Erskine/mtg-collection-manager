@@ -1,0 +1,11 @@
+cloudscraper>=1.2.71
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.1.0
+click>=8.1.7
+rich>=13.7.0
+
+# Dev / testing
+pytest>=8.1.0
+pytest-mock>=3.12.0
+responses>=0.25.0

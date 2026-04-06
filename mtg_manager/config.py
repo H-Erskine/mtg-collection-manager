@@ -1,0 +1,45 @@
+import tomllib
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass
+class MoxfieldPackage:
+    color_group: str
+    public_id: str
+
+
+@dataclass
+class Config:
+    packages: list[MoxfieldPackage]
+    moxfield_delay: float
+    mtgtop8_delay: float
+    mtgtop8_cache_ttl: int
+    db_path: Path
+
+
+DEFAULT_CONFIG = Path("~/.mtg_manager/config.toml").expanduser()
+
+
+def load_config(path: Path | str | None = None) -> Config:
+    path = Path(path) if path else DEFAULT_CONFIG
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Config file not found: {path}\n"
+            f"Place your config.toml at: {DEFAULT_CONFIG}"
+        )
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+
+    packages = [
+        MoxfieldPackage(color_group=p["color_group"], public_id=p["public_id"])
+        for p in data["moxfield"]["packages"]
+    ]
+
+    return Config(
+        packages=packages,
+        moxfield_delay=data["moxfield"].get("request_delay_seconds", 1.0),
+        mtgtop8_delay=data["mtgtop8"].get("request_delay_seconds", 1.5),
+        mtgtop8_cache_ttl=data["mtgtop8"].get("cache_ttl_hours", 24),
+        db_path=Path(data["database"]["path"]).expanduser(),
+    )
