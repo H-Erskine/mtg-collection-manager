@@ -338,3 +338,135 @@ help
 
 def handle_help() -> str:
     return HELP_TEXT
+
+
+# ---------------------------------------------------------------------------
+# search
+# ---------------------------------------------------------------------------
+
+def handle_search(query: str) -> str:
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    query_lower = f"%{query.lower()}%"
+    with get_conn(cfg.db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT name, color_group, foil, SUM(quantity) AS total
+            FROM owned_cards
+            WHERE LOWER(name) LIKE ?
+            GROUP BY name, color_group, foil
+            ORDER BY name, foil
+            """,
+            (query_lower,),
+        ).fetchall()
+
+    if not rows:
+        return f'No cards found matching "{query}".'
+
+    lines = [f'Results for "{query}":']
+    for row in rows:
+        foil_tag = " [foil]" if row["foil"] else ""
+        lines.append(f"  {row['total']}x {row['name']}{foil_tag}  ({row['color_group']})")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# stats
+# ---------------------------------------------------------------------------
+
+def handle_stats() -> str:
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    with get_conn(cfg.db_path) as conn:
+        total = conn.execute(
+            "SELECT COALESCE(SUM(quantity), 0) AS t FROM owned_cards"
+        ).fetchone()["t"]
+
+        unique = conn.execute(
+            "SELECT COUNT(DISTINCT name) AS u FROM owned_cards"
+        ).fetchone()["u"]
+
+        by_group = conn.execute(
+            """
+            SELECT color_group, SUM(quantity) AS total
+            FROM owned_cards
+            GROUP BY color_group
+            ORDER BY total DESC
+            """
+        ).fetchall()
+
+        built_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM built_decks"
+        ).fetchone()["c"]
+
+    lines = [
+        f"Collection stats:",
+        f"  Total cards:   {total}",
+        f"  Unique cards:  {unique}",
+        f"  Built decks:   {built_count}",
+        "",
+        "By color group:",
+    ]
+    for row in by_group:
+        group = row["color_group"] or "Unknown"
+        lines.append(f"  {group}: {row['total']}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# card (Scryfall lookup)
+# ---------------------------------------------------------------------------
+
+import requests as _requests
+
+def handle_card(name: str) -> str:
+    try:
+        resp = _requests.get(
+            "https://api.scryfall.com/cards/named",
+            params={"fuzzy": name},
+            timeout=10,
+        )
+    except Exception as e:
+        return f"Failed to reach Scryfall: {e}"
+
+    if resp.status_code == 404:
+        data = resp.json()
+        return f"Card not found: {data.get('details', name)}"
+
+    if not resp.ok:
+        return f"Scryfall error {resp.status_code}"
+
+    c = resp.json()
+    lines = [f"**{c['name']}**"]
+
+    mana = c.get("mana_cost", "")
+    if mana:
+        lines.append(f"Mana: {mana}")
+
+    lines.append(f"Type: {c.get('type_line', '')}")
+
+    oracle = c.get("oracle_text", "")
+    if not oracle and "card_faces" in c:
+        oracle = "\n//\n".join(
+            face.get("oracle_text", "") for face in c["card_faces"]
+        )
+    if oracle:
+        lines.append(f"\n{oracle}")
+
+    prices = c.get("prices", {})
+    price_usd = prices.get("usd")
+    price_usd_foil = prices.get("usd_foil")
+    if price_usd or price_usd_foil:
+        price_str = f"${price_usd}" if price_usd else "—"
+        foil_str = f"${price_usd_foil} foil" if price_usd_foil else ""
+        lines.append(f"\nPrice: {price_str}" + (f"  |  {foil_str}" if foil_str else ""))
+
+    lines.append(f"\n{c.get('scryfall_uri', '')}")
+    return "\n".join(lines)

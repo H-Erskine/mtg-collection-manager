@@ -112,6 +112,20 @@ def clear_color_group(conn: sqlite3.Connection, color_group: str) -> None:
     conn.execute("DELETE FROM owned_cards WHERE color_group = ?", (color_group,))
 
 
+def get_cards_over_limit(conn: sqlite3.Connection, limit: int = 4) -> list[sqlite3.Row]:
+    """Return cards whose total quantity across all printings exceeds `limit`, sorted by count desc."""
+    return conn.execute(
+        """
+        SELECT name, SUM(quantity) AS total, color_group
+        FROM owned_cards
+        GROUP BY LOWER(name)
+        HAVING total > ?
+        ORDER BY total DESC, name ASC
+        """,
+        (limit,),
+    ).fetchall()
+
+
 def card_count(conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT COALESCE(SUM(quantity), 0) AS total FROM owned_cards").fetchone()
     return row["total"] if row else 0

@@ -1,17 +1,19 @@
 """
 Moxfield unofficial API client.
 
-Fetches cards from a Moxfield package via:
+Fetches cards from a Moxfield package or deck via:
   GET https://api2.moxfield.com/v3/decks/all/{public_id}
 
 Cards are returned in data["boards"]["mainboard"]["cards"] (a dict keyed by
 internal card ID). Each value has: quantity, isFoil, finish, card.name, card.set, card.cn.
 """
 
+import re
+
 import cloudscraper
 
 from .config import MoxfieldPackage
-from .models import OwnedCard
+from .models import DeckCard, Decklist, OwnedCard
 
 
 BASE_URL = "https://api2.moxfield.com/v3/decks/all"
@@ -66,3 +68,54 @@ def fetch_package_cards(
             )
 
     return cards
+
+
+# ---------------------------------------------------------------------------
+# Deck URL → Decklist (for mtg missing)
+# ---------------------------------------------------------------------------
+
+SIDEBOARD_BOARDS = {"sideboard"}
+MAINDECK_BOARDS = {"mainboard", "commanders", "companions"}
+
+_PUBLIC_ID_RE = re.compile(r"moxfield\.com/decks/([A-Za-z0-9_\-]+)")
+
+
+def public_id_from_url(url: str) -> str | None:
+    """Extract the public_id from a Moxfield deck URL."""
+    m = _PUBLIC_ID_RE.search(url)
+    return m.group(1) if m else None
+
+
+def fetch_moxfield_deck(url: str) -> Decklist:
+    """
+    Fetch a public Moxfield deck URL and return it as a Decklist.
+    URL form: https://www.moxfield.com/decks/{public_id}
+    """
+    public_id = public_id_from_url(url)
+    if not public_id:
+        raise ValueError(f"Cannot extract public_id from Moxfield URL: {url}")
+
+    scraper = _scraper()
+    api_url = f"{BASE_URL}/{public_id}"
+    resp = scraper.get(api_url, headers=HEADERS, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+
+    deck_name = data.get("name", public_id)
+    boards = data.get("boards", {})
+    cards: list[DeckCard] = []
+
+    for board_name, board in boards.items():
+        if board_name not in MAINDECK_BOARDS | SIDEBOARD_BOARDS:
+            continue
+        is_side = board_name in SIDEBOARD_BOARDS
+        for item in board.get("cards", {}).values():
+            name = item.get("card", {}).get("name", "")
+            if name:
+                cards.append(DeckCard(
+                    name=name,
+                    quantity=item.get("quantity", 1),
+                    is_sideboard=is_side,
+                ))
+
+    return Decklist(deck_id=public_id, name=deck_name, url=url, cards=cards)

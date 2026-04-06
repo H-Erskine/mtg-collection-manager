@@ -9,8 +9,7 @@
 
 set -euo pipefail
 
-DOMAIN="${DOMAIN:-yourdomain.com}"       # REPLACE or export before running
-AUTH_TOKEN="${AUTH_TOKEN:-CHANGEME}"     # REPLACE or export before running
+DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN:-CHANGEME}"  # REPLACE or export before running
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_USER="ubuntu"
 
@@ -40,14 +39,14 @@ fi
 echo "==> Writing systemd service"
 sudo tee /etc/systemd/system/mtg-api.service > /dev/null <<EOF
 [Unit]
-Description=MTG Manager WhatsApp API
+Description=MTG Manager Discord Bot
 After=network.target
 
 [Service]
 User=$APP_USER
 WorkingDirectory=$REPO_DIR
-Environment="TWILIO_AUTH_TOKEN=$AUTH_TOKEN"
-ExecStart=$REPO_DIR/.venv/bin/gunicorn -w 1 -b 127.0.0.1:5000 --timeout 30 api.app:app
+Environment="DISCORD_BOT_TOKEN=$DISCORD_BOT_TOKEN"
+ExecStart=$REPO_DIR/.venv/bin/python -m api.bot
 Restart=on-failure
 RestartSec=5
 
@@ -59,29 +58,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable mtg-api
 sudo systemctl restart mtg-api
 
-echo "==> Configuring Nginx"
-sudo cp "$REPO_DIR/deploy/nginx.conf" /etc/nginx/sites-available/mtg-manager
-# Substitute the placeholder domain
-sudo sed -i "s/yourdomain.com/$DOMAIN/g" /etc/nginx/sites-available/mtg-manager
-
-sudo ln -sf /etc/nginx/sites-available/mtg-manager /etc/nginx/sites-enabled/mtg-manager
-# Remove default site if present
-sudo rm -f /etc/nginx/sites-enabled/default
-
-sudo nginx -t
-sudo systemctl reload nginx
-
-echo "==> Obtaining SSL certificate via Certbot"
-sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "admin@$DOMAIN"
-
 echo ""
 echo "==> Done!"
 echo ""
 echo "Service status:"
 sudo systemctl status mtg-api --no-pager
 echo ""
-echo "Your webhook URL is: https://$DOMAIN/webhook"
-echo "Set this as the webhook in your Twilio WhatsApp Sandbox:"
-echo "  https://console.twilio.com/us1/develop/sms/settings/whatsapp-sandbox"
-echo ""
-echo "Health check: curl https://$DOMAIN/health"
+echo "The Discord bot is now running. Invite it to your server if you haven't already:"
+echo "  https://discord.com/developers/applications"

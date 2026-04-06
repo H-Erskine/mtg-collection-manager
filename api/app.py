@@ -15,7 +15,11 @@ Or with Flask dev server (not for production):
 import os
 import logging
 
+from dotenv import load_dotenv
 from flask import Flask, request, abort
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+load_dotenv()
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.request_validator import RequestValidator
 
@@ -33,18 +37,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+# Trust one layer of proxy headers (ngrok / nginx) so Flask reconstructs
+# the correct public HTTPS URL for Twilio signature validation.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 _AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+_SKIP_VALIDATION = os.environ.get("SKIP_TWILIO_VALIDATION", "").lower() in ("1", "true", "yes")
 
 
 def _validate_twilio(req) -> bool:
     """Return True if the request carries a valid Twilio signature."""
+    if _SKIP_VALIDATION:
+        logger.warning("Twilio signature validation DISABLED (SKIP_TWILIO_VALIDATION=true)")
+        return True
     if not _AUTH_TOKEN:
         logger.warning("TWILIO_AUTH_TOKEN not set — skipping signature validation")
         return True
     validator = RequestValidator(_AUTH_TOKEN)
     signature = req.headers.get("X-Twilio-Signature", "")
-    return validator.validate(req.url, req.form, signature)
+    # Twilio always signs against the public HTTPS URL. Force https here
+    # because proxies (ngrok, nginx) may forward the request as http internally.
+    url = req.url.replace("http://", "https://", 1)
+    logger.info("Validating against URL: %s", url)
+    result = validator.validate(url, req.form, signature)
+    if not result:
+        logger.warning("Signature validation FAILED for URL: %s", url)
+    return result
 
 
 def _route(body: str) -> str:
@@ -135,7 +153,9 @@ def webhook():
 
     resp = MessagingResponse()
     resp.message(reply)
-    return str(resp), 200, {"Content-Type": "text/xml"}
+    twiml = str(resp)
+    logger.info("TwiML response: %s", twiml)
+    return twiml, 200, {"Content-Type": "text/xml"}
 
 
 @app.route("/health", methods=["GET"])

@@ -1,5 +1,7 @@
-# Additional dependencies for the WhatsApp API server
+# Additional dependencies for the Discord bot
 # Install alongside the main package: pip install -e . && pip install -r requirements-api.txt
-flask>=3.0.0
-gunicorn>=21.0.0
-twilio>=9.0.0
+discord.py>=2.3.0
+python-dotenv>=1.0.0
+
+# Only needed on EC2 (Linux) — not required locally
+gunicorn>=21.0.0; sys_platform != "win32"

@@ -14,6 +14,7 @@ from .db import (
     get_allocated_quantity,
     get_available_quantity,
     get_card_allocations,
+    get_cards_over_limit,
     get_conn,
     get_deck,
     get_owned_quantity,
@@ -23,7 +24,7 @@ from .db import (
 )
 from .models import BoxedCard, MissingCard
 from .moxfield import fetch_package_cards
-from .mtgtop8 import fetch_decklists
+from .sources import fetch_decklists
 
 console = Console()
 err_console = Console(stderr=True)
@@ -321,6 +322,38 @@ def build(url, box, sideboard):
     console.print(f"[green]Built:[/green] {dl.name}")
     console.print(f"[green]Box:[/green]   {box}")
     console.print(f"[dim]Deck ID: {dl.deck_id}[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# mtg extras
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("--limit", "-l", default=4, show_default=True, type=int,
+              help="Flag cards with more than this many copies.")
+def extras(limit):
+    """List cards you own more than 4 copies of (potential trade/sell stock)."""
+    cfg = _load_cfg()
+
+    with get_conn(cfg.db_path) as conn:
+        _auto_sync(cfg, conn)
+        rows = get_cards_over_limit(conn, limit)
+
+    if not rows:
+        console.print(f"No cards with more than {limit} copies.")
+        return
+
+    console.print(f"\n[bold]Cards with more than {limit} copies:[/bold]\n")
+    table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+    table.add_column("Copies", justify="right", style="bold yellow", width=7)
+    table.add_column("Card", min_width=35)
+    table.add_column("Package", style="dim")
+
+    for row in rows:
+        table.add_row(str(row["total"]), row["name"], row["color_group"])
+
+    console.print(table)
+    console.print(f"\n[dim]{len(rows)} card(s) total[/dim]")
 
 
 # ---------------------------------------------------------------------------
