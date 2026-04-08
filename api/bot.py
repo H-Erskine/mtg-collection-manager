@@ -26,6 +26,7 @@ from .handlers import (
     handle_stats,
     handle_sync,
     handle_unbox,
+    handle_version,
 )
 
 load_dotenv()
@@ -290,6 +291,13 @@ async def cmd_stats(interaction: discord.Interaction):
         title="Collection Stats",
         color=COLOR_INFO,
     )
+
+
+@tree.command(name="version", description="Show the current git commit the bot is running")
+async def cmd_version(interaction: discord.Interaction):
+    await interaction.response.defer()
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_version)
+    await _send_embed(interaction, reply, title="Version", color=COLOR_INFO)
 
 
 @tree.command(name="card", description="Look up a card on Scryfall — shows type, text, and price")

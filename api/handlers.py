@@ -350,6 +350,26 @@ def handle_unbox(deck_name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# version
+# ---------------------------------------------------------------------------
+
+def handle_version() -> str:
+    import subprocess
+    from pathlib import Path
+
+    repo_root = Path(__file__).parent.parent
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        return f"mtg-manager  commit {commit[:7]}  ({commit})"
+    except Exception:
+        return "Could not determine version (git unavailable)."
+
+
+# ---------------------------------------------------------------------------
 # help
 # ---------------------------------------------------------------------------
 
