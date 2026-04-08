@@ -57,6 +57,29 @@ def cli():
 
 
 # ---------------------------------------------------------------------------
+# mtg version
+# ---------------------------------------------------------------------------
+
+@cli.command()
+def version():
+    """Show the current git commit this installation is running."""
+    import subprocess
+    from pathlib import Path
+
+    repo_root = Path(__file__).parent.parent
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        short = commit[:7]
+        console.print(f"[bold]mtg-manager[/bold]  commit [cyan]{short}[/cyan]  [dim]({commit})[/dim]")
+    except Exception:
+        console.print("[yellow]Could not determine version (git unavailable).[/yellow]")
+
+
+# ---------------------------------------------------------------------------
 # mtg sync
 # ---------------------------------------------------------------------------
 
