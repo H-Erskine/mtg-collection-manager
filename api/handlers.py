@@ -115,6 +115,9 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
             canonical_name[key] = card.name
             max_needed[key] = max(max_needed[key], card.quantity)
             variant_count[key] += 1
+        # always use full 75 (maindeck + sideboard) for have/total counts
+        for card in dl.cards:
+            key = card.name.lower()
             if key not in deck_needed[dl.deck_id] or card.quantity > deck_needed[dl.deck_id][key][1]:
                 deck_needed[dl.deck_id][key] = (card.name, card.quantity)
 
