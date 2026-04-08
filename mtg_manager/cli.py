@@ -101,128 +101,257 @@ def sync(color_group):
 # ---------------------------------------------------------------------------
 
 @cli.command()
-@click.argument("url")
+@click.argument("urls", nargs=-1, required=True)
 @click.option("--sideboard/--no-sideboard", default=False, show_default=True,
               help="Include sideboard cards.")
 @click.option("--min-variants", "-m", default=1, show_default=True, type=int,
-              help="Only show cards appearing in at least N variants.")
-def missing(url, sideboard, min_variants):
-    """Show cards you need to order for a deck or compare URL."""
+              help="Only show cards appearing in at least N variants (single-URL compare mode).")
+def missing(urls, sideboard, min_variants):
+    """Show cards you need to order for one or more deck URLs.
+
+    Pass multiple URLs to compare across lists — any deck you can build
+    right now will be highlighted, and aggregate missing cards are shown.
+    """
     cfg = _load_cfg()
 
+    all_decklists = []
     with Progress(SpinnerColumn(), TextColumn("[cyan]Fetching decklists...[/cyan]"),
                   console=console, transient=True) as progress:
         progress.add_task("fetch")
-        try:
-            decklists = fetch_decklists(url, delay=cfg.mtgtop8_delay)
-        except Exception as e:
-            err_console.print(f"[red]Failed to fetch decklists: {e}[/red]")
-            sys.exit(1)
+        for url in urls:
+            try:
+                dls = fetch_decklists(url, delay=cfg.mtgtop8_delay)
+                all_decklists.extend(dls)
+            except Exception as e:
+                err_console.print(f"[red]Failed to fetch {url}: {e}[/red]")
 
-    if not decklists:
-        err_console.print("[red]No decklists found at that URL.[/red]")
+    if not all_decklists:
+        err_console.print("[red]No decklists found.[/red]")
         sys.exit(1)
 
-    console.print(f"\nFound [bold]{len(decklists)}[/bold] deck variant(s):\n")
-    for dl in decklists:
+    multi_url = len(urls) > 1
+
+    console.print(f"\nFound [bold]{len(all_decklists)}[/bold] deck(s):\n")
+    for dl in all_decklists:
         console.print(f"  * {dl.name}  [dim]({dl.deck_id})[/dim]")
     console.print()
 
-    max_needed: dict[str, int] = defaultdict(int)
-    variant_count: dict[str, int] = defaultdict(int)
-    canonical_name: dict[str, str] = {}
+    # -----------------------------------------------------------------
+    # Single-URL path: existing variant-compare behaviour
+    # -----------------------------------------------------------------
+    if not multi_url:
+        decklists = all_decklists
+        max_needed: dict[str, int] = defaultdict(int)
+        variant_count: dict[str, int] = defaultdict(int)
+        canonical_name: dict[str, str] = {}
 
-    for dl in decklists:
-        cards = dl.cards if sideboard else dl.maindeck
-        for card in cards:
-            key = card.name.lower()
-            canonical_name[key] = card.name
-            max_needed[key] = max(max_needed[key], card.quantity)
-            variant_count[key] += 1
+        for dl in decklists:
+            cards = dl.cards if sideboard else dl.maindeck
+            for card in cards:
+                key = card.name.lower()
+                canonical_name[key] = card.name
+                max_needed[key] = max(max_needed[key], card.quantity)
+                variant_count[key] += 1
 
-    keys = [k for k in max_needed if variant_count[k] >= min_variants]
+        keys = [k for k in max_needed if variant_count[k] >= min_variants]
 
-    with get_conn(cfg.db_path) as conn:
-        _auto_sync(cfg, conn)
-        missing_cards: list[MissingCard] = []   # need to order
-        boxed_cards: list[BoxedCard] = []        # owned but locked in a box
+        with get_conn(cfg.db_path) as conn:
+            _auto_sync(cfg, conn)
+            missing_cards: list[MissingCard] = []
+            boxed_cards: list[BoxedCard] = []
 
-        for key in keys:
-            name = canonical_name[key]
-            needed = max_needed[key]
-            owned = get_owned_quantity(conn, name)
-            allocs = get_card_allocations(conn, name)
-            allocated = sum(a.quantity for a in allocs)
-            available = owned - allocated
+            for key in keys:
+                name = canonical_name[key]
+                needed = max_needed[key]
+                owned = get_owned_quantity(conn, name)
+                allocs = get_card_allocations(conn, name)
+                allocated = sum(a.quantity for a in allocs)
+                available = owned - allocated
 
-            if owned < needed:
-                # Genuinely don't own enough — need to order
-                missing_cards.append(
-                    MissingCard(
+                if owned < needed:
+                    missing_cards.append(
+                        MissingCard(
+                            name=name,
+                            needed=needed,
+                            owned=owned,
+                            short=needed - owned,
+                            variants=variant_count[key],
+                            total_variants=len(decklists),
+                        )
+                    )
+                elif available < needed and allocs:
+                    boxed_cards.append(BoxedCard(
                         name=name,
                         needed=needed,
                         owned=owned,
-                        short=needed - owned,
-                        variants=variant_count[key],
-                        total_variants=len(decklists),
+                        allocations=allocs,
+                    ))
+
+        if not missing_cards and not boxed_cards:
+            console.print("[green]You have all the cards and they are available![/green]")
+            return
+
+        if not missing_cards and boxed_cards:
+            console.print("[green]You own all the cards![/green] "
+                          "[yellow]But some are currently in boxes:[/yellow]\n")
+            for bc in sorted(boxed_cards, key=lambda c: c.name):
+                for a in bc.allocations:
+                    console.print(
+                        f"  {bc.needed}x {bc.name}  ->  "
+                        f"{a.quantity}x in [{a.box_name}] ({a.deck_name})"
                     )
-                )
-            elif available < needed and allocs:
-                # Own enough total but copies are sitting in a box
-                boxed_cards.append(BoxedCard(
-                    name=name,
-                    needed=needed,
-                    owned=owned,
-                    allocations=allocs,
-                ))
+            return
 
-    # --- Output ---
-    if not missing_cards and not boxed_cards:
-        console.print("[green]You have all the cards and they are available![/green]")
-        return
+        missing_cards.sort(key=lambda c: (-c.variants, c.name))
+        console.print(f"[bold red]Missing {len(missing_cards)} card(s) to order:[/bold red]\n")
 
-    if not missing_cards and boxed_cards:
-        console.print("[green]You own all the cards![/green] "
-                      "[yellow]But some are currently in boxes:[/yellow]\n")
-        for bc in sorted(boxed_cards, key=lambda c: c.name):
-            for a in bc.allocations:
-                console.print(
-                    f"  {bc.needed}x {bc.name}  ->  "
-                    f"{a.quantity}x in [{a.box_name}] ({a.deck_name})"
-                )
-        return
+        show_variants = len(decklists) > 1
+        if show_variants:
+            table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+            table.add_column("Qty", justify="right", style="bold yellow", width=4)
+            table.add_column("Card", min_width=30)
+            table.add_column("Owned", justify="right", width=6)
+            table.add_column(f"Variants/{len(decklists)}", justify="right", width=10)
+            for c in missing_cards:
+                table.add_row(str(c.short), c.name, str(c.owned), f"{c.variants}/{c.total_variants}")
+            console.print(table)
+        else:
+            for c in missing_cards:
+                console.print(f"{c.short}x {c.name}")
 
-    # There are cards to order
-    missing_cards.sort(key=lambda c: (-c.variants, c.name))
-    console.print(f"[bold red]Missing {len(missing_cards)} card(s) to order:[/bold red]\n")
+        if boxed_cards:
+            console.print("\n[yellow]Also in boxes (owned but allocated):[/yellow]")
+            for bc in sorted(boxed_cards, key=lambda c: c.name):
+                for a in bc.allocations:
+                    console.print(
+                        f"  {bc.needed}x {bc.name}  ->  "
+                        f"{a.quantity}x in [{a.box_name}] ({a.deck_name})"
+                    )
 
-    show_variants = len(decklists) > 1
-    if show_variants:
-        table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
-        table.add_column("Qty", justify="right", style="bold yellow", width=4)
-        table.add_column("Card", min_width=30)
-        table.add_column("Owned", justify="right", width=6)
-        table.add_column(f"Variants/{len(decklists)}", justify="right", width=10)
-        for c in missing_cards:
-            table.add_row(str(c.short), c.name, str(c.owned), f"{c.variants}/{c.total_variants}")
-        console.print(table)
-    else:
+        console.print()
+        console.print("[bold]Order list:[/bold]")
         for c in missing_cards:
             console.print(f"{c.short}x {c.name}")
+        return
 
-    if boxed_cards:
-        console.print("\n[yellow]Also in boxes (owned but allocated):[/yellow]")
-        for bc in sorted(boxed_cards, key=lambda c: c.name):
-            for a in bc.allocations:
-                console.print(
-                    f"  {bc.needed}x {bc.name}  ->  "
-                    f"{a.quantity}x in [{a.box_name}] ({a.deck_name})"
-                )
+    # -----------------------------------------------------------------
+    # Multi-URL path: per-deck analysis + aggregate
+    # -----------------------------------------------------------------
+    # deck_result: (decklist, missing_cards, boxed_cards, needed_map)
+    DeckResult = tuple  # (dl, list[MissingCard], list[BoxedCard], dict[str,int])
 
+    with get_conn(cfg.db_path) as conn:
+        _auto_sync(cfg, conn)
+
+        deck_results: list[DeckResult] = []
+        for dl in all_decklists:
+            cards = dl.cards if sideboard else dl.maindeck
+            # canonical name map for this deck: lower_name -> (canonical_name, quantity)
+            needed_map: dict[str, tuple[str, int]] = {}
+            for card in cards:
+                key = card.name.lower()
+                if key not in needed_map or card.quantity > needed_map[key][1]:
+                    needed_map[key] = (card.name, card.quantity)
+
+            dm: list[MissingCard] = []
+            db: list[BoxedCard] = []
+            for key, (name, needed) in needed_map.items():
+                owned = get_owned_quantity(conn, name)
+                allocs = get_card_allocations(conn, name)
+                available = owned - sum(a.quantity for a in allocs)
+
+                if owned < needed:
+                    dm.append(MissingCard(
+                        name=name, needed=needed, owned=owned,
+                        short=needed - owned, variants=1, total_variants=1,
+                    ))
+                elif available < needed and allocs:
+                    db.append(BoxedCard(
+                        name=name, needed=needed, owned=owned, allocations=allocs,
+                    ))
+
+            deck_results.append((dl, dm, db, needed_map))
+
+    # --- Summary table ---
+    total_decks = len(deck_results)
+    summary = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+    summary.add_column("Deck", min_width=35)
+    summary.add_column("Missing", justify="right", width=8)
+    summary.add_column("In boxes", justify="right", width=9)
+    summary.add_column("Status", width=14)
+
+    buildable: list[DeckResult] = []
+    for dl, dm, db, nm in deck_results:
+        if not dm:
+            status = "[green]Buildable![/green]" if not db else "[yellow]In boxes[/yellow]"
+            buildable.append((dl, dm, db, nm))
+        else:
+            status = ""
+        summary.add_row(dl.name, str(len(dm)), str(len(db)), status)
+
+    console.print(summary)
     console.print()
-    console.print("[bold]Order list:[/bold]")
-    for c in missing_cards:
-        console.print(f"{c.short}x {c.name}")
+
+    # --- Highlight buildable decks ---
+    if buildable:
+        from rich.panel import Panel
+        for dl, dm, db, nm in buildable:
+            cards = dl.cards if sideboard else dl.maindeck
+            card_lines = sorted(
+                {f"{card.quantity}x {card.name}" for card in cards}
+            )
+            body = "\n".join(card_lines)
+            if db:
+                body += "\n\n[yellow]Cards in boxes (owned but allocated):[/yellow]"
+                for bc in sorted(db, key=lambda c: c.name):
+                    for a in bc.allocations:
+                        body += f"\n  {bc.needed}x {bc.name} -> {a.quantity}x in [{a.box_name}] ({a.deck_name})"
+            console.print(Panel(
+                body,
+                title=f"[bold green] You can build: {dl.name} [/bold green]",
+                border_style="green",
+            ))
+        console.print()
+
+    # --- Aggregate missing across all decks ---
+    # For each card: total shortfall, number of decks needing it
+    agg_short: dict[str, int] = defaultdict(int)   # sum of shortfalls
+    agg_decks: dict[str, int] = defaultdict(int)   # how many decks need it
+    canonical: dict[str, str] = {}
+
+    for dl, dm, db, nm in deck_results:
+        for mc in dm:
+            key = mc.name.lower()
+            canonical[key] = mc.name
+            agg_short[key] += mc.short
+            agg_decks[key] += 1
+
+    if not agg_short:
+        console.print("[green]You can build all the decks![/green]")
+        return
+
+    agg_list = sorted(
+        agg_short.keys(),
+        key=lambda k: (-agg_decks[k], -agg_short[k], k),
+    )
+
+    console.print(f"[bold red]Aggregate missing cards across {total_decks} decks:[/bold red]\n")
+    agg_table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+    agg_table.add_column("Avg short", justify="right", style="bold yellow", width=10)
+    agg_table.add_column("Card", min_width=30)
+    agg_table.add_column(f"Decks/{total_decks}", justify="right", width=10)
+
+    for key in agg_list:
+        name = canonical[key]
+        avg = round(agg_short[key] / agg_decks[key], 1)
+        avg_str = str(int(avg)) if avg == int(avg) else str(avg)
+        agg_table.add_row(avg_str, name, f"{agg_decks[key]}/{total_decks}")
+
+    console.print(agg_table)
+    console.print()
+    console.print("[bold]Order list (worst case — to cover all decks):[/bold]")
+    for key in agg_list:
+        console.print(f"{agg_short[key]}x {canonical[key]}")
 
 
 # ---------------------------------------------------------------------------

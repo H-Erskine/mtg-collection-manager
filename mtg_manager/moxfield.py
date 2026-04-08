@@ -58,17 +58,34 @@ def fetch_package_cards(
             name = card_data.get("name", "")
             if not name:
                 continue
-            foil = item.get("isFoil", False) or item.get("finish", "") == "foil"
-            cards.append(
-                OwnedCard(
-                    name=name,
-                    quantity=item.get("quantity", 1),
-                    color_group=package.color_group,
-                    set_code=card_data.get("set", ""),
-                    collector_number=card_data.get("cn", ""),
-                    foil=foil,
+            printings = item.get("printingData") or []
+            if printings:
+                # Use per-printing breakdown so different set/foil copies are stored separately
+                for p in printings:
+                    foil = p.get("finish", "") == "foil" or p.get("isFoil", False)
+                    cards.append(
+                        OwnedCard(
+                            name=name,
+                            quantity=p.get("quantity", 1),
+                            color_group=package.color_group,
+                            set_code=p.get("set", card_data.get("set", "")),
+                            collector_number=p.get("cn", card_data.get("cn", "")),
+                            foil=foil,
+                        )
+                    )
+            else:
+                # Fallback for items with no printingData
+                foil = item.get("isFoil", False) or item.get("finish", "") == "foil"
+                cards.append(
+                    OwnedCard(
+                        name=name,
+                        quantity=item.get("quantity", 1),
+                        color_group=package.color_group,
+                        set_code=card_data.get("set", ""),
+                        collector_number=card_data.get("cn", ""),
+                        foil=foil,
+                    )
                 )
-            )
 
     return cards
 
