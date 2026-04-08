@@ -255,10 +255,14 @@ def missing(urls, sideboard, min_variants):
 
             dm: list[MissingCard] = []
             db: list[BoxedCard] = []
+            have_slots = 0   # sum of min(owned, needed) across all cards
+            total_slots = sum(qty for _, qty in needed_map.values())
+
             for key, (name, needed) in needed_map.items():
                 owned = get_owned_quantity(conn, name)
                 allocs = get_card_allocations(conn, name)
                 available = owned - sum(a.quantity for a in allocs)
+                have_slots += min(owned, needed)
 
                 if owned < needed:
                     dm.append(MissingCard(
@@ -270,24 +274,32 @@ def missing(urls, sideboard, min_variants):
                         name=name, needed=needed, owned=owned, allocations=allocs,
                     ))
 
-            deck_results.append((dl, dm, db, needed_map))
+            deck_results.append((dl, dm, db, needed_map, have_slots, total_slots))
 
     # --- Summary table ---
     total_decks = len(deck_results)
     summary = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
     summary.add_column("Deck", min_width=35)
+    summary.add_column("Have", justify="right", width=9)
     summary.add_column("Missing", justify="right", width=8)
     summary.add_column("In boxes", justify="right", width=9)
     summary.add_column("Status", width=14)
 
     buildable: list[DeckResult] = []
-    for dl, dm, db, nm in deck_results:
+    for dl, dm, db, nm, have, total in deck_results:
         if not dm:
             status = "[green]Buildable![/green]" if not db else "[yellow]In boxes[/yellow]"
-            buildable.append((dl, dm, db, nm))
+            buildable.append((dl, dm, db, nm, have, total))
         else:
             status = ""
-        summary.add_row(dl.name, str(len(dm)), str(len(db)), status)
+        have_style = "green" if have == total else "yellow" if have >= total * 0.9 else "red"
+        summary.add_row(
+            dl.name,
+            f"[{have_style}]{have}/{total}[/{have_style}]",
+            str(len(dm)),
+            str(len(db)),
+            status,
+        )
 
     console.print(summary)
     console.print()
@@ -295,7 +307,7 @@ def missing(urls, sideboard, min_variants):
     # --- Highlight buildable decks ---
     if buildable:
         from rich.panel import Panel
-        for dl, dm, db, nm in buildable:
+        for dl, dm, db, nm, have, total in buildable:
             cards = dl.cards if sideboard else dl.maindeck
             card_lines = sorted(
                 {f"{card.quantity}x {card.name}" for card in cards}
@@ -319,7 +331,7 @@ def missing(urls, sideboard, min_variants):
     agg_decks: dict[str, int] = defaultdict(int)   # how many decks need it
     canonical: dict[str, str] = {}
 
-    for dl, dm, db, nm in deck_results:
+    for dl, dm, db, nm, have, total in deck_results:
         for mc in dm:
             key = mc.name.lower()
             canonical[key] = mc.name
