@@ -104,28 +104,33 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
     max_needed: dict[str, int] = defaultdict(int)
     variant_count: dict[str, int] = defaultdict(int)
     canonical_name: dict[str, str] = {}
+    # per-deck needed map: deck_id -> {lower_name: (name, qty)}
+    deck_needed: dict[str, dict[str, tuple[str, int]]] = {}
 
     for dl in decklists:
-        cards = dl.cards
-        print(f"[missing] deck='{dl.name}' cards={len(cards)}", flush=True)
+        cards = dl.cards if sideboard else dl.maindeck
+        deck_needed[dl.deck_id] = {}
         for card in cards:
             key = card.name.lower()
             canonical_name[key] = card.name
             max_needed[key] = max(max_needed[key], card.quantity)
             variant_count[key] += 1
+            if key not in deck_needed[dl.deck_id] or card.quantity > deck_needed[dl.deck_id][key][1]:
+                deck_needed[dl.deck_id][key] = (card.name, card.quantity)
 
-    print(f"[missing] unique cards needed: {len(max_needed)}", flush=True)
     keys = [k for k in max_needed if variant_count[k] >= min_variants]
 
     with get_conn(cfg.db_path) as conn:
         _auto_sync(cfg, conn)
         missing_cards: list[MissingCard] = []
         boxed_cards: list[BoxedCard] = []
+        owned_cache: dict[str, int] = {}
 
         for key in keys:
             name = canonical_name[key]
             needed = max_needed[key]
             owned = get_owned_quantity(conn, name)
+            owned_cache[key] = owned
             allocs = get_card_allocations(conn, name)
             allocated = sum(a.quantity for a in allocs)
             available = owned - allocated
@@ -147,9 +152,21 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
                     allocations=allocs,
                 ))
 
+        # per-deck have/total
+        deck_counts: list[tuple[str, int, int]] = []  # (name, have, total)
+        for dl in decklists:
+            nm = deck_needed[dl.deck_id]
+            total = sum(qty for _, qty in nm.values())
+            have = sum(
+                min(owned_cache.get(k, get_owned_quantity(conn, name)), qty)
+                for k, (name, qty) in nm.items()
+            )
+            deck_counts.append((dl.name, have, total))
+
     lines = []
-    deck_names = ", ".join(dl.name for dl in decklists)
-    lines.append(f"{len(decklists)} variant(s): {deck_names}")
+    lines.append(f"{len(decklists)} variant(s):")
+    for name, have, total in deck_counts:
+        lines.append(f"  {have}/{total}  {name}")
     lines.append("")
 
     if not missing_cards and not boxed_cards:
