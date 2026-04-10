@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from .models import OwnedCard
+from .models import BoxedCard, MissingCard, OwnedCard
 
 
 SCHEMA = """
@@ -255,3 +255,30 @@ def list_built_decks(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM built_decks ORDER BY box_name, deck_name"
     ).fetchall()
+
+
+def categorise_missing_cards(
+    conn: sqlite3.Connection,
+    card_needs: list[tuple[str, int, int]],
+    total_variants: int,
+) -> tuple[list[MissingCard], list[BoxedCard]]:
+    """Split a list of card requirements into missing (need to order) and boxed (owned but allocated).
+
+    card_needs: list of (canonical_name, needed_qty, variant_count_for_this_card)
+    total_variants: total number of deck variants being compared (for MissingCard.total_variants)
+    """
+    missing: list[MissingCard] = []
+    boxed: list[BoxedCard] = []
+    for name, needed, variants in card_needs:
+        owned = get_owned_quantity(conn, name)
+        allocs = get_card_allocations(conn, name)
+        available = owned - sum(a.quantity for a in allocs)
+        if owned < needed:
+            missing.append(MissingCard(
+                name=name, needed=needed, owned=owned,
+                short=needed - owned, variants=variants,
+                total_variants=total_variants,
+            ))
+        elif available < needed and allocs:
+            boxed.append(BoxedCard(name=name, needed=needed, owned=owned, allocations=allocs))
+    return missing, boxed

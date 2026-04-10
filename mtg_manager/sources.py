@@ -35,6 +35,18 @@ def fetch_decklists(url: str, delay: float = 1.5) -> list[Decklist]:
     )
 
 
+def source_name(url: str) -> str:
+    """Return a display label for the source of a deck URL."""
+    host = _host(url)
+    if "moxfield.com" in host:
+        return "Moxfield"
+    if "mtgtop8.com" in host:
+        return "MTGTop8"
+    if "mtggoldfish.com" in host:
+        return "MTGGoldfish"
+    return "Unknown"
+
+
 def _host(url: str) -> str:
     from urllib.parse import urlparse
     return urlparse(url).netloc.lower()

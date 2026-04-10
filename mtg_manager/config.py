@@ -21,6 +21,20 @@ class Config:
 DEFAULT_CONFIG = Path("~/.mtg_manager/config.toml").expanduser()
 
 
+def get_git_commit() -> str:
+    """Return the current git commit hash, or empty string if unavailable."""
+    import subprocess
+    repo_root = Path(__file__).parent.parent
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return ""
+
+
 def load_config(path: Path | str | None = None) -> Config:
     path = Path(path) if path else DEFAULT_CONFIG
     if not path.exists():

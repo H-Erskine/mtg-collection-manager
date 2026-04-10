@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from mtg_manager.config import load_config
+from mtg_manager.config import get_git_commit, load_config
 from mtg_manager.db import (
     card_count,
+    categorise_missing_cards,
     clear_color_group,
     delete_built_deck,
     get_available_quantity,
@@ -28,11 +29,21 @@ from mtg_manager.db import (
 )
 from mtg_manager.models import BoxedCard, MissingCard
 from mtg_manager.moxfield import fetch_package_cards
-from mtg_manager.sources import fetch_decklists
+from mtg_manager.sources import fetch_decklists, source_name
 
 
 def _load_cfg():
     return load_config()
+
+
+def _format_card_tag(foil: bool, set_code: str, basic: bool = False) -> str:
+    """Return a display suffix like ' [foil] (MH3)' for card list lines."""
+    parts = []
+    if foil:
+        parts.append(" [foil]")
+    if set_code and not basic:
+        parts.append(f" ({set_code.upper()})")
+    return "".join(parts)
 
 
 def _auto_sync(cfg, conn) -> list[str]:
@@ -125,45 +136,15 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
 
     with get_conn(cfg.db_path) as conn:
         _auto_sync(cfg, conn)
-        missing_cards: list[MissingCard] = []
-        boxed_cards: list[BoxedCard] = []
-        owned_cache: dict[str, int] = {}
-
-        for key in keys:
-            name = canonical_name[key]
-            needed = max_needed[key]
-            owned = get_owned_quantity(conn, name)
-            owned_cache[key] = owned
-            allocs = get_card_allocations(conn, name)
-            allocated = sum(a.quantity for a in allocs)
-            available = owned - allocated
-
-            if owned < needed:
-                missing_cards.append(MissingCard(
-                    name=name,
-                    needed=needed,
-                    owned=owned,
-                    short=needed - owned,
-                    variants=variant_count[key],
-                    total_variants=len(decklists),
-                ))
-            elif available < needed and allocs:
-                boxed_cards.append(BoxedCard(
-                    name=name,
-                    needed=needed,
-                    owned=owned,
-                    allocations=allocs,
-                ))
+        card_needs = [(canonical_name[k], max_needed[k], variant_count[k]) for k in keys]
+        missing_cards, boxed_cards = categorise_missing_cards(conn, card_needs, len(decklists))
 
         # per-deck have/total
         deck_counts: list[tuple[str, int, int]] = []  # (name, have, total)
         for dl in decklists:
             nm = deck_needed[dl.deck_id]
             total = sum(qty for _, qty in nm.values())
-            have = sum(
-                min(owned_cache.get(k, get_owned_quantity(conn, name)), qty)
-                for k, (name, qty) in nm.items()
-            )
+            have = sum(min(get_owned_quantity(conn, name), qty) for _, (name, qty) in nm.items())
             deck_counts.append((dl.name, have, total))
 
     lines = []
@@ -324,21 +305,11 @@ def handle_boxes() -> str:
         if row["box_name"] != current_box:
             current_box = row["box_name"]
             lines.append(f"\n[{current_box}]")
-        source = _source_tag(row["deck_url"])
+        source = source_name(row["deck_url"])
         lines.append(f"  {row['deck_name']}  [{source}]")
         lines.append(f"    {row['deck_url']}")
 
     return "\n".join(lines).strip()
-
-
-def _source_tag(url: str) -> str:
-    if "moxfield.com" in url:
-        return "Moxfield"
-    if "mtgtop8.com" in url:
-        return "MTGTop8"
-    if "mtggoldfish.com" in url:
-        return "MTGGoldfish"
-    return "Unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -374,19 +345,10 @@ def handle_unbox(deck_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def handle_version() -> str:
-    import subprocess
-    from pathlib import Path
-
-    repo_root = Path(__file__).parent.parent
-    try:
-        commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_root,
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
-        return f"mtg-manager  commit {commit[:7]}  ({commit})"
-    except Exception:
+    commit = get_git_commit()
+    if not commit:
         return "Could not determine version (git unavailable)."
+    return f"mtg-manager  commit {commit[:7]}  ({commit})"
 
 
 # ---------------------------------------------------------------------------
@@ -474,9 +436,7 @@ def handle_extras(limit: int = 4, basic: bool = False) -> str:
             remaining -= allocated
             spare = v["quantity"] - allocated
             if spare > 0:
-                foil_tag = " [foil]" if v["foil"] else ""
-                set_tag = f" ({v['set_code'].upper()})" if (v["set_code"] and not basic) else ""
-                excess_lines.append(f"  {spare}x {name}{foil_tag}{set_tag}")
+                excess_lines.append(f"  {spare}x {name}{_format_card_tag(v['foil'], v['set_code'], basic)}")
 
     if not excess_lines:
         return f"No spare cards beyond {limit} copies."
@@ -520,9 +480,7 @@ def handle_search(query: str) -> str:
         total = sum(v["quantity"] for v in versions)
         lines.append(f"\n  {name}  ({total} total)")
         for v in versions:
-            foil_tag = " [foil]" if v["foil"] else ""
-            set_tag = f" ({v['set_code'].upper()})" if v["set_code"] else ""
-            lines.append(f"    {v['quantity']}x{foil_tag}{set_tag}  [{v['color_group']}]")
+            lines.append(f"    {v['quantity']}x{_format_card_tag(v['foil'], v['set_code'])}  [{v['color_group']}]")
     return "\n".join(lines)
 
 

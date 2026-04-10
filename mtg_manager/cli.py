@@ -6,9 +6,10 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from .config import load_config
+from .config import get_git_commit, load_config
 from .db import (
     card_count,
+    categorise_missing_cards,
     clear_color_group,
     delete_built_deck,
     get_allocated_quantity,
@@ -51,6 +52,15 @@ def _auto_sync(cfg, conn) -> None:
             err_console.print(f"[yellow]Warning: sync failed for {pkg.color_group}: {e}[/yellow]")
 
 
+def _boxed_lines(boxed_cards: list[BoxedCard]) -> list[str]:
+    """Return formatted lines for cards owned but locked in boxes."""
+    lines = []
+    for bc in sorted(boxed_cards, key=lambda c: c.name):
+        for a in bc.allocations:
+            lines.append(f"  {bc.needed}x {bc.name}  ->  {a.quantity}x in [{a.box_name}] ({a.deck_name})")
+    return lines
+
+
 @click.group()
 def cli():
     """MTG collection manager — sync from Moxfield, check missing cards for MTGTop8 decklists."""
@@ -63,20 +73,11 @@ def cli():
 @cli.command()
 def version():
     """Show the current git commit this installation is running."""
-    import subprocess
-    from pathlib import Path
-
-    repo_root = Path(__file__).parent.parent
-    try:
-        commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_root,
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
-        short = commit[:7]
-        console.print(f"[bold]mtg-manager[/bold]  commit [cyan]{short}[/cyan]  [dim]({commit})[/dim]")
-    except Exception:
+    commit = get_git_commit()
+    if not commit:
         console.print("[yellow]Could not determine version (git unavailable).[/yellow]")
+        return
+    console.print(f"[bold]mtg-manager[/bold]  commit [cyan]{commit[:7]}[/cyan]  [dim]({commit})[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -180,35 +181,8 @@ def missing(urls, sideboard, min_variants):
 
         with get_conn(cfg.db_path) as conn:
             _auto_sync(cfg, conn)
-            missing_cards: list[MissingCard] = []
-            boxed_cards: list[BoxedCard] = []
-
-            for key in keys:
-                name = canonical_name[key]
-                needed = max_needed[key]
-                owned = get_owned_quantity(conn, name)
-                allocs = get_card_allocations(conn, name)
-                allocated = sum(a.quantity for a in allocs)
-                available = owned - allocated
-
-                if owned < needed:
-                    missing_cards.append(
-                        MissingCard(
-                            name=name,
-                            needed=needed,
-                            owned=owned,
-                            short=needed - owned,
-                            variants=variant_count[key],
-                            total_variants=len(decklists),
-                        )
-                    )
-                elif available < needed and allocs:
-                    boxed_cards.append(BoxedCard(
-                        name=name,
-                        needed=needed,
-                        owned=owned,
-                        allocations=allocs,
-                    ))
+            card_needs = [(canonical_name[k], max_needed[k], variant_count[k]) for k in keys]
+            missing_cards, boxed_cards = categorise_missing_cards(conn, card_needs, len(decklists))
 
         if not missing_cards and not boxed_cards:
             console.print("[green]You have all the cards and they are available![/green]")
@@ -217,12 +191,8 @@ def missing(urls, sideboard, min_variants):
         if not missing_cards and boxed_cards:
             console.print("[green]You own all the cards![/green] "
                           "[yellow]But some are currently in boxes:[/yellow]\n")
-            for bc in sorted(boxed_cards, key=lambda c: c.name):
-                for a in bc.allocations:
-                    console.print(
-                        f"  {bc.needed}x {bc.name}  ->  "
-                        f"{a.quantity}x in [{a.box_name}] ({a.deck_name})"
-                    )
+            for line in _boxed_lines(boxed_cards):
+                console.print(line)
             return
 
         missing_cards.sort(key=lambda c: (-c.variants, c.name))
@@ -244,12 +214,8 @@ def missing(urls, sideboard, min_variants):
 
         if boxed_cards:
             console.print("\n[yellow]Also in boxes (owned but allocated):[/yellow]")
-            for bc in sorted(boxed_cards, key=lambda c: c.name):
-                for a in bc.allocations:
-                    console.print(
-                        f"  {bc.needed}x {bc.name}  ->  "
-                        f"{a.quantity}x in [{a.box_name}] ({a.deck_name})"
-                    )
+            for line in _boxed_lines(boxed_cards):
+                console.print(line)
 
         console.print()
         console.print("[bold]Order list:[/bold]")
@@ -276,26 +242,12 @@ def missing(urls, sideboard, min_variants):
                 if key not in needed_map or card.quantity > needed_map[key][1]:
                     needed_map[key] = (card.name, card.quantity)
 
-            dm: list[MissingCard] = []
-            db: list[BoxedCard] = []
-            have_slots = 0   # sum of min(owned, needed) across all cards
             total_slots = sum(qty for _, qty in needed_map.values())
-
-            for key, (name, needed) in needed_map.items():
-                owned = get_owned_quantity(conn, name)
-                allocs = get_card_allocations(conn, name)
-                available = owned - sum(a.quantity for a in allocs)
-                have_slots += min(owned, needed)
-
-                if owned < needed:
-                    dm.append(MissingCard(
-                        name=name, needed=needed, owned=owned,
-                        short=needed - owned, variants=1, total_variants=1,
-                    ))
-                elif available < needed and allocs:
-                    db.append(BoxedCard(
-                        name=name, needed=needed, owned=owned, allocations=allocs,
-                    ))
+            card_needs = [(name, qty, 1) for _, (name, qty) in needed_map.items()]
+            dm, db = categorise_missing_cards(conn, card_needs, 1)
+            have_slots = sum(
+                min(get_owned_quantity(conn, name), qty) for _, (name, qty) in needed_map.items()
+            )
 
             deck_results.append((dl, dm, db, needed_map, have_slots, total_slots))
 
@@ -338,9 +290,7 @@ def missing(urls, sideboard, min_variants):
             body = "\n".join(card_lines)
             if db:
                 body += "\n\n[yellow]Cards in boxes (owned but allocated):[/yellow]"
-                for bc in sorted(db, key=lambda c: c.name):
-                    for a in bc.allocations:
-                        body += f"\n  {bc.needed}x {bc.name} -> {a.quantity}x in [{a.box_name}] ({a.deck_name})"
+                body += "\n" + "\n".join(_boxed_lines(db))
             console.print(Panel(
                 body,
                 title=f"[bold green] You can build: {dl.name} [/bold green]",
@@ -514,7 +464,7 @@ def extras(limit):
     table.add_column("Package", style="dim")
 
     for row in rows:
-        table.add_row(str(row["total"]), row["name"], row["color_group"])
+        table.add_row(str(row["quantity"]), row["name"], row["color_group"])
 
     console.print(table)
     console.print(f"\n[dim]{len(rows)} card(s) total[/dim]")
