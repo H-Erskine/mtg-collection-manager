@@ -20,12 +20,15 @@ from .handlers import (
     handle_boxes,
     handle_build,
     handle_extras,
+    handle_forsale,
     handle_help,
     handle_missing,
     handle_search,
     handle_stats,
     handle_sync,
+    handle_tag,
     handle_unbox,
+    handle_untag,
     handle_version,
 )
 
@@ -290,6 +293,71 @@ async def cmd_stats(interaction: discord.Interaction):
         interaction, reply,
         title="Collection Stats",
         color=COLOR_INFO,
+    )
+
+
+@tree.command(name="forsale", description="List all cards marked for sale, grouped by price")
+async def cmd_forsale(interaction: discord.Interaction):
+    await interaction.response.defer()
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_forsale)
+    is_empty = "No cards listed" in reply
+    await _send_embed(
+        interaction, reply,
+        title="For Sale",
+        color=COLOR_WARNING if is_empty else COLOR_INFO,
+        code_block=True,
+    )
+
+
+@tree.command(name="tag", description="Add a tag to a card (e.g. signed, surge foil, LP)")
+@app_commands.describe(
+    name="Card name",
+    tag="Tag to add (e.g. signed, surge foil, LP)",
+    set_code="Set code to narrow the match (e.g. MH3)",
+    foil="Target the foil printing",
+)
+async def cmd_tag(
+    interaction: discord.Interaction,
+    name: str,
+    tag: str,
+    set_code: str = "",
+    foil: bool = False,
+):
+    await interaction.response.defer()
+    reply = await asyncio.get_event_loop().run_in_executor(
+        None, handle_tag, name, tag, set_code, foil
+    )
+    is_error = reply.startswith("Error:")
+    await _send_embed(
+        interaction, reply,
+        title="Card Tagged",
+        color=COLOR_ERROR if is_error else COLOR_SUCCESS,
+    )
+
+
+@tree.command(name="untag", description="Remove a tag from a card")
+@app_commands.describe(
+    name="Card name",
+    tag="Tag to remove",
+    set_code="Set code to narrow the match",
+    foil="Target the foil printing",
+)
+async def cmd_untag(
+    interaction: discord.Interaction,
+    name: str,
+    tag: str,
+    set_code: str = "",
+    foil: bool = False,
+):
+    await interaction.response.defer()
+    reply = await asyncio.get_event_loop().run_in_executor(
+        None, handle_untag, name, tag, set_code, foil
+    )
+    not_found = "not found" in reply
+    await _send_embed(
+        interaction, reply,
+        title="Tag Removed",
+        color=COLOR_WARNING if not_found else COLOR_SUCCESS,
     )
 
 

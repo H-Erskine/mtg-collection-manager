@@ -7,6 +7,25 @@ from .models import BoxedCard, MissingCard, OwnedCard
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS card_tags (
+    name        TEXT NOT NULL,
+    set_code    TEXT NOT NULL DEFAULT '',
+    foil        INTEGER NOT NULL DEFAULT 0,
+    tag         TEXT NOT NULL,
+    PRIMARY KEY (name, set_code, foil, tag)
+);
+
+CREATE TABLE IF NOT EXISTS for_sale_cards (
+    name                TEXT NOT NULL,
+    set_code            TEXT NOT NULL DEFAULT '',
+    collector_number    TEXT NOT NULL DEFAULT '',
+    foil                INTEGER NOT NULL DEFAULT 0,
+    quantity            INTEGER NOT NULL DEFAULT 0,
+    price               REAL NOT NULL DEFAULT 0,
+    color_group         TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (name, set_code, collector_number, foil)
+);
+
 CREATE TABLE IF NOT EXISTS owned_cards (
     name                TEXT NOT NULL,
     set_code            TEXT NOT NULL DEFAULT '',
@@ -136,17 +155,112 @@ def clear_color_group(conn: sqlite3.Connection, color_group: str) -> None:
     conn.execute("DELETE FROM owned_cards WHERE color_group = ?", (color_group,))
 
 
+def upsert_for_sale_cards(conn: sqlite3.Connection, cards: list[OwnedCard], price: float) -> int:
+    """Insert or replace for-sale cards at the given price. Returns rows affected."""
+    conn.executemany(
+        """
+        INSERT INTO for_sale_cards (name, set_code, collector_number, foil, quantity, price, color_group)
+        VALUES (:name, :set_code, :collector_number, :foil, :quantity, :price, :color_group)
+        ON CONFLICT (name, set_code, collector_number, foil)
+        DO UPDATE SET quantity = excluded.quantity,
+                      price = excluded.price,
+                      color_group = excluded.color_group
+        """,
+        [
+            {
+                "name": c.name,
+                "set_code": c.set_code,
+                "collector_number": c.collector_number,
+                "foil": int(c.foil),
+                "quantity": c.quantity,
+                "price": price,
+                "color_group": c.color_group,
+            }
+            for c in cards
+        ],
+    )
+    return conn.total_changes
+
+
+def clear_for_sale_color_group(conn: sqlite3.Connection, color_group: str) -> None:
+    """Remove all for-sale cards for a color group before re-syncing it."""
+    conn.execute("DELETE FROM for_sale_cards WHERE color_group = ?", (color_group,))
+
+
+def list_for_sale_cards(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Return all for-sale cards ordered by price then name."""
+    return conn.execute(
+        """
+        SELECT name, set_code, foil, quantity, price
+        FROM for_sale_cards
+        ORDER BY price, name
+        """
+    ).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Card tags
+# ---------------------------------------------------------------------------
+
+def add_card_tag(conn: sqlite3.Connection, name: str, set_code: str, foil: bool, tag: str) -> None:
+    """Add a tag to a card. No-op if the tag already exists."""
+    conn.execute(
+        "INSERT OR IGNORE INTO card_tags (name, set_code, foil, tag) VALUES (?, ?, ?, ?)",
+        (name, set_code.lower(), int(foil), tag.strip()),
+    )
+
+
+def remove_card_tag(conn: sqlite3.Connection, name: str, set_code: str, foil: bool, tag: str) -> bool:
+    """Remove a specific tag from a card. Returns True if a row was deleted."""
+    conn.execute(
+        "DELETE FROM card_tags WHERE LOWER(name) = ? AND LOWER(set_code) = ? AND foil = ? AND LOWER(tag) = ?",
+        (name.lower(), set_code.lower(), int(foil), tag.strip().lower()),
+    )
+    return conn.total_changes > 0
+
+
+def get_card_tags(conn: sqlite3.Connection, name: str, set_code: str = "", foil: bool | None = None) -> list[str]:
+    """Return tags for a card. Matches on name (case-insensitive) and optionally set/foil."""
+    params: list = [name.lower(), set_code.lower()]
+    foil_clause = ""
+    if foil is not None:
+        foil_clause = "AND foil = ?"
+        params.append(int(foil))
+    rows = conn.execute(
+        f"""
+        SELECT tag FROM card_tags
+        WHERE LOWER(name) = ? AND LOWER(set_code) = ?
+        {foil_clause}
+        ORDER BY tag
+        """,
+        params,
+    ).fetchall()
+    return [r["tag"] for r in rows]
+
+
+def get_tags_for_sale_cards(conn: sqlite3.Connection) -> dict[tuple, list[str]]:
+    """Return a dict mapping (lower_name, lower_set, foil_int) -> [tag, ...] for all tagged cards."""
+    rows = conn.execute("SELECT name, set_code, foil, tag FROM card_tags ORDER BY name, tag").fetchall()
+    result: dict[tuple, list[str]] = {}
+    for r in rows:
+        key = (r["name"].lower(), r["set_code"].lower(), r["foil"])
+        result.setdefault(key, []).append(r["tag"])
+    return result
+
+
 BASIC_LANDS = {"forest", "island", "mountain", "plains", "swamp"}
 
 
 def get_cards_over_limit(conn: sqlite3.Connection, limit: int = 4) -> list[sqlite3.Row]:
-    """Return all versions of cards whose total quantity exceeds `limit`, excluding basic lands.
+    """Return all versions of cards whose total quantity exceeds `limit`, excluding basic lands
+    and any cards currently listed in for_sale_cards.
     Rows are ordered by name then quantity DESC so the largest version comes first."""
     return conn.execute(
         """
         SELECT name, set_code, foil, quantity, color_group
         FROM owned_cards
         WHERE LOWER(name) NOT IN ('forest','island','mountain','plains','swamp')
+          AND LOWER(name) NOT IN (SELECT LOWER(name) FROM for_sale_cards)
           AND LOWER(name) IN (
             SELECT LOWER(name) FROM owned_cards
             GROUP BY LOWER(name)

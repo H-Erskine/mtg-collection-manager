@@ -8,20 +8,27 @@ from rich.table import Table
 
 from .config import get_git_commit, load_config
 from .db import (
+    add_card_tag,
     card_count,
     categorise_missing_cards,
     clear_color_group,
+    clear_for_sale_color_group,
     delete_built_deck,
     get_allocated_quantity,
     get_available_quantity,
     get_card_allocations,
+    get_card_tags,
     get_cards_over_limit,
     get_conn,
     get_deck,
     get_owned_quantity,
+    get_tags_for_sale_cards,
     insert_built_deck,
     list_built_decks,
+    list_for_sale_cards,
+    remove_card_tag,
     upsert_cards,
+    upsert_for_sale_cards,
 )
 from .models import BoxedCard, MissingCard
 from .moxfield import fetch_package_cards
@@ -41,13 +48,27 @@ def _load_cfg():
         sys.exit(1)
 
 
+import re as _re
+_SALE_PRICE_RE = _re.compile(r"^\$(\d+(?:\.\d+)?)")
+
+
+def _parse_sale_price(package_name: str) -> float | None:
+    m = _SALE_PRICE_RE.match(package_name)
+    return float(m.group(1)) if m else None
+
+
 def _auto_sync(cfg, conn) -> None:
-    """Silently re-fetch all Moxfield packages. Only touches owned_cards, never box tables."""
+    """Silently re-fetch all Moxfield packages. Only touches owned_cards/for_sale_cards, never box tables."""
     for pkg in cfg.packages:
         try:
-            cards = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
-            clear_color_group(conn, pkg.color_group)
-            upsert_cards(conn, cards)
+            cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+            price = _parse_sale_price(pkg_name)
+            if price is not None:
+                clear_for_sale_color_group(conn, pkg.color_group)
+                upsert_for_sale_cards(conn, cards, price)
+            else:
+                clear_color_group(conn, pkg.color_group)
+                upsert_cards(conn, cards)
         except Exception as e:
             err_console.print(f"[yellow]Warning: sync failed for {pkg.color_group}: {e}[/yellow]")
 
@@ -107,15 +128,21 @@ def sync(color_group):
             ) as progress:
                 progress.add_task("sync")
                 try:
-                    cards = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+                    cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
                 except Exception as e:
                     err_console.print(f"[red]Failed to fetch {pkg.color_group} ({pkg.public_id}): {e}[/red]")
                     continue
 
-            clear_color_group(conn, pkg.color_group)
-            upsert_cards(conn, cards)
+            price = _parse_sale_price(pkg_name)
             qty = sum(c.quantity for c in cards)
-            console.print(f"  [green]OK[/green] {pkg.color_group}: {qty} cards ({len(cards)} unique entries)")
+            if price is not None:
+                clear_for_sale_color_group(conn, pkg.color_group)
+                upsert_for_sale_cards(conn, cards, price)
+                console.print(f"  [green]OK[/green] {pkg.color_group} [yellow][for sale @ ${price:.2f}][/yellow]: {qty} cards ({len(cards)} unique entries)")
+            else:
+                clear_color_group(conn, pkg.color_group)
+                upsert_cards(conn, cards)
+                console.print(f"  [green]OK[/green] {pkg.color_group}: {qty} cards ({len(cards)} unique entries)")
 
         console.print(f"\n[bold]Collection total:[/bold] {card_count(conn)} cards")
 
@@ -468,6 +495,97 @@ def extras(limit):
 
     console.print(table)
     console.print(f"\n[dim]{len(rows)} card(s) total[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# mtg forsale
+# ---------------------------------------------------------------------------
+
+@cli.command()
+def forsale():
+    """List all cards marked for sale, grouped by price."""
+    cfg = _load_cfg()
+
+    with get_conn(cfg.db_path) as conn:
+        rows = list_for_sale_cards(conn)
+        tag_map = get_tags_for_sale_cards(conn)
+
+    if not rows:
+        console.print("No cards listed for sale.")
+        console.print("[dim]Sync a Moxfield package whose name starts with $<price> to populate the sale list.[/dim]")
+        return
+
+    table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+    table.add_column("Card", min_width=35)
+    table.add_column("Finish", width=10)
+    table.add_column("Tags", min_width=18, style="dim")
+    table.add_column("Price", width=8)
+
+    total = 0
+    for row in rows:
+        foil_label = "Foil" if row["foil"] else "Non-Foil"
+        set_label = f" ({row['set_code'].upper()})" if row["set_code"] else ""
+        qty_label = f"{row['quantity']}x " if row["quantity"] > 1 else ""
+        tags = tag_map.get((row["name"].lower(), row["set_code"].lower(), row["foil"]), [])
+        table.add_row(f"{qty_label}{row['name']}{set_label}", foil_label, ", ".join(tags), "")
+        total += row["quantity"]
+
+    console.print(table)
+    console.print(f"\n[dim]{total} card(s) for sale[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# mtg tag / untag
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.argument("name")
+@click.argument("tag")
+@click.option("--set", "-s", "set_code", default="", help="Set code to narrow the match (e.g. MH3).")
+@click.option("--foil/--no-foil", default=False, help="Target the foil printing.")
+def tag(name, tag, set_code, foil):
+    """Add a tag to a card (e.g. signed, surge foil, LP).
+
+    Tags are stored locally and shown in the forsale listing.
+
+    \b
+    Examples:
+      mtg tag "Lightning Bolt" signed --set M11
+      mtg tag "Snapcaster Mage" "surge foil" --foil
+    """
+    cfg = _load_cfg()
+    with get_conn(cfg.db_path) as conn:
+        add_card_tag(conn, name, set_code, foil, tag)
+        tags = get_card_tags(conn, name, set_code, foil if set_code else None)
+
+    descriptor = name
+    if set_code:
+        descriptor += f" [bold]({set_code.upper()})[/bold]"
+    if foil:
+        descriptor += " [dim][foil][/dim]"
+    console.print(f"[green]Tagged:[/green] {descriptor}")
+    console.print(f"Tags: {', '.join(tags)}")
+
+
+@cli.command()
+@click.argument("name")
+@click.argument("tag")
+@click.option("--set", "-s", "set_code", default="", help="Set code to narrow the match.")
+@click.option("--foil/--no-foil", default=False, help="Target the foil printing.")
+def untag(name, tag, set_code, foil):
+    """Remove a tag from a card."""
+    cfg = _load_cfg()
+    with get_conn(cfg.db_path) as conn:
+        removed = remove_card_tag(conn, name, set_code, foil, tag)
+        tags = get_card_tags(conn, name, set_code, foil if set_code else None)
+
+    if not removed:
+        err_console.print(f"[yellow]Tag '{tag}' not found on {name}" + (f" ({set_code.upper()})" if set_code else "") + ".[/yellow]")
+        return
+    descriptor = name + (f" ({set_code.upper()})" if set_code else "")
+    console.print(f"[green]Removed tag '{tag}' from {descriptor}.[/green]")
+    if tags:
+        console.print(f"Remaining tags: {', '.join(tags)}")
 
 
 # ---------------------------------------------------------------------------

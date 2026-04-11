@@ -10,22 +10,29 @@ from collections import defaultdict
 
 from mtg_manager.config import get_git_commit, load_config
 from mtg_manager.db import (
+    add_card_tag,
     card_count,
     categorise_missing_cards,
     clear_color_group,
+    clear_for_sale_color_group,
     delete_built_deck,
     get_available_quantity,
     get_card_allocations,
     get_card_color_group,
+    get_card_tags,
     get_cards_over_limit,
     get_conn,
     get_deck,
     get_deck_by_url,
     get_decks_by_name,
     get_owned_quantity,
+    get_tags_for_sale_cards,
     insert_built_deck,
     list_built_decks,
+    list_for_sale_cards,
+    remove_card_tag,
     upsert_cards,
+    upsert_for_sale_cards,
 )
 from mtg_manager.models import BoxedCard, MissingCard
 from mtg_manager.moxfield import fetch_package_cards
@@ -46,14 +53,28 @@ def _format_card_tag(foil: bool, set_code: str, basic: bool = False) -> str:
     return "".join(parts)
 
 
+_SALE_PRICE_RE = __import__("re").compile(r"^\$(\d+(?:\.\d+)?)")
+
+
+def _parse_sale_price(package_name: str) -> float | None:
+    """Return the price from a package name like '$2.50 Rare Singles', or None."""
+    m = _SALE_PRICE_RE.match(package_name)
+    return float(m.group(1)) if m else None
+
+
 def _auto_sync(cfg, conn) -> list[str]:
     """Re-fetch all Moxfield packages. Returns list of warning strings."""
     warnings = []
     for pkg in cfg.packages:
         try:
-            cards = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
-            clear_color_group(conn, pkg.color_group)
-            upsert_cards(conn, cards)
+            cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+            price = _parse_sale_price(pkg_name)
+            if price is not None:
+                clear_for_sale_color_group(conn, pkg.color_group)
+                upsert_for_sale_cards(conn, cards, price)
+            else:
+                clear_color_group(conn, pkg.color_group)
+                upsert_cards(conn, cards)
         except Exception as e:
             warnings.append(f"Sync warning ({pkg.color_group}): {e}")
     return warnings
@@ -79,14 +100,20 @@ def handle_sync(color_group: str | None = None) -> str:
     with get_conn(cfg.db_path) as conn:
         for pkg in packages:
             try:
-                cards = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+                cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
             except Exception as e:
                 lines.append(f"Failed to fetch {pkg.color_group}: {e}")
                 continue
-            clear_color_group(conn, pkg.color_group)
-            upsert_cards(conn, cards)
+            price = _parse_sale_price(pkg_name)
             qty = sum(c.quantity for c in cards)
-            lines.append(f"{pkg.color_group}: {qty} cards ({len(cards)} unique)")
+            if price is not None:
+                clear_for_sale_color_group(conn, pkg.color_group)
+                upsert_for_sale_cards(conn, cards, price)
+                lines.append(f"{pkg.color_group} [for sale @ ${price:.2f}]: {qty} cards ({len(cards)} unique)")
+            else:
+                clear_color_group(conn, pkg.color_group)
+                upsert_cards(conn, cards)
+                lines.append(f"{pkg.color_group}: {qty} cards ({len(cards)} unique)")
 
         total = card_count(conn)
 
@@ -341,6 +368,78 @@ def handle_unbox(deck_name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# forsale
+# ---------------------------------------------------------------------------
+
+def handle_forsale() -> str:
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    with get_conn(cfg.db_path) as conn:
+        rows = list_for_sale_cards(conn)
+        tag_map = get_tags_for_sale_cards(conn)
+
+    if not rows:
+        return "No cards listed for sale.\nSync a Moxfield package whose name starts with '$<price>' to populate the sale list."
+
+    lines: list[str] = []
+    for row in rows:
+        foil_label = "Foil" if row["foil"] else "Non-Foil"
+        set_label = f" ({row['set_code'].upper()})" if row["set_code"] else ""
+        qty_label = f"{row['quantity']}x " if row["quantity"] > 1 else ""
+        tags = tag_map.get((row["name"].lower(), row["set_code"].lower(), row["foil"]), [])
+        tag_label = f" [{', '.join(tags)}]" if tags else ""
+        lines.append(f"{qty_label}{row['name']}{set_label} — {foil_label}{tag_label} — ")
+
+    total = sum(row["quantity"] for row in rows)
+    lines.append(f"\n{total} card(s) for sale.")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# tag / untag
+# ---------------------------------------------------------------------------
+
+def handle_tag(name: str, tag: str, set_code: str = "", foil: bool = False) -> str:
+    """Add a tag to a card and return a confirmation string."""
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    with get_conn(cfg.db_path) as conn:
+        add_card_tag(conn, name, set_code, foil, tag)
+        tags = get_card_tags(conn, name, set_code, foil if set_code else None)
+
+    descriptor = name
+    if set_code:
+        descriptor += f" ({set_code.upper()})"
+    if foil:
+        descriptor += " [foil]"
+    return f"Tagged: {descriptor}\nTags: {', '.join(tags)}"
+
+
+def handle_untag(name: str, tag: str, set_code: str = "", foil: bool = False) -> str:
+    """Remove a tag from a card and return a confirmation string."""
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    with get_conn(cfg.db_path) as conn:
+        removed = remove_card_tag(conn, name, set_code, foil, tag)
+        tags = get_card_tags(conn, name, set_code, foil if set_code else None)
+
+    if not removed:
+        return f"Tag '{tag}' not found on {name}" + (f" ({set_code.upper()})" if set_code else "") + "."
+    remaining = f"Remaining tags: {', '.join(tags)}" if tags else "No tags remaining."
+    descriptor = name + (f" ({set_code.upper()})" if set_code else "")
+    return f"Removed tag '{tag}' from {descriptor}.\n{remaining}"
+
+
+# ---------------------------------------------------------------------------
 # version
 # ---------------------------------------------------------------------------
 
@@ -360,7 +459,13 @@ MTG Manager commands:
 
 /sync [color_group]
   Fetch Moxfield packages and update your collection.
+  Packages whose Moxfield name starts with $<price> are treated as for-sale
+  stock and stored separately (not added to your collection).
   Optionally sync only one color group (e.g. White).
+
+/forsale
+  List all cards marked for sale, grouped by price.
+  Formatted for easy copy-paste to Discord or WhatsApp.
 
 /missing <url> [min_variants] [sideboard]
   Show cards you need to order for a MTGTop8 deck or compare URL.

@@ -39,14 +39,20 @@ def _scraper() -> cloudscraper.CloudScraper:
 def fetch_package_cards(
     package: MoxfieldPackage,
     delay: float = 1.0,
-) -> list[OwnedCard]:
-    """Fetch all cards in a Moxfield package and return as OwnedCard list."""
+) -> tuple[list[OwnedCard], str]:
+    """Fetch all cards in a Moxfield package.
+
+    Returns ``(cards, package_name)`` where *package_name* is the deck title
+    from the Moxfield API.  Callers use the name to detect for-sale packages
+    (those whose title starts with ``$``).
+    """
     scraper = _scraper()
     url = f"{BASE_URL}/{package.public_id}"
     resp = scraper.get(url, headers=HEADERS, timeout=30)
     resp.raise_for_status()
     data = resp.json()
 
+    package_name: str = data.get("name", "")
     boards = data.get("boards", {})
     cards: list[OwnedCard] = []
 
@@ -87,7 +93,7 @@ def fetch_package_cards(
                     )
                 )
 
-    return cards
+    return cards, package_name
 
 
 # ---------------------------------------------------------------------------
