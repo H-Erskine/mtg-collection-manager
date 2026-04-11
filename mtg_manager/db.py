@@ -188,14 +188,33 @@ def clear_for_sale_color_group(conn: sqlite3.Connection, color_group: str) -> No
 
 
 def list_for_sale_cards(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Return all for-sale cards ordered by price then name."""
+    """Return all for-sale cards ordered by price desc then name."""
     return conn.execute(
         """
-        SELECT name, set_code, foil, quantity, price
+        SELECT name, set_code, collector_number, foil, quantity, price
         FROM for_sale_cards
-        ORDER BY price, name
+        ORDER BY price DESC, name
         """
     ).fetchall()
+
+
+def update_sale_prices(conn: sqlite3.Connection, prices: list[tuple[str, str, str, bool, float]]) -> int:
+    """Bulk-update market prices for for-sale cards.
+
+    prices: list of (name, set_code, collector_number, foil, price)
+    Returns number of rows updated.
+    """
+    conn.executemany(
+        """
+        UPDATE for_sale_cards SET price = ?
+        WHERE LOWER(name) = LOWER(?)
+          AND LOWER(set_code) = LOWER(?)
+          AND collector_number = ?
+          AND foil = ?
+        """,
+        [(price, name, set_code, cn, int(foil)) for name, set_code, cn, foil, price in prices],
+    )
+    return conn.total_changes
 
 
 # ---------------------------------------------------------------------------

@@ -27,11 +27,13 @@ from .db import (
     list_built_decks,
     list_for_sale_cards,
     remove_card_tag,
+    update_sale_prices,
     upsert_cards,
     upsert_for_sale_cards,
 )
 from .models import BoxedCard, MissingCard
 from .moxfield import fetch_package_cards
+from .prices import fetch_cardmarket_prices
 from .sources import fetch_decklists
 
 console = Console()
@@ -63,17 +65,32 @@ def _parse_sale_price(package_name: str) -> float:
 
 def _auto_sync(cfg, conn) -> None:
     """Silently re-fetch all Moxfield packages. Only touches owned_cards/for_sale_cards, never box tables."""
+    synced_sale = False
     for pkg in cfg.packages:
         try:
             cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
             if _is_sale_package(pkg_name):
                 clear_for_sale_color_group(conn, pkg.color_group)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
+                synced_sale = True
             else:
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
         except Exception as e:
             err_console.print(f"[yellow]Warning: sync failed for {pkg.color_group}: {e}[/yellow]")
+    if synced_sale:
+        try:
+            sale_rows = list_for_sale_cards(conn)
+            price_map = fetch_cardmarket_prices(sale_rows)
+            updates = [
+                (row["name"], row["set_code"], row["collector_number"], bool(row["foil"]), price_map[(row["set_code"].lower(), row["collector_number"], int(row["foil"]))])
+                for row in sale_rows
+                if (row["set_code"].lower(), row["collector_number"], int(row["foil"])) in price_map
+            ]
+            if updates:
+                update_sale_prices(conn, updates)
+        except Exception as e:
+            err_console.print(f"[yellow]Warning: price fetch failed: {e}[/yellow]")
 
 
 def _boxed_lines(boxed_cards: list[BoxedCard]) -> list[str]:
@@ -121,6 +138,7 @@ def sync(color_group):
             err_console.print(f"[red]No package found for color group '{color_group}'.[/red]")
             sys.exit(1)
 
+    synced_sale = False
     with get_conn(cfg.db_path) as conn:
         for pkg in packages:
             with Progress(
@@ -141,10 +159,34 @@ def sync(color_group):
                 clear_for_sale_color_group(conn, pkg.color_group)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
                 console.print(f"  [green]OK[/green] {pkg.color_group} [yellow][for sale][/yellow]: {qty} cards ({len(cards)} unique entries)")
+                synced_sale = True
             else:
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
                 console.print(f"  [green]OK[/green] {pkg.color_group}: {qty} cards ({len(cards)} unique entries)")
+
+        if synced_sale:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[cyan]Fetching CardMarket prices...[/cyan]"),
+                console=console,
+                transient=True,
+            ) as progress:
+                progress.add_task("prices")
+                try:
+                    sale_rows = list_for_sale_cards(conn)
+                    price_map = fetch_cardmarket_prices(sale_rows)
+                    updates = [
+                        (row["name"], row["set_code"], row["collector_number"], bool(row["foil"]),
+                         price_map[(row["set_code"].lower(), row["collector_number"], int(row["foil"]))])
+                        for row in sale_rows
+                        if (row["set_code"].lower(), row["collector_number"], int(row["foil"])) in price_map
+                    ]
+                    if updates:
+                        update_sale_prices(conn, updates)
+                    console.print(f"  [green]OK[/green] CardMarket prices: {len(updates)}/{len(sale_rows)} updated")
+                except Exception as e:
+                    err_console.print(f"[yellow]Warning: price fetch failed: {e}[/yellow]")
 
         console.print(f"\n[bold]Collection total:[/bold] {card_count(conn)} cards")
 
@@ -504,8 +546,16 @@ def extras(limit):
 # ---------------------------------------------------------------------------
 
 @cli.command()
-def forsale():
-    """List all cards marked for sale, grouped by price."""
+@click.option("--min-price", "-m", default=0.0, type=float, show_default=False,
+              help="Only show cards with a CardMarket price >= this value (EUR).")
+@click.option("--hide-price", is_flag=True, default=False,
+              help="Omit the price column (useful for public posting).")
+def forsale(min_price, hide_price):
+    """List all cards marked for sale.
+
+    Prices are fetched from CardMarket during sync.
+    Use --min-price to filter by value, --hide-price for public-friendly output.
+    """
     cfg = _load_cfg()
 
     with get_conn(cfg.db_path) as conn:
@@ -517,19 +567,34 @@ def forsale():
         console.print("[dim]Sync a Moxfield package whose name starts with $<price> to populate the sale list.[/dim]")
         return
 
+    if min_price:
+        rows = [r for r in rows if r["price"] >= min_price]
+        if not rows:
+            console.print(f"No cards for sale at €{min_price:.2f} or above.")
+            return
+
     table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
     table.add_column("Card", min_width=35)
+    table.add_column("Set", width=5)
     table.add_column("Finish", width=10)
-    table.add_column("Tags", min_width=18, style="dim")
-    table.add_column("Price", width=8)
+    has_tags = any(tag_map.get((r["name"].lower(), r["set_code"].lower(), r["foil"])) for r in rows)
+    if has_tags:
+        table.add_column("Tags", style="dim")
+    if not hide_price:
+        table.add_column("Price", justify="right", width=8)
 
     total = 0
     for row in rows:
         foil_label = "Foil" if row["foil"] else "Non-Foil"
-        set_label = f" ({row['set_code'].upper()})" if row["set_code"] else ""
         qty_label = f"{row['quantity']}x " if row["quantity"] > 1 else ""
         tags = tag_map.get((row["name"].lower(), row["set_code"].lower(), row["foil"]), [])
-        table.add_row(f"{qty_label}{row['name']}{set_label}", foil_label, ", ".join(tags), "")
+        price_str = f"€{row['price']:.2f}" if row["price"] else "—"
+        cols = [f"{qty_label}{row['name']}", row["set_code"].upper(), foil_label]
+        if has_tags:
+            cols.append(", ".join(tags))
+        if not hide_price:
+            cols.append(price_str)
+        table.add_row(*cols)
         total += row["quantity"]
 
     console.print(table)

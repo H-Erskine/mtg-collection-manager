@@ -31,11 +31,13 @@ from mtg_manager.db import (
     list_built_decks,
     list_for_sale_cards,
     remove_card_tag,
+    update_sale_prices,
     upsert_cards,
     upsert_for_sale_cards,
 )
 from mtg_manager.models import BoxedCard, MissingCard
 from mtg_manager.moxfield import fetch_package_cards
+from mtg_manager.prices import fetch_cardmarket_prices
 from mtg_manager.sources import fetch_decklists, source_name
 
 
@@ -67,9 +69,25 @@ def _parse_sale_price(package_name: str) -> float:
     return float(m.group(1)) if m else 0.0
 
 
+def _sync_sale_prices(conn, sale_rows: list) -> None:
+    """Fetch CardMarket prices for for-sale cards and persist them. Silent on failure."""
+    try:
+        price_map = fetch_cardmarket_prices(sale_rows)
+    except Exception:
+        return
+    updates = []
+    for row in sale_rows:
+        key = (row["set_code"].lower(), row["collector_number"], int(row["foil"]))
+        if key in price_map:
+            updates.append((row["name"], row["set_code"], row["collector_number"], bool(row["foil"]), price_map[key]))
+    if updates:
+        update_sale_prices(conn, updates)
+
+
 def _auto_sync(cfg, conn) -> list[str]:
     """Re-fetch all Moxfield packages. Returns list of warning strings."""
     warnings = []
+    sale_rows: list = []
     for pkg in cfg.packages:
         try:
             cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
@@ -81,6 +99,13 @@ def _auto_sync(cfg, conn) -> list[str]:
                 upsert_cards(conn, cards)
         except Exception as e:
             warnings.append(f"Sync warning ({pkg.color_group}): {e}")
+    # Fetch prices for all sale cards in one pass after upsert
+    try:
+        sale_rows = list_for_sale_cards(conn)
+        if sale_rows:
+            _sync_sale_prices(conn, sale_rows)
+    except Exception as e:
+        warnings.append(f"Price fetch warning: {e}")
     return warnings
 
 
@@ -101,6 +126,7 @@ def handle_sync(color_group: str | None = None) -> str:
             return f"No package found for color group '{color_group}'."
 
     lines = []
+    synced_sale = False
     with get_conn(cfg.db_path) as conn:
         for pkg in packages:
             try:
@@ -113,10 +139,26 @@ def handle_sync(color_group: str | None = None) -> str:
                 clear_for_sale_color_group(conn, pkg.color_group)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
                 lines.append(f"{pkg.color_group} [for sale]: {qty} cards ({len(cards)} unique)")
+                synced_sale = True
             else:
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
                 lines.append(f"{pkg.color_group}: {qty} cards ({len(cards)} unique)")
+
+        if synced_sale:
+            try:
+                sale_rows = list_for_sale_cards(conn)
+                price_map = fetch_cardmarket_prices(sale_rows)
+                updates = []
+                for row in sale_rows:
+                    key = (row["set_code"].lower(), row["collector_number"], int(row["foil"]))
+                    if key in price_map:
+                        updates.append((row["name"], row["set_code"], row["collector_number"], bool(row["foil"]), price_map[key]))
+                if updates:
+                    update_sale_prices(conn, updates)
+                    lines.append(f"CardMarket prices updated: {len(updates)}/{len(sale_rows)} card(s).")
+            except Exception as e:
+                lines.append(f"Price fetch failed: {e}")
 
         total = card_count(conn)
 
@@ -374,7 +416,7 @@ def handle_unbox(deck_name: str) -> str:
 # forsale
 # ---------------------------------------------------------------------------
 
-def handle_forsale() -> str:
+def handle_forsale(min_price: float = 0.0, show_price: bool = True) -> str:
     try:
         cfg = _load_cfg()
     except FileNotFoundError as e:
@@ -387,16 +429,23 @@ def handle_forsale() -> str:
     if not rows:
         return "No cards listed for sale.\nSync a Moxfield package whose name starts with '$<price>' to populate the sale list."
 
-    # Build rows as (name, set, finish, tags, price_blank)
+    if min_price:
+        rows = [r for r in rows if r["price"] >= min_price]
+        if not rows:
+            return f"No cards for sale at €{min_price:.2f} or above."
+
+    # Build display rows
     table_rows = []
     for row in rows:
         qty_label = f"{row['quantity']}x " if row["quantity"] > 1 else ""
         tags = tag_map.get((row["name"].lower(), row["set_code"].lower(), row["foil"]), [])
+        price_str = f"€{row['price']:.2f}" if row["price"] else "—"
         table_rows.append((
             f"{qty_label}{row['name']}",
             row["set_code"].upper() if row["set_code"] else "",
             "Foil" if row["foil"] else "Non-Foil",
             ", ".join(tags),
+            price_str,
         ))
 
     # Dynamic column widths
@@ -404,20 +453,22 @@ def handle_forsale() -> str:
     col_set   = max(len(r[1]) for r in table_rows)
     col_fin   = 8  # "Non-Foil"
     col_tags  = max((len(r[3]) for r in table_rows), default=0)
+    col_price = max(len(r[4]) for r in table_rows)
 
-    header = (
-        f"{'Card':<{col_name}}  {'Set':<{col_set}}  {'Finish':<{col_fin}}"
-        + (f"  {'Tags':<{col_tags}}" if col_tags else "")
-        + "  Price"
-    )
+    header = f"{'Card':<{col_name}}  {'Set':<{col_set}}  {'Finish':<{col_fin}}"
+    if col_tags:
+        header += f"  {'Tags':<{col_tags}}"
+    if show_price:
+        header += f"  {'Price':>{col_price}}"
     sep = "-" * len(header)
 
     lines = [header, sep]
-    for name, set_code, finish, tags in table_rows:
+    for name, set_code, finish, tags, price_str in table_rows:
         line = f"{name:<{col_name}}  {set_code:<{col_set}}  {finish:<{col_fin}}"
         if col_tags:
             line += f"  {tags:<{col_tags}}"
-        line += "  "
+        if show_price:
+            line += f"  {price_str:>{col_price}}"
         lines.append(line)
 
     total = sum(row["quantity"] for row in rows)

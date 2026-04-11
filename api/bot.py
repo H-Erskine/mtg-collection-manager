@@ -296,10 +296,20 @@ async def cmd_stats(interaction: discord.Interaction):
     )
 
 
-@tree.command(name="forsale", description="List all cards marked for sale, grouped by price")
-async def cmd_forsale(interaction: discord.Interaction):
+@tree.command(name="forsale", description="List all cards for sale with CardMarket prices")
+@app_commands.describe(
+    min_price="Only show cards priced at or above this value in EUR (e.g. 1.0)",
+    hide_price="Hide the price column — useful for posting publicly",
+)
+async def cmd_forsale(
+    interaction: discord.Interaction,
+    min_price: float = 0.0,
+    hide_price: bool = False,
+):
     await interaction.response.defer()
-    reply = await asyncio.get_event_loop().run_in_executor(None, handle_forsale)
+    reply = await asyncio.get_event_loop().run_in_executor(
+        None, handle_forsale, min_price, hide_price
+    )
     is_empty = "No cards listed" in reply
     await _send_embed(
         interaction, reply,
