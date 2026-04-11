@@ -387,14 +387,38 @@ def handle_forsale() -> str:
     if not rows:
         return "No cards listed for sale.\nSync a Moxfield package whose name starts with '$<price>' to populate the sale list."
 
-    lines: list[str] = []
+    # Build rows as (name, set, finish, tags, price_blank)
+    table_rows = []
     for row in rows:
-        foil_label = "Foil" if row["foil"] else "Non-Foil"
-        set_label = f" ({row['set_code'].upper()})" if row["set_code"] else ""
         qty_label = f"{row['quantity']}x " if row["quantity"] > 1 else ""
         tags = tag_map.get((row["name"].lower(), row["set_code"].lower(), row["foil"]), [])
-        tag_label = f" [{', '.join(tags)}]" if tags else ""
-        lines.append(f"{qty_label}{row['name']}{set_label} — {foil_label}{tag_label} — ")
+        table_rows.append((
+            f"{qty_label}{row['name']}",
+            row["set_code"].upper() if row["set_code"] else "",
+            "Foil" if row["foil"] else "Non-Foil",
+            ", ".join(tags),
+        ))
+
+    # Dynamic column widths
+    col_name  = max(len(r[0]) for r in table_rows)
+    col_set   = max(len(r[1]) for r in table_rows)
+    col_fin   = 8  # "Non-Foil"
+    col_tags  = max((len(r[3]) for r in table_rows), default=0)
+
+    header = (
+        f"{'Card':<{col_name}}  {'Set':<{col_set}}  {'Finish':<{col_fin}}"
+        + (f"  {'Tags':<{col_tags}}" if col_tags else "")
+        + "  Price"
+    )
+    sep = "-" * len(header)
+
+    lines = [header, sep]
+    for name, set_code, finish, tags in table_rows:
+        line = f"{name:<{col_name}}  {set_code:<{col_set}}  {finish:<{col_fin}}"
+        if col_tags:
+            line += f"  {tags:<{col_tags}}"
+        line += "  "
+        lines.append(line)
 
     total = sum(row["quantity"] for row in rows)
     lines.append(f"\n{total} card(s) for sale.")
