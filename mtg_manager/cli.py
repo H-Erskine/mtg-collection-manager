@@ -52,9 +52,13 @@ import re as _re
 _SALE_PRICE_RE = _re.compile(r"^\$(\d+(?:\.\d+)?)")
 
 
-def _parse_sale_price(package_name: str) -> float | None:
+def _is_sale_package(package_name: str) -> bool:
+    return package_name.startswith("$")
+
+
+def _parse_sale_price(package_name: str) -> float:
     m = _SALE_PRICE_RE.match(package_name)
-    return float(m.group(1)) if m else None
+    return float(m.group(1)) if m else 0.0
 
 
 def _auto_sync(cfg, conn) -> None:
@@ -62,10 +66,9 @@ def _auto_sync(cfg, conn) -> None:
     for pkg in cfg.packages:
         try:
             cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
-            price = _parse_sale_price(pkg_name)
-            if price is not None:
+            if _is_sale_package(pkg_name):
                 clear_for_sale_color_group(conn, pkg.color_group)
-                upsert_for_sale_cards(conn, cards, price)
+                upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
             else:
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
@@ -133,12 +136,11 @@ def sync(color_group):
                     err_console.print(f"[red]Failed to fetch {pkg.color_group} ({pkg.public_id}): {e}[/red]")
                     continue
 
-            price = _parse_sale_price(pkg_name)
             qty = sum(c.quantity for c in cards)
-            if price is not None:
+            if _is_sale_package(pkg_name):
                 clear_for_sale_color_group(conn, pkg.color_group)
-                upsert_for_sale_cards(conn, cards, price)
-                console.print(f"  [green]OK[/green] {pkg.color_group} [yellow][for sale @ ${price:.2f}][/yellow]: {qty} cards ({len(cards)} unique entries)")
+                upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
+                console.print(f"  [green]OK[/green] {pkg.color_group} [yellow][for sale][/yellow]: {qty} cards ({len(cards)} unique entries)")
             else:
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)

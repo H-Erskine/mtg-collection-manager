@@ -56,10 +56,15 @@ def _format_card_tag(foil: bool, set_code: str, basic: bool = False) -> str:
 _SALE_PRICE_RE = __import__("re").compile(r"^\$(\d+(?:\.\d+)?)")
 
 
-def _parse_sale_price(package_name: str) -> float | None:
-    """Return the price from a package name like '$2.50 Rare Singles', or None."""
+def _is_sale_package(package_name: str) -> bool:
+    """Return True if this Moxfield package is a for-sale list (name starts with '$')."""
+    return package_name.startswith("$")
+
+
+def _parse_sale_price(package_name: str) -> float:
+    """Extract a numeric price from a package name like '$2.50 Rare Singles', or 0.0."""
     m = _SALE_PRICE_RE.match(package_name)
-    return float(m.group(1)) if m else None
+    return float(m.group(1)) if m else 0.0
 
 
 def _auto_sync(cfg, conn) -> list[str]:
@@ -68,10 +73,9 @@ def _auto_sync(cfg, conn) -> list[str]:
     for pkg in cfg.packages:
         try:
             cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
-            price = _parse_sale_price(pkg_name)
-            if price is not None:
+            if _is_sale_package(pkg_name):
                 clear_for_sale_color_group(conn, pkg.color_group)
-                upsert_for_sale_cards(conn, cards, price)
+                upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
             else:
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
@@ -104,12 +108,11 @@ def handle_sync(color_group: str | None = None) -> str:
             except Exception as e:
                 lines.append(f"Failed to fetch {pkg.color_group}: {e}")
                 continue
-            price = _parse_sale_price(pkg_name)
             qty = sum(c.quantity for c in cards)
-            if price is not None:
+            if _is_sale_package(pkg_name):
                 clear_for_sale_color_group(conn, pkg.color_group)
-                upsert_for_sale_cards(conn, cards, price)
-                lines.append(f"{pkg.color_group} [for sale @ ${price:.2f}]: {qty} cards ({len(cards)} unique)")
+                upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
+                lines.append(f"{pkg.color_group} [for sale]: {qty} cards ({len(cards)} unique)")
             else:
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
