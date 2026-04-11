@@ -434,42 +434,21 @@ def handle_forsale(min_price: float = 0.0, show_price: bool = True) -> str:
         if not rows:
             return f"No cards for sale at €{min_price:.2f} or above."
 
-    # Build display rows
-    table_rows = []
+    # Compact separator format — keeps lines short enough for Discord mobile
+    # Format: "Card Name (SET) | Foil | tag1, tag2 | €1.50"
+    lines: list[str] = []
     for row in rows:
         qty_label = f"{row['quantity']}x " if row["quantity"] > 1 else ""
+        set_label = f" ({row['set_code'].upper()})" if row["set_code"] else ""
+        finish = "Foil" if row["foil"] else "Non-Foil"
         tags = tag_map.get((row["name"].lower(), row["set_code"].lower(), row["foil"]), [])
-        price_str = f"€{row['price']:.2f}" if row["price"] else "—"
-        table_rows.append((
-            f"{qty_label}{row['name']}",
-            row["set_code"].upper() if row["set_code"] else "",
-            "Foil" if row["foil"] else "Non-Foil",
-            ", ".join(tags),
-            price_str,
-        ))
 
-    # Dynamic column widths
-    col_name  = max(len(r[0]) for r in table_rows)
-    col_set   = max(len(r[1]) for r in table_rows)
-    col_fin   = 8  # "Non-Foil"
-    col_tags  = max((len(r[3]) for r in table_rows), default=0)
-    col_price = max(len(r[4]) for r in table_rows)
-
-    header = f"{'Card':<{col_name}}  {'Set':<{col_set}}  {'Finish':<{col_fin}}"
-    if col_tags:
-        header += f"  {'Tags':<{col_tags}}"
-    if show_price:
-        header += f"  {'Price':>{col_price}}"
-    sep = "-" * len(header)
-
-    lines = [header, sep]
-    for name, set_code, finish, tags, price_str in table_rows:
-        line = f"{name:<{col_name}}  {set_code:<{col_set}}  {finish:<{col_fin}}"
-        if col_tags:
-            line += f"  {tags:<{col_tags}}"
+        parts = [f"{qty_label}{row['name']}{set_label}", finish]
+        if tags:
+            parts.append(", ".join(tags))
         if show_price:
-            line += f"  {price_str:>{col_price}}"
-        lines.append(line)
+            parts.append(f"€{row['price']:.2f}" if row["price"] else "—")
+        lines.append(" | ".join(parts))
 
     total = sum(row["quantity"] for row in rows)
     lines.append(f"\n{total} card(s) for sale.")
