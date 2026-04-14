@@ -9,6 +9,7 @@ class OwnedCard:
     set_code: str = ""
     collector_number: str = ""
     foil: bool = False
+    cmc: float = 0.0
 
 
 @dataclass

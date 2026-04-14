@@ -65,6 +65,7 @@ def fetch_package_cards(
             if not name:
                 continue
             printings = item.get("printingData") or []
+            cmc: float = card_data.get("cmc", 0.0) or 0.0
             if printings:
                 # Use per-printing breakdown so different set/foil copies are stored separately
                 for p in printings:
@@ -77,6 +78,7 @@ def fetch_package_cards(
                             set_code=p.get("set", card_data.get("set", "")),
                             collector_number=p.get("cn", card_data.get("cn", "")),
                             foil=foil,
+                            cmc=cmc,
                         )
                     )
             else:
@@ -90,6 +92,7 @@ def fetch_package_cards(
                         set_code=card_data.get("set", ""),
                         collector_number=card_data.get("cn", ""),
                         foil=foil,
+                        cmc=cmc,
                     )
                 )
 

@@ -21,3 +21,8 @@ cache_ttl_hours = 24
 [database]
 # Path to your local SQLite database. ~ is expanded automatically.
 path = "~/.mtg_manager/collection.db"
+
+[output]
+# How to sort cards in the pick list after building a deck.
+# Options: colour, set, alphabetical, cmc
+pick_list_sort = "colour"

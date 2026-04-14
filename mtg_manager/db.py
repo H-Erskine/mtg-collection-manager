@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS owned_cards (
     color_group         TEXT NOT NULL DEFAULT '',
     foil                INTEGER NOT NULL DEFAULT 0,
     quantity            INTEGER NOT NULL DEFAULT 0,
+    cmc                 REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (name, set_code, collector_number, foil)
 );
 
@@ -79,6 +80,12 @@ def get_conn(db_path: Path):
             conn.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+        # Migration: add cmc to owned_cards
+        try:
+            conn.execute("ALTER TABLE owned_cards ADD COLUMN cmc REAL NOT NULL DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         yield conn
         conn.commit()
     except Exception:
@@ -92,11 +99,12 @@ def upsert_cards(conn: sqlite3.Connection, cards: list[OwnedCard]) -> int:
     """Insert or replace owned cards. Returns number of rows affected."""
     conn.executemany(
         """
-        INSERT INTO owned_cards (name, set_code, collector_number, color_group, foil, quantity)
-        VALUES (:name, :set_code, :collector_number, :color_group, :foil, :quantity)
+        INSERT INTO owned_cards (name, set_code, collector_number, color_group, foil, quantity, cmc)
+        VALUES (:name, :set_code, :collector_number, :color_group, :foil, :quantity, :cmc)
         ON CONFLICT (name, set_code, collector_number, foil)
         DO UPDATE SET quantity = excluded.quantity,
-                      color_group = excluded.color_group
+                      color_group = excluded.color_group,
+                      cmc = excluded.cmc
         """,
         [
             {
@@ -106,6 +114,7 @@ def upsert_cards(conn: sqlite3.Connection, cards: list[OwnedCard]) -> int:
                 "color_group": c.color_group,
                 "foil": int(c.foil),
                 "quantity": c.quantity,
+                "cmc": c.cmc,
             }
             for c in cards
         ],
@@ -131,6 +140,38 @@ def get_owned_quantity(conn: sqlite3.Connection, card_name: str) -> int:
         (name_lower, name_lower),
     ).fetchone()
     return row["total"] if row else 0
+
+
+def get_card_set_code(conn: sqlite3.Connection, card_name: str) -> str:
+    """Return the set code for a card (first owned copy, or '?' if unknown)."""
+    name_lower = card_name.lower()
+    row = conn.execute(
+        """
+        SELECT set_code FROM owned_cards
+        WHERE LOWER(name) = ?
+           OR LOWER(SUBSTR(name, 1, INSTR(name, ' // ') - 1)) = ?
+        ORDER BY quantity DESC
+        LIMIT 1
+        """,
+        (name_lower, name_lower),
+    ).fetchone()
+    return (row["set_code"] or "?").upper() if row else "?"
+
+
+def get_card_cmc(conn: sqlite3.Connection, card_name: str) -> float:
+    """Return the CMC for a card (highest-quantity copy), or 0 if unknown."""
+    name_lower = card_name.lower()
+    row = conn.execute(
+        """
+        SELECT cmc FROM owned_cards
+        WHERE LOWER(name) = ?
+           OR LOWER(SUBSTR(name, 1, INSTR(name, ' // ') - 1)) = ?
+        ORDER BY quantity DESC
+        LIMIT 1
+        """,
+        (name_lower, name_lower),
+    ).fetchone()
+    return row["cmc"] if row else 0.0
 
 
 def get_card_color_group(conn: sqlite3.Connection, card_name: str) -> str:

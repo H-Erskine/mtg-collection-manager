@@ -18,7 +18,9 @@ from mtg_manager.db import (
     delete_built_deck,
     get_available_quantity,
     get_card_allocations,
+    get_card_cmc,
     get_card_color_group,
+    get_card_set_code,
     get_card_tags,
     get_cards_over_limit,
     get_conn,
@@ -314,11 +316,21 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
 
         # Build pick list before insert so it's always available
         pick: dict[str, list[str]] = defaultdict(list)
+        cmc_entries: list[tuple[float, str]] = []  # for cmc sort mode
         proxy_lines: list[str] = []
+        sort_mode = cfg.pick_list_sort
         for name, qty, is_proxy in card_entries:
             if is_proxy:
                 proxy_lines.append(f"  {qty}x {name}")
-            else:
+            elif sort_mode == "set":
+                group = get_card_set_code(conn, name)
+                pick[group].append(f"  {qty}x {name}")
+            elif sort_mode == "alphabetical":
+                pick[""].append(f"  {qty}x {name}")
+            elif sort_mode == "cmc":
+                cmc = get_card_cmc(conn, name)
+                cmc_entries.append((cmc, f"  {qty}x {name}"))
+            else:  # colour (default)
                 group = get_card_color_group(conn, name)
                 pick[group].append(f"  {qty}x {name}")
 
@@ -343,9 +355,17 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
         lines.append("")
 
     lines.append("Pick list:")
-    for group in sorted(pick):
-        lines.append(f"[{group}]")
-        lines.extend(pick[group])
+    if cfg.pick_list_sort == "alphabetical":
+        for card in sorted(pick[""]):
+            lines.append(card)
+    elif cfg.pick_list_sort == "cmc":
+        for _, card in sorted(cmc_entries, key=lambda x: (x[0], x[1])):
+            lines.append(card)
+    else:
+        for group in sorted(pick):
+            lines.append(f"[{group}]")
+            for card in sorted(pick[group]):
+                lines.append(card)
 
     if proxy_lines:
         lines.append("[Proxies — print or substitute]")
