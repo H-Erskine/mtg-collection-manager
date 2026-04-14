@@ -416,6 +416,39 @@ def insert_built_deck(
     )
 
 
+def get_deck_return_list(conn: sqlite3.Connection, deck_id: str) -> list[sqlite3.Row]:
+    """Return cards allocated to a deck with their owned_cards metadata for the return list.
+
+    Each row: card_name, quantity, is_proxy, color_group, cmc.
+    Cards not found in owned_cards (pure proxies never synced) get empty color_group and cmc=0.
+    """
+    return conn.execute(
+        """
+        SELECT
+            ac.card_name,
+            ac.quantity,
+            ac.is_proxy,
+            COALESCE(oc.color_group, '') AS color_group,
+            COALESCE(oc.cmc, 0)         AS cmc
+        FROM allocated_cards ac
+        LEFT JOIN (
+            SELECT
+                name,
+                color_group,
+                cmc,
+                ROW_NUMBER() OVER (PARTITION BY LOWER(name) ORDER BY quantity DESC) AS rn
+            FROM owned_cards
+        ) oc ON (
+            LOWER(oc.name) = LOWER(ac.card_name)
+            OR LOWER(SUBSTR(oc.name, 1, INSTR(oc.name, ' // ') - 1)) = LOWER(ac.card_name)
+        ) AND oc.rn = 1
+        WHERE ac.deck_id = ?
+        ORDER BY ac.card_name
+        """,
+        (deck_id,),
+    ).fetchall()
+
+
 def delete_built_deck(conn: sqlite3.Connection, deck_id: str) -> bool:
     """Remove a built deck and return its cards to the pool. Returns False if not found."""
     if not get_deck(conn, deck_id):

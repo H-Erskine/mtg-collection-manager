@@ -15,6 +15,7 @@ from .db import (
     clear_for_sale_color_group,
     delete_built_deck,
     get_allocated_quantity,
+    get_deck_return_list,
     get_available_quantity,
     get_card_allocations,
     get_card_tags,
@@ -700,7 +701,60 @@ def unbox(deck_id):
 
         name = row["deck_name"]
         box = row["box_name"]
+        return_cards = get_deck_return_list(conn, deck_id)
         delete_built_deck(conn, deck_id)
 
     console.print(f"[green]Unboxed:[/green] {name} (was in [{box}])")
-    console.print("Cards returned to available pool.")
+    console.print()
+
+    owned = [(r["card_name"], r["quantity"], r["color_group"], r["cmc"])
+             for r in return_cards if not r["is_proxy"]]
+    proxies = [(r["card_name"], r["quantity"]) for r in return_cards if r["is_proxy"]]
+
+    sort_mode = cfg.pick_list_sort
+
+    def _cmc_str(cmc: float) -> str:
+        return str(int(cmc)) if cmc == int(cmc) else str(cmc)
+
+    console.print("[bold]Return to collection:[/bold]")
+    console.print()
+
+    if sort_mode == "cmc":
+        table = Table(show_header=False, box=None, pad_edge=False)
+        table.add_column(justify="right", style="bold", width=5)
+        table.add_column(min_width=35)
+        table.add_column(style="dim")
+        table.add_column(style="cyan", justify="right")
+        for card_name, qty, color_group, cmc in sorted(owned, key=lambda x: (x[3], x[0])):
+            table.add_row(f"{qty}x", card_name, f"[{color_group}]" if color_group else "", f"cmc {_cmc_str(cmc)}")
+        console.print(table)
+    elif sort_mode == "alphabetical":
+        table = Table(show_header=False, box=None, pad_edge=False)
+        table.add_column(justify="right", style="bold", width=5)
+        table.add_column(min_width=35)
+        table.add_column(style="dim")
+        table.add_column(style="cyan", justify="right")
+        for card_name, qty, color_group, cmc in sorted(owned, key=lambda x: x[0]):
+            table.add_row(f"{qty}x", card_name, f"[{color_group}]" if color_group else "", f"cmc {_cmc_str(cmc)}")
+        console.print(table)
+    else:
+        # colour (default) and set: group by color_group
+        groups: dict[str, list[tuple]] = defaultdict(list)
+        for card_name, qty, color_group, cmc in owned:
+            groups[color_group or "?"].append((card_name, qty, cmc))
+        sort_key = (lambda x: (x[2], x[0])) if sort_mode == "cmc" else (lambda x: x[0])
+        for group in sorted(groups):
+            console.print(f"[bold cyan][{group}][/bold cyan]")
+            table = Table(show_header=False, box=None, pad_edge=False)
+            table.add_column(justify="right", style="bold", width=5)
+            table.add_column(min_width=35)
+            table.add_column(style="cyan", justify="right")
+            for card_name, qty, cmc in sorted(groups[group], key=sort_key):
+                table.add_row(f"{qty}x", card_name, f"cmc {_cmc_str(cmc)}")
+            console.print(table)
+            console.print()
+
+    if proxies:
+        console.print("[yellow][Proxies — discard][/yellow]")
+        for card_name, qty in sorted(proxies):
+            console.print(f"  [dim]{qty}x {card_name}[/dim]")

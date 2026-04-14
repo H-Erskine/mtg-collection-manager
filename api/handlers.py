@@ -16,6 +16,7 @@ from mtg_manager.db import (
     clear_color_group,
     clear_for_sale_color_group,
     delete_built_deck,
+    get_deck_return_list,
     get_available_quantity,
     get_card_allocations,
     get_card_cmc,
@@ -427,9 +428,42 @@ def handle_unbox(deck_name: str) -> str:
         row = rows[0]
         name = row["deck_name"]
         box = row["box_name"]
-        delete_built_deck(conn, row["deck_id"])
+        deck_id = row["deck_id"]
+        return_cards = get_deck_return_list(conn, deck_id)
+        delete_built_deck(conn, deck_id)
 
-    return f"Unboxed: {name} (was in [{box}])\nCards returned to available pool."
+    lines = [f"Unboxed: {name} (was in [{box}])", "", "Return to collection:"]
+    sort_mode = cfg.pick_list_sort
+
+    owned = [(r["card_name"], r["quantity"], r["is_proxy"], r["color_group"], r["cmc"])
+             for r in return_cards if not r["is_proxy"]]
+    proxies = [(r["card_name"], r["quantity"]) for r in return_cards if r["is_proxy"]]
+
+    if sort_mode == "cmc":
+        for card_name, qty, _, color_group, cmc in sorted(owned, key=lambda x: (x[4], x[0])):
+            loc = f"[{color_group}] " if color_group else ""
+            lines.append(f"  {qty}x {card_name}  {loc}cmc {int(cmc) if cmc == int(cmc) else cmc}")
+    elif sort_mode == "alphabetical":
+        for card_name, qty, _, color_group, cmc in sorted(owned, key=lambda x: x[0]):
+            loc = f"[{color_group}] " if color_group else ""
+            lines.append(f"  {qty}x {card_name}  {loc}cmc {int(cmc) if cmc == int(cmc) else cmc}")
+    else:
+        # colour (default) and set: group by color_group
+        groups: dict[str, list[tuple]] = defaultdict(list)
+        for card_name, qty, _, color_group, cmc in owned:
+            groups[color_group or "?"].append((card_name, qty, cmc))
+        sort_key = (lambda x: (x[2], x[0])) if sort_mode == "set" else (lambda x: x[0])
+        for group in sorted(groups):
+            lines.append(f"[{group}]")
+            for card_name, qty, cmc in sorted(groups[group], key=sort_key):
+                lines.append(f"  {qty}x {card_name}  cmc {int(cmc) if cmc == int(cmc) else cmc}")
+
+    if proxies:
+        lines.append("[Proxies — discard]")
+        for card_name, qty in sorted(proxies):
+            lines.append(f"  {qty}x {card_name}")
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
