@@ -23,6 +23,7 @@ from mtg_manager.db import (
     get_card_color_group,
     get_card_set_code,
     get_card_tags,
+    get_cards_by_tag,
     get_cards_over_limit,
     get_conn,
     get_deck,
@@ -33,6 +34,7 @@ from mtg_manager.db import (
     insert_built_deck,
     list_built_decks,
     list_for_sale_cards,
+    remove_all_cards_with_tag,
     remove_card_tag,
     update_sale_prices,
     upsert_cards,
@@ -212,7 +214,7 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
     with get_conn(cfg.db_path) as conn:
         _auto_sync(cfg, conn)
         card_needs = [(canonical_name[k], max_needed[k], variant_count[k]) for k in keys]
-        missing_cards, boxed_cards = categorise_missing_cards(conn, card_needs, len(decklists))
+        missing_cards, boxed_cards, available_cards = categorise_missing_cards(conn, card_needs, len(decklists))
 
         # per-deck have/total
         deck_counts: list[tuple[str, int, int]] = []  # (name, have, total)
@@ -230,6 +232,11 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
 
     if not missing_cards and not boxed_cards:
         lines.append("You have all the cards and they are available!")
+        if available_cards:
+            lines.append("")
+            lines.append(f"Owned ({len(available_cards)} card(s)):")
+            for c in sorted(available_cards, key=lambda c: c.name):
+                lines.append(f"  {c.needed}x {c.name}  (have {c.owned})")
         return "\n".join(lines)
 
     if missing_cards:
@@ -248,6 +255,12 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
         for bc in sorted(boxed_cards, key=lambda c: c.name):
             for a in bc.allocations:
                 lines.append(f"  {bc.needed}x {bc.name} -> {a.quantity}x in [{a.box_name}] ({a.deck_name})")
+
+    if available_cards:
+        lines.append("")
+        lines.append(f"Already owned ({len(available_cards)} card(s)):")
+        for c in sorted(available_cards, key=lambda c: c.name):
+            lines.append(f"  {c.needed}x {c.name}  (have {c.owned})")
 
     if missing_cards:
         lines.append("")
@@ -548,6 +561,46 @@ def handle_untag(name: str, tag: str, set_code: str = "", foil: bool = False) ->
     remaining = f"Remaining tags: {', '.join(tags)}" if tags else "No tags remaining."
     descriptor = name + (f" ({set_code.upper()})" if set_code else "")
     return f"Removed tag '{tag}' from {descriptor}.\n{remaining}"
+
+
+def handle_tagged(tag: str) -> str:
+    """List all cards carrying a given tag."""
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    with get_conn(cfg.db_path) as conn:
+        rows = get_cards_by_tag(conn, tag)
+
+    if not rows:
+        return f"No cards tagged '{tag}'."
+
+    lines = [f"Cards tagged '{tag}':"]
+    for row in rows:
+        line = row["name"]
+        if row["set_code"]:
+            line += f" ({row['set_code'].upper()})"
+        if row["foil"]:
+            line += " [foil]"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def handle_cleartag(tag: str) -> str:
+    """Remove a tag from all cards that have it."""
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    with get_conn(cfg.db_path) as conn:
+        count = remove_all_cards_with_tag(conn, tag)
+
+    if count == 0:
+        return f"No cards were tagged '{tag}'."
+    noun = "card" if count == 1 else "cards"
+    return f"Cleared tag '{tag}' from {count} {noun}."
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ from .db import (
     get_available_quantity,
     get_card_allocations,
     get_card_tags,
+    get_cards_by_tag,
     get_cards_over_limit,
     get_conn,
     get_deck,
@@ -27,6 +28,7 @@ from .db import (
     insert_built_deck,
     list_built_decks,
     list_for_sale_cards,
+    remove_all_cards_with_tag,
     remove_card_tag,
     update_sale_prices,
     upsert_cards,
@@ -254,10 +256,15 @@ def missing(urls, sideboard, min_variants):
         with get_conn(cfg.db_path) as conn:
             _auto_sync(cfg, conn)
             card_needs = [(canonical_name[k], max_needed[k], variant_count[k]) for k in keys]
-            missing_cards, boxed_cards = categorise_missing_cards(conn, card_needs, len(decklists))
+            missing_cards, boxed_cards, available_cards = categorise_missing_cards(conn, card_needs, len(decklists))
 
         if not missing_cards and not boxed_cards:
             console.print("[green]You have all the cards and they are available![/green]")
+            if available_cards:
+                console.print()
+                console.print(f"[bold green]Owned ({len(available_cards)} card(s)):[/bold green]")
+                for c in sorted(available_cards, key=lambda c: c.name):
+                    console.print(f"  {c.needed}x {c.name}  [dim](have {c.owned})[/dim]")
             return
 
         if not missing_cards and boxed_cards:
@@ -265,6 +272,11 @@ def missing(urls, sideboard, min_variants):
                           "[yellow]But some are currently in boxes:[/yellow]\n")
             for line in _boxed_lines(boxed_cards):
                 console.print(line)
+            if available_cards:
+                console.print()
+                console.print(f"[bold green]Also owned and available ({len(available_cards)} card(s)):[/bold green]")
+                for c in sorted(available_cards, key=lambda c: c.name):
+                    console.print(f"  {c.needed}x {c.name}  [dim](have {c.owned})[/dim]")
             return
 
         missing_cards.sort(key=lambda c: (-c.variants, c.name))
@@ -288,6 +300,12 @@ def missing(urls, sideboard, min_variants):
             console.print("\n[yellow]Also in boxes (owned but allocated):[/yellow]")
             for line in _boxed_lines(boxed_cards):
                 console.print(line)
+
+        if available_cards:
+            console.print()
+            console.print(f"[bold green]Already owned ({len(available_cards)} card(s)):[/bold green]")
+            for c in sorted(available_cards, key=lambda c: c.name):
+                console.print(f"  {c.needed}x {c.name}  [dim](have {c.owned})[/dim]")
 
         console.print()
         console.print("[bold]Order list:[/bold]")
@@ -316,7 +334,7 @@ def missing(urls, sideboard, min_variants):
 
             total_slots = sum(qty for _, qty in needed_map.values())
             card_needs = [(name, qty, 1) for _, (name, qty) in needed_map.items()]
-            dm, db = categorise_missing_cards(conn, card_needs, 1)
+            dm, db, _ = categorise_missing_cards(conn, card_needs, 1)
             have_slots = sum(
                 min(get_owned_quantity(conn, name), qty) for _, (name, qty) in needed_map.items()
             )
@@ -654,6 +672,56 @@ def untag(name, tag, set_code, foil):
     console.print(f"[green]Removed tag '{tag}' from {descriptor}.[/green]")
     if tags:
         console.print(f"Remaining tags: {', '.join(tags)}")
+
+
+@cli.command()
+@click.argument("tag")
+def tagged(tag):
+    """List all cards with a given tag.
+
+    \b
+    Example:
+      mtg tagged Liam
+    """
+    cfg = _load_cfg()
+    with get_conn(cfg.db_path) as conn:
+        rows = get_cards_by_tag(conn, tag)
+
+    if not rows:
+        console.print(f"[yellow]No cards tagged '{tag}'.[/yellow]")
+        return
+
+    table = Table(title=f"Cards tagged '{tag}'", show_header=True, header_style="bold")
+    table.add_column("Card")
+    table.add_column("Set", style="dim")
+    table.add_column("Foil", style="dim")
+    for row in rows:
+        table.add_row(
+            row["name"],
+            row["set_code"].upper() if row["set_code"] else "",
+            "foil" if row["foil"] else "",
+        )
+    console.print(table)
+
+
+@cli.command()
+@click.argument("tag")
+def cleartag(tag):
+    """Remove a tag from all cards that have it.
+
+    \b
+    Example:
+      mtg cleartag Liam
+    """
+    cfg = _load_cfg()
+    with get_conn(cfg.db_path) as conn:
+        count = remove_all_cards_with_tag(conn, tag)
+
+    if count == 0:
+        err_console.print(f"[yellow]No cards were tagged '{tag}'.[/yellow]")
+        return
+    noun = "card" if count == 1 else "cards"
+    console.print(f"[green]Cleared tag '{tag}' from {count} {noun}.[/green]")
 
 
 # ---------------------------------------------------------------------------

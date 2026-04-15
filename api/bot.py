@@ -19,6 +19,7 @@ from .handlers import (
     fetch_card_data,
     handle_boxes,
     handle_build,
+    handle_cleartag,
     handle_extras,
     handle_forsale,
     handle_help,
@@ -27,6 +28,7 @@ from .handlers import (
     handle_stats,
     handle_sync,
     handle_tag,
+    handle_tagged,
     handle_unbox,
     handle_untag,
     handle_version,
@@ -368,6 +370,32 @@ async def cmd_untag(
         interaction, reply,
         title="Tag Removed",
         color=COLOR_WARNING if not_found else COLOR_SUCCESS,
+    )
+
+
+@tree.command(name="tagged", description="List all cards with a given tag")
+@app_commands.describe(tag="Tag to search for (e.g. Liam, signed)")
+async def cmd_tagged(interaction: discord.Interaction, tag: str):
+    await interaction.response.defer()
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_tagged, tag)
+    is_error = reply.startswith("Error:")
+    await _send_embed(
+        interaction, reply,
+        title=f"Cards tagged '{tag}'",
+        color=COLOR_ERROR if is_error else COLOR_INFO,
+    )
+
+
+@tree.command(name="cleartag", description="Remove a tag from all cards that have it")
+@app_commands.describe(tag="Tag to clear from all cards (e.g. Liam)")
+async def cmd_cleartag(interaction: discord.Interaction, tag: str):
+    await interaction.response.defer()
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_cleartag, tag)
+    is_error = reply.startswith("Error:")
+    await _send_embed(
+        interaction, reply,
+        title="Tag Cleared",
+        color=COLOR_ERROR if is_error else COLOR_SUCCESS,
     )
 
 

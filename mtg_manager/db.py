@@ -308,6 +308,23 @@ def get_tags_for_sale_cards(conn: sqlite3.Connection) -> dict[tuple, list[str]]:
     return result
 
 
+def get_cards_by_tag(conn: sqlite3.Connection, tag: str) -> list[sqlite3.Row]:
+    """Return distinct (name, set_code, foil) for all cards carrying the given tag."""
+    return conn.execute(
+        "SELECT DISTINCT name, set_code, foil FROM card_tags WHERE LOWER(tag) = ? ORDER BY name",
+        (tag.strip().lower(),),
+    ).fetchall()
+
+
+def remove_all_cards_with_tag(conn: sqlite3.Connection, tag: str) -> int:
+    """Remove a tag from every card that has it. Returns number of rows deleted."""
+    conn.execute(
+        "DELETE FROM card_tags WHERE LOWER(tag) = ?",
+        (tag.strip().lower(),),
+    )
+    return conn.total_changes
+
+
 BASIC_LANDS = {"forest", "island", "mountain", "plains", "swamp"}
 
 
@@ -468,24 +485,36 @@ def categorise_missing_cards(
     conn: sqlite3.Connection,
     card_needs: list[tuple[str, int, int]],
     total_variants: int,
-) -> tuple[list[MissingCard], list[BoxedCard]]:
-    """Split a list of card requirements into missing (need to order) and boxed (owned but allocated).
+) -> tuple[list[MissingCard], list[BoxedCard], list[MissingCard]]:
+    """Split a list of card requirements into missing, boxed, and available cards.
 
     card_needs: list of (canonical_name, needed_qty, variant_count_for_this_card)
     total_variants: total number of deck variants being compared (for MissingCard.total_variants)
+
+    Returns (missing, boxed, available):
+      missing:   need to order (owned < needed)
+      boxed:     owned but allocated to a box (available < needed)
+      available: owned and ready to use (short=0)
     """
     missing: list[MissingCard] = []
     boxed: list[BoxedCard] = []
+    available: list[MissingCard] = []
     for name, needed, variants in card_needs:
         owned = get_owned_quantity(conn, name)
         allocs = get_card_allocations(conn, name)
-        available = owned - sum(a.quantity for a in allocs)
+        avail_qty = owned - sum(a.quantity for a in allocs)
         if owned < needed:
             missing.append(MissingCard(
                 name=name, needed=needed, owned=owned,
                 short=needed - owned, variants=variants,
                 total_variants=total_variants,
             ))
-        elif available < needed and allocs:
+        elif avail_qty < needed and allocs:
             boxed.append(BoxedCard(name=name, needed=needed, owned=owned, allocations=allocs))
-    return missing, boxed
+        else:
+            available.append(MissingCard(
+                name=name, needed=needed, owned=owned,
+                short=0, variants=variants,
+                total_variants=total_variants,
+            ))
+    return missing, boxed, available
