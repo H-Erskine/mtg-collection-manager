@@ -462,20 +462,24 @@ def get_illegal_owned_cards(conn: sqlite3.Connection, formats: list[str]) -> lis
     placeholders = ",".join("?" * len(formats))
     return conn.execute(
         f"""
-        SELECT oc.name,
-               oc.set_code,
-               oc.foil,
-               SUM(oc.quantity) AS quantity,
+        SELECT agg.name,
+               agg.set_code,
+               agg.foil,
+               agg.quantity,
                GROUP_CONCAT(DISTINCT cl.format) AS illegal_in
-        FROM owned_cards oc
+        FROM (
+            SELECT name, set_code, foil, SUM(quantity) AS quantity
+            FROM owned_cards
+            WHERE LOWER(name) NOT IN (SELECT LOWER(name) FROM for_sale_cards)
+            GROUP BY name, set_code, foil
+        ) agg
         JOIN card_legalities cl
-          ON LOWER(cl.name) = LOWER(oc.name)
+          ON LOWER(cl.name) = LOWER(agg.name)
          AND cl.format IN ({placeholders})
          AND cl.is_legal = 0
-        WHERE LOWER(oc.name) NOT IN (SELECT LOWER(name) FROM for_sale_cards)
-        GROUP BY oc.name, oc.set_code, oc.foil
+        GROUP BY agg.name, agg.set_code, agg.foil
         HAVING COUNT(DISTINCT cl.format) = ?
-        ORDER BY oc.name
+        ORDER BY agg.name
         """,
         (*formats, len(formats)),
     ).fetchall()
