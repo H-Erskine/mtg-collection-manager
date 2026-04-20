@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS allocated_cards (
 );
 
 CREATE INDEX IF NOT EXISTS idx_allocated_card_name ON allocated_cards (card_name);
+
+CREATE TABLE IF NOT EXISTS card_legalities (
+    name     TEXT NOT NULL,
+    format   TEXT NOT NULL,
+    is_legal INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (name, format)
+);
 """
 
 
@@ -228,8 +235,31 @@ def clear_for_sale_color_group(conn: sqlite3.Connection, color_group: str) -> No
     conn.execute("DELETE FROM for_sale_cards WHERE color_group = ?", (color_group,))
 
 
-def list_for_sale_cards(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Return all for-sale cards ordered by price desc then name."""
+def list_for_sale_cards(
+    conn: sqlite3.Connection,
+    illegal_formats: list[str] | None = None,
+) -> list[sqlite3.Row]:
+    """Return all for-sale cards ordered by price desc then name.
+
+    When illegal_formats is provided, only cards illegal in at least one of those formats
+    are returned. Each row gains an extra `illegal_in` column (comma-separated format names).
+    """
+    if illegal_formats:
+        placeholders = ",".join("?" * len(illegal_formats))
+        return conn.execute(
+            f"""
+            SELECT fs.name, fs.set_code, fs.collector_number, fs.foil, fs.quantity, fs.price,
+                   GROUP_CONCAT(cl.format) AS illegal_in
+            FROM for_sale_cards fs
+            JOIN card_legalities cl
+              ON LOWER(cl.name) = LOWER(fs.name)
+             AND cl.format IN ({placeholders})
+             AND cl.is_legal = 0
+            GROUP BY fs.name, fs.set_code, fs.collector_number, fs.foil, fs.quantity, fs.price
+            ORDER BY fs.price DESC, fs.name
+            """,
+            illegal_formats,
+        ).fetchall()
     return conn.execute(
         """
         SELECT name, set_code, collector_number, foil, quantity, price
@@ -328,10 +358,41 @@ def remove_all_cards_with_tag(conn: sqlite3.Connection, tag: str) -> int:
 BASIC_LANDS = {"forest", "island", "mountain", "plains", "swamp"}
 
 
-def get_cards_over_limit(conn: sqlite3.Connection, limit: int = 4) -> list[sqlite3.Row]:
+def get_cards_over_limit(
+    conn: sqlite3.Connection,
+    limit: int = 4,
+    illegal_formats: list[str] | None = None,
+) -> list[sqlite3.Row]:
     """Return all versions of cards whose total quantity exceeds `limit`, excluding basic lands
     and any cards currently listed in for_sale_cards.
-    Rows are ordered by name then quantity DESC so the largest version comes first."""
+    Rows are ordered by name then quantity DESC so the largest version comes first.
+
+    When illegal_formats is provided, only cards illegal in at least one of those formats
+    are returned. Each row gains an extra `illegal_in` column (comma-separated format names).
+    """
+    if illegal_formats:
+        placeholders = ",".join("?" * len(illegal_formats))
+        return conn.execute(
+            f"""
+            SELECT oc.name, oc.set_code, oc.foil, oc.quantity, oc.color_group,
+                   GROUP_CONCAT(cl.format) AS illegal_in
+            FROM owned_cards oc
+            JOIN card_legalities cl
+              ON LOWER(cl.name) = LOWER(oc.name)
+             AND cl.format IN ({placeholders})
+             AND cl.is_legal = 0
+            WHERE LOWER(oc.name) NOT IN ('forest','island','mountain','plains','swamp')
+              AND LOWER(oc.name) NOT IN (SELECT LOWER(name) FROM for_sale_cards)
+              AND LOWER(oc.name) IN (
+                SELECT LOWER(name) FROM owned_cards
+                GROUP BY LOWER(name)
+                HAVING SUM(quantity) > ?
+              )
+            GROUP BY oc.name, oc.set_code, oc.foil, oc.quantity, oc.color_group
+            ORDER BY LOWER(oc.name), oc.quantity DESC
+            """,
+            (*illegal_formats, limit),
+        ).fetchall()
     return conn.execute(
         """
         SELECT name, set_code, foil, quantity, color_group
@@ -346,6 +407,73 @@ def get_cards_over_limit(conn: sqlite3.Connection, limit: int = 4) -> list[sqlit
         ORDER BY LOWER(name), quantity DESC
         """,
         (limit,),
+    ).fetchall()
+
+
+def upsert_legalities(conn: sqlite3.Connection, legality_map: dict[str, dict[str, bool]]) -> int:
+    """Upsert format legality for a set of cards.
+
+    legality_map: {card_name: {format: is_legal}}
+    Returns number of rows affected.
+    """
+    rows = [
+        (name, fmt, int(is_legal))
+        for name, formats in legality_map.items()
+        for fmt, is_legal in formats.items()
+    ]
+    conn.executemany(
+        "INSERT OR REPLACE INTO card_legalities (name, format, is_legal) VALUES (?, ?, ?)",
+        rows,
+    )
+    return conn.total_changes
+
+
+def get_names_missing_legality(conn: sqlite3.Connection, formats: list[str]) -> list[str]:
+    """Return distinct card names in owned_cards with no legality entry for any of the given formats."""
+    placeholders = ",".join("?" * len(formats))
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT name FROM owned_cards
+        WHERE name NOT IN (
+            SELECT DISTINCT name FROM card_legalities WHERE format IN ({placeholders})
+        )
+        """,
+        formats,
+    ).fetchall()
+    return [r["name"] for r in rows]
+
+
+def get_all_owned_names(conn: sqlite3.Connection) -> list[str]:
+    """Return all distinct card names in owned_cards."""
+    rows = conn.execute("SELECT DISTINCT name FROM owned_cards").fetchall()
+    return [r["name"] for r in rows]
+
+
+def get_illegal_owned_cards(conn: sqlite3.Connection, formats: list[str]) -> list[sqlite3.Row]:
+    """Return owned cards (not for-sale) illegal in ALL of the given formats.
+
+    Each row: name, set_code, foil, quantity, illegal_in (comma-separated formats).
+    Sorted by name ASC.
+    """
+    placeholders = ",".join("?" * len(formats))
+    return conn.execute(
+        f"""
+        SELECT oc.name,
+               oc.set_code,
+               oc.foil,
+               SUM(oc.quantity) AS quantity,
+               GROUP_CONCAT(DISTINCT cl.format) AS illegal_in
+        FROM owned_cards oc
+        JOIN card_legalities cl
+          ON LOWER(cl.name) = LOWER(oc.name)
+         AND cl.format IN ({placeholders})
+         AND cl.is_legal = 0
+        WHERE LOWER(oc.name) NOT IN (SELECT LOWER(name) FROM for_sale_cards)
+        GROUP BY oc.name, oc.set_code, oc.foil
+        HAVING COUNT(DISTINCT cl.format) = ?
+        ORDER BY oc.name
+        """,
+        (*formats, len(formats)),
     ).fetchall()
 
 

@@ -26,3 +26,10 @@ path = "~/.mtg_manager/collection.db"
 # How to sort cards in the pick list after building a deck.
 # Options: colour, set, alphabetical, cmc
 pick_list_sort = "colour"
+
+[formats]
+# Formats to track legality for. Names match Scryfall legality keys:
+# standard, pioneer, modern, legacy, vintage, commander, pauper
+# Legality data is fetched from Scryfall during 'mtg sync'.
+# Leave empty or omit this section to disable format legality features.
+tracked = ["modern", "standard"]

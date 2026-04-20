@@ -1,5 +1,5 @@
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -20,6 +20,7 @@ class Config:
     mtgtop8_cache_ttl: int
     db_path: Path
     pick_list_sort: str = "colour"
+    formats: list[str] = field(default_factory=list)
 
 
 DEFAULT_CONFIG = Path("~/.mtg_manager/config.toml").expanduser()
@@ -69,4 +70,5 @@ def load_config(path: Path | str | None = None) -> Config:
         mtgtop8_cache_ttl=data["mtgtop8"].get("cache_ttl_hours", 24),
         db_path=Path(data["database"]["path"]).expanduser(),
         pick_list_sort=pick_list_sort,
+        formats=data.get("formats", {}).get("tracked", []),
     )

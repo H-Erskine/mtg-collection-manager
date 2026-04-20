@@ -15,6 +15,7 @@ from .db import (
     clear_for_sale_color_group,
     delete_built_deck,
     get_allocated_quantity,
+    get_all_owned_names,
     get_deck_return_list,
     get_available_quantity,
     get_card_allocations,
@@ -23,6 +24,8 @@ from .db import (
     get_cards_over_limit,
     get_conn,
     get_deck,
+    get_illegal_owned_cards,
+    get_names_missing_legality,
     get_owned_quantity,
     get_tags_for_sale_cards,
     insert_built_deck,
@@ -33,10 +36,12 @@ from .db import (
     update_sale_prices,
     upsert_cards,
     upsert_for_sale_cards,
+    upsert_legalities,
 )
 from .models import BoxedCard, MissingCard
 from .moxfield import fetch_package_cards
 from .prices import fetch_cardmarket_prices
+from .scryfall import fetch_legalities
 from .sources import fetch_decklists
 
 console = Console()
@@ -130,7 +135,9 @@ def version():
 
 @cli.command()
 @click.option("--color-group", "-c", default=None, help="Only sync a specific color group.")
-def sync(color_group):
+@click.option("--refresh-legality", is_flag=True, default=False,
+              help="Re-fetch legality for all owned cards (use after bans/rotation).")
+def sync(color_group, refresh_legality):
     """Fetch Moxfield packages and update the local collection database."""
     cfg = _load_cfg()
 
@@ -190,6 +197,26 @@ def sync(color_group):
                     console.print(f"  [green]OK[/green] CardMarket prices: {len(updates)}/{len(sale_rows)} updated")
                 except Exception as e:
                     err_console.print(f"[yellow]Warning: price fetch failed: {e}[/yellow]")
+
+        if cfg.formats:
+            names = (
+                get_all_owned_names(conn)
+                if refresh_legality
+                else get_names_missing_legality(conn, cfg.formats)
+            )
+            if names:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn(f"[cyan]Fetching legality for {len(names)} card(s) from Scryfall...[/cyan]"),
+                    console=console,
+                    transient=True,
+                ) as progress:
+                    progress.add_task("legality")
+                    legality_map = fetch_legalities(names, cfg.formats)
+                upsert_legalities(conn, legality_map)
+                console.print(f"  [green]OK[/green] Legality: {len(legality_map)}/{len(names)} card(s) updated")
+            else:
+                console.print("  [dim]Legality data up to date[/dim]")
 
         console.print(f"\n[bold]Collection total:[/bold] {card_count(conn)} cards")
 
@@ -535,26 +562,40 @@ def build(url, box, sideboard):
 @cli.command()
 @click.option("--limit", "-l", default=4, show_default=True, type=int,
               help="Flag cards with more than this many copies.")
-def extras(limit):
+@click.option("--format", "-f", "fmt", default=None, metavar="FORMAT",
+              help="Only show extras that are illegal in this format (e.g. modern).")
+def extras(limit, fmt):
     """List cards you own more than 4 copies of (potential trade/sell stock)."""
     cfg = _load_cfg()
+    illegal_formats = [fmt] if fmt else None
 
     with get_conn(cfg.db_path) as conn:
         _auto_sync(cfg, conn)
-        rows = get_cards_over_limit(conn, limit)
+        rows = get_cards_over_limit(conn, limit, illegal_formats=illegal_formats)
 
     if not rows:
-        console.print(f"No cards with more than {limit} copies.")
+        if fmt:
+            console.print(f"No extras that are illegal in {fmt}.")
+        else:
+            console.print(f"No cards with more than {limit} copies.")
         return
 
-    console.print(f"\n[bold]Cards with more than {limit} copies:[/bold]\n")
+    title = f"Cards with more than {limit} copies"
+    if fmt:
+        title += f" (illegal in {fmt})"
+    console.print(f"\n[bold]{title}:[/bold]\n")
     table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
     table.add_column("Copies", justify="right", style="bold yellow", width=7)
     table.add_column("Card", min_width=35)
     table.add_column("Package", style="dim")
+    if fmt:
+        table.add_column("Illegal in", style="red dim")
 
     for row in rows:
-        table.add_row(str(row["quantity"]), row["name"], row["color_group"])
+        cols = [str(row["quantity"]), row["name"], row["color_group"]]
+        if fmt:
+            cols.append(row["illegal_in"] or "")
+        table.add_row(*cols)
 
     console.print(table)
     console.print(f"\n[dim]{len(rows)} card(s) total[/dim]")
@@ -569,16 +610,20 @@ def extras(limit):
               help="Only show cards with a CardMarket price >= this value (EUR).")
 @click.option("--hide-price", is_flag=True, default=False,
               help="Omit the price column (useful for public posting).")
-def forsale(min_price, hide_price):
+@click.option("--format", "-f", "fmt", default=None, metavar="FORMAT",
+              help="Only show cards illegal in this format (e.g. modern).")
+def forsale(min_price, hide_price, fmt):
     """List all cards marked for sale.
 
     Prices are fetched from CardMarket during sync.
     Use --min-price to filter by value, --hide-price for public-friendly output.
+    Use --format to show only cards illegal in a given format.
     """
     cfg = _load_cfg()
+    illegal_formats = [fmt] if fmt else None
 
     with get_conn(cfg.db_path) as conn:
-        rows = list_for_sale_cards(conn)
+        rows = list_for_sale_cards(conn, illegal_formats=illegal_formats)
         tag_map = get_tags_for_sale_cards(conn)
 
     if not rows:
@@ -599,6 +644,8 @@ def forsale(min_price, hide_price):
     has_tags = any(tag_map.get((r["name"].lower(), r["set_code"].lower(), r["foil"])) for r in rows)
     if has_tags:
         table.add_column("Tags", style="dim")
+    if fmt:
+        table.add_column("Illegal in", style="red dim")
     if not hide_price:
         table.add_column("Price", justify="right", width=8)
 
@@ -611,6 +658,8 @@ def forsale(min_price, hide_price):
         cols = [f"{qty_label}{row['name']}", row["set_code"].upper(), foil_label]
         if has_tags:
             cols.append(", ".join(tags))
+        if fmt:
+            cols.append(row["illegal_in"] or "")
         if not hide_price:
             cols.append(price_str)
         table.add_row(*cols)
@@ -618,6 +667,58 @@ def forsale(min_price, hide_price):
 
     console.print(table)
     console.print(f"\n[dim]{total} card(s) for sale[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# mtg illegal
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("--format", "-f", "formats", multiple=True, metavar="FORMAT",
+              help="Override configured formats (repeatable). Default: formats.tracked in config.toml.")
+def illegal(formats):
+    """List owned cards not legal in any of your configured formats.
+
+    Uses formats.tracked from config.toml unless --format is specified.
+    Run 'mtg sync' first to populate legality data.
+    Cards currently listed for sale are excluded.
+    """
+    cfg = _load_cfg()
+    active_formats = list(formats) or cfg.formats
+
+    if not active_formats:
+        console.print("[yellow]No formats configured.[/yellow]")
+        console.print("[dim]Add [formats] tracked = [\"modern\", \"standard\"] to config.toml, "
+                      "or pass --format <fmt>.[/dim]")
+        return
+
+    with get_conn(cfg.db_path) as conn:
+        rows = get_illegal_owned_cards(conn, active_formats)
+
+    if not rows:
+        console.print(f"All owned cards are legal in: [green]{', '.join(active_formats)}[/green]")
+        return
+
+    console.print(f"\n[bold]Cards illegal in all of: {', '.join(active_formats)}[/bold]\n")
+    table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+    table.add_column("Card", min_width=35)
+    table.add_column("Set", width=5)
+    table.add_column("Finish", width=10)
+    table.add_column("Qty", justify="right", style="bold yellow", width=5)
+    table.add_column("Illegal in", style="red dim")
+
+    for row in rows:
+        foil_label = "Foil" if row["foil"] else "Non-Foil"
+        table.add_row(
+            row["name"],
+            row["set_code"].upper(),
+            foil_label,
+            str(row["quantity"]),
+            row["illegal_in"] or "",
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]{len(rows)} card(s) illegal in all tracked formats[/dim]")
 
 
 # ---------------------------------------------------------------------------

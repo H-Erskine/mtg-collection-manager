@@ -23,6 +23,7 @@ from .handlers import (
     handle_extras,
     handle_forsale,
     handle_help,
+    handle_illegal,
     handle_missing,
     handle_search,
     handle_stats,
@@ -261,13 +262,17 @@ async def cmd_unbox(interaction: discord.Interaction, deck_name: str):
 @app_commands.describe(
     limit="Flag cards with more than this many copies (default 4)",
     basic="Just list card names without set codes",
+    fmt="Only show cards illegal in this format (e.g. modern)",
 )
-async def cmd_extras(interaction: discord.Interaction, limit: int = 4, basic: bool = False):
+async def cmd_extras(interaction: discord.Interaction, limit: int = 4, basic: bool = False, fmt: str = ""):
     await interaction.response.defer()
-    reply = await asyncio.get_event_loop().run_in_executor(None, handle_extras, limit, basic)
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_extras, limit, basic, fmt or None)
+    title = f"Spare Cards (>{limit} copies)"
+    if fmt:
+        title += f" — illegal in {fmt}"
     await _send_embed(
         interaction, reply,
-        title=f"Spare Cards (>{limit} copies)",
+        title=title,
         color=COLOR_WARNING,
         code_block=True,
     )
@@ -302,21 +307,37 @@ async def cmd_stats(interaction: discord.Interaction):
 @app_commands.describe(
     min_price="Only show cards priced at or above this value in EUR (e.g. 1.0)",
     hide_price="Hide the price column — useful for posting publicly",
+    fmt="Only show cards illegal in this format (e.g. modern)",
 )
 async def cmd_forsale(
     interaction: discord.Interaction,
     min_price: float = 0.0,
     hide_price: bool = False,
+    fmt: str = "",
 ):
     await interaction.response.defer()
     reply = await asyncio.get_event_loop().run_in_executor(
-        None, handle_forsale, min_price, hide_price
+        None, handle_forsale, min_price, not hide_price, fmt or None
     )
     is_empty = "No cards listed" in reply
     await _send_embed(
         interaction, reply,
         title="For Sale",
         color=COLOR_WARNING if is_empty else COLOR_INFO,
+        code_block=True,
+    )
+
+
+@tree.command(name="illegal", description="List owned cards not legal in any of your configured formats")
+@app_commands.describe(fmt="Override format (e.g. modern). Default: formats.tracked in config.toml.")
+async def cmd_illegal(interaction: discord.Interaction, fmt: str = ""):
+    await interaction.response.defer()
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_illegal, fmt or None)
+    is_error = reply.startswith("Error:") or "No formats configured" in reply
+    await _send_embed(
+        interaction, reply,
+        title="Illegal Cards",
+        color=COLOR_ERROR if is_error else COLOR_WARNING,
         code_block=True,
     )
 

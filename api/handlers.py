@@ -16,6 +16,7 @@ from mtg_manager.db import (
     clear_color_group,
     clear_for_sale_color_group,
     delete_built_deck,
+    get_all_owned_names,
     get_deck_return_list,
     get_available_quantity,
     get_card_allocations,
@@ -29,6 +30,8 @@ from mtg_manager.db import (
     get_deck,
     get_deck_by_url,
     get_decks_by_name,
+    get_illegal_owned_cards,
+    get_names_missing_legality,
     get_owned_quantity,
     get_tags_for_sale_cards,
     insert_built_deck,
@@ -39,10 +42,12 @@ from mtg_manager.db import (
     update_sale_prices,
     upsert_cards,
     upsert_for_sale_cards,
+    upsert_legalities,
 )
 from mtg_manager.models import BoxedCard, MissingCard
 from mtg_manager.moxfield import fetch_package_cards
 from mtg_manager.prices import fetch_cardmarket_prices
+from mtg_manager.scryfall import fetch_legalities
 from mtg_manager.sources import fetch_decklists, source_name
 
 
@@ -164,6 +169,16 @@ def handle_sync(color_group: str | None = None) -> str:
                     lines.append(f"CardMarket prices updated: {len(updates)}/{len(sale_rows)} card(s).")
             except Exception as e:
                 lines.append(f"Price fetch failed: {e}")
+
+        if cfg.formats:
+            names = get_names_missing_legality(conn, cfg.formats)
+            if names:
+                try:
+                    legality_map = fetch_legalities(names, cfg.formats)
+                    upsert_legalities(conn, legality_map)
+                    lines.append(f"Legality: {len(legality_map)}/{len(names)} card(s) updated.")
+                except Exception as e:
+                    lines.append(f"Legality fetch failed: {e}")
 
         total = card_count(conn)
 
@@ -483,14 +498,15 @@ def handle_unbox(deck_name: str) -> str:
 # forsale
 # ---------------------------------------------------------------------------
 
-def handle_forsale(min_price: float = 0.0, show_price: bool = True) -> str:
+def handle_forsale(min_price: float = 0.0, show_price: bool = True, fmt: str | None = None) -> str:
     try:
         cfg = _load_cfg()
     except FileNotFoundError as e:
         return f"Error: {e}"
 
+    illegal_formats = [fmt] if fmt else None
     with get_conn(cfg.db_path) as conn:
-        rows = list_for_sale_cards(conn)
+        rows = list_for_sale_cards(conn, illegal_formats=illegal_formats)
         tag_map = get_tags_for_sale_cards(conn)
 
     if not rows:
@@ -668,15 +684,16 @@ def handle_help() -> str:
 # extras
 # ---------------------------------------------------------------------------
 
-def handle_extras(limit: int = 4, basic: bool = False) -> str:
+def handle_extras(limit: int = 4, basic: bool = False, fmt: str | None = None) -> str:
     try:
         cfg = _load_cfg()
     except FileNotFoundError as e:
         return f"Error: {e}"
 
+    illegal_formats = [fmt] if fmt else None
     with get_conn(cfg.db_path) as conn:
         _auto_sync(cfg, conn)
-        rows = get_cards_over_limit(conn, limit)
+        rows = get_cards_over_limit(conn, limit, illegal_formats=illegal_formats)
 
     if not rows:
         return f"No cards with more than {limit} copies."
@@ -712,6 +729,40 @@ def handle_extras(limit: int = 4, basic: bool = False) -> str:
 
     lines = [f"Spare cards beyond a playset of {limit} ({len(by_name)} card(s) with extras):\n"]
     lines.extend(excess_lines)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# illegal
+# ---------------------------------------------------------------------------
+
+def handle_illegal(fmt: str | None = None) -> str:
+    """List all owned cards (not for sale) illegal in all configured formats."""
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    active_formats = [fmt] if fmt else cfg.formats
+    if not active_formats:
+        return (
+            "No formats configured.\n"
+            "Add [formats] tracked = [\"modern\", \"standard\"] to config.toml, "
+            "or pass a format argument."
+        )
+
+    with get_conn(cfg.db_path) as conn:
+        rows = get_illegal_owned_cards(conn, active_formats)
+
+    if not rows:
+        return f"All owned cards are legal in: {', '.join(active_formats)}"
+
+    lines = [f"Cards illegal in all of: {', '.join(active_formats)}\n"]
+    for row in rows:
+        foil = " [foil]" if row["foil"] else ""
+        set_label = f" ({row['set_code'].upper()})" if row["set_code"] else ""
+        lines.append(f"  {row['quantity']}x {row['name']}{set_label}{foil}")
+    lines.append(f"\n{len(rows)} card(s) total.")
     return "\n".join(lines)
 
 
