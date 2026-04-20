@@ -78,10 +78,12 @@ def _auto_sync(cfg, conn) -> None:
         try:
             cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
             if _is_sale_package(pkg_name):
+                clear_color_group(conn, pkg.color_group)
                 clear_for_sale_color_group(conn, pkg.color_group)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
                 synced_sale = True
             else:
+                clear_for_sale_color_group(conn, pkg.color_group)
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
         except Exception as e:
@@ -166,11 +168,13 @@ def sync(color_group, refresh_legality):
 
             qty = sum(c.quantity for c in cards)
             if _is_sale_package(pkg_name):
+                clear_color_group(conn, pkg.color_group)
                 clear_for_sale_color_group(conn, pkg.color_group)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
                 console.print(f"  [green]OK[/green] {pkg.color_group} [yellow][for sale][/yellow]: {qty} cards ({len(cards)} unique entries)")
                 synced_sale = True
             else:
+                clear_for_sale_color_group(conn, pkg.color_group)
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
                 console.print(f"  [green]OK[/green] {pkg.color_group}: {qty} cards ({len(cards)} unique entries)")
