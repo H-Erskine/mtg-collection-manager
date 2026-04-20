@@ -429,16 +429,20 @@ def upsert_legalities(conn: sqlite3.Connection, legality_map: dict[str, dict[str
 
 
 def get_names_missing_legality(conn: sqlite3.Connection, formats: list[str]) -> list[str]:
-    """Return distinct card names in owned_cards with no legality entry for any of the given formats."""
+    """Return distinct card names in owned_cards missing a legality entry for at least one of the given formats."""
     placeholders = ",".join("?" * len(formats))
     rows = conn.execute(
         f"""
-        SELECT DISTINCT name FROM owned_cards
-        WHERE name NOT IN (
-            SELECT DISTINCT name FROM card_legalities WHERE format IN ({placeholders})
-        )
+        SELECT DISTINCT oc.name
+        FROM owned_cards oc
+        WHERE (
+            SELECT COUNT(DISTINCT cl.format)
+            FROM card_legalities cl
+            WHERE LOWER(cl.name) = LOWER(oc.name)
+              AND cl.format IN ({placeholders})
+        ) < ?
         """,
-        formats,
+        (*formats, len(formats)),
     ).fetchall()
     return [r["name"] for r in rows]
 
