@@ -504,9 +504,9 @@ def handle_forsale(min_price: float = 0.0, show_price: bool = True, fmt: str | N
     except FileNotFoundError as e:
         return f"Error: {e}"
 
-    illegal_formats = [fmt] if fmt else None
+    legal_formats = [fmt] if fmt else None
     with get_conn(cfg.db_path) as conn:
-        rows = list_for_sale_cards(conn, illegal_formats=illegal_formats)
+        rows = list_for_sale_cards(conn, legal_formats=legal_formats)
         tag_map = get_tags_for_sale_cards(conn)
 
     if not rows:
@@ -690,10 +690,10 @@ def handle_extras(limit: int = 4, basic: bool = False, fmt: str | None = None) -
     except FileNotFoundError as e:
         return f"Error: {e}"
 
-    illegal_formats = [fmt] if fmt else None
+    legal_formats = [fmt] if fmt else None
     with get_conn(cfg.db_path) as conn:
         _auto_sync(cfg, conn)
-        rows = get_cards_over_limit(conn, limit, illegal_formats=illegal_formats)
+        rows = get_cards_over_limit(conn, limit, legal_formats=legal_formats)
 
     if not rows:
         return f"No cards with more than {limit} copies."

@@ -563,38 +563,38 @@ def build(url, box, sideboard):
 @click.option("--limit", "-l", default=4, show_default=True, type=int,
               help="Flag cards with more than this many copies.")
 @click.option("--format", "-f", "fmt", default=None, metavar="FORMAT",
-              help="Only show extras that are illegal in this format (e.g. modern).")
+              help="Only show extras that are legal in this format (e.g. modern).")
 def extras(limit, fmt):
     """List cards you own more than 4 copies of (potential trade/sell stock)."""
     cfg = _load_cfg()
-    illegal_formats = [fmt] if fmt else None
+    legal_formats = [fmt] if fmt else None
 
     with get_conn(cfg.db_path) as conn:
         _auto_sync(cfg, conn)
-        rows = get_cards_over_limit(conn, limit, illegal_formats=illegal_formats)
+        rows = get_cards_over_limit(conn, limit, legal_formats=legal_formats)
 
     if not rows:
         if fmt:
-            console.print(f"No extras that are illegal in {fmt}.")
+            console.print(f"No extras that are legal in {fmt}.")
         else:
             console.print(f"No cards with more than {limit} copies.")
         return
 
     title = f"Cards with more than {limit} copies"
     if fmt:
-        title += f" (illegal in {fmt})"
+        title += f" (legal in {fmt})"
     console.print(f"\n[bold]{title}:[/bold]\n")
     table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
     table.add_column("Copies", justify="right", style="bold yellow", width=7)
     table.add_column("Card", min_width=35)
     table.add_column("Package", style="dim")
     if fmt:
-        table.add_column("Illegal in", style="red dim")
+        table.add_column("Legal in", style="green dim")
 
     for row in rows:
         cols = [str(row["quantity"]), row["name"], row["color_group"]]
         if fmt:
-            cols.append(row["illegal_in"] or "")
+            cols.append(row["legal_in"] or "")
         table.add_row(*cols)
 
     console.print(table)
@@ -611,19 +611,19 @@ def extras(limit, fmt):
 @click.option("--hide-price", is_flag=True, default=False,
               help="Omit the price column (useful for public posting).")
 @click.option("--format", "-f", "fmt", default=None, metavar="FORMAT",
-              help="Only show cards illegal in this format (e.g. modern).")
+              help="Only show cards legal in this format (e.g. modern).")
 def forsale(min_price, hide_price, fmt):
     """List all cards marked for sale.
 
     Prices are fetched from CardMarket during sync.
     Use --min-price to filter by value, --hide-price for public-friendly output.
-    Use --format to show only cards illegal in a given format.
+    Use --format to show only cards legal in a given format.
     """
     cfg = _load_cfg()
-    illegal_formats = [fmt] if fmt else None
+    legal_formats = [fmt] if fmt else None
 
     with get_conn(cfg.db_path) as conn:
-        rows = list_for_sale_cards(conn, illegal_formats=illegal_formats)
+        rows = list_for_sale_cards(conn, legal_formats=legal_formats)
         tag_map = get_tags_for_sale_cards(conn)
 
     if not rows:
@@ -645,7 +645,7 @@ def forsale(min_price, hide_price, fmt):
     if has_tags:
         table.add_column("Tags", style="dim")
     if fmt:
-        table.add_column("Illegal in", style="red dim")
+        table.add_column("Legal in", style="green dim")
     if not hide_price:
         table.add_column("Price", justify="right", width=8)
 
@@ -659,7 +659,7 @@ def forsale(min_price, hide_price, fmt):
         if has_tags:
             cols.append(", ".join(tags))
         if fmt:
-            cols.append(row["illegal_in"] or "")
+            cols.append(row["legal_in"] or "")
         if not hide_price:
             cols.append(price_str)
         table.add_row(*cols)

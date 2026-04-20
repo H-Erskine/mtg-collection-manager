@@ -262,14 +262,14 @@ async def cmd_unbox(interaction: discord.Interaction, deck_name: str):
 @app_commands.describe(
     limit="Flag cards with more than this many copies (default 4)",
     basic="Just list card names without set codes",
-    fmt="Only show cards illegal in this format (e.g. modern)",
+    fmt="Only show cards legal in this format (e.g. modern)",
 )
 async def cmd_extras(interaction: discord.Interaction, limit: int = 4, basic: bool = False, fmt: str = ""):
     await interaction.response.defer()
     reply = await asyncio.get_event_loop().run_in_executor(None, handle_extras, limit, basic, fmt or None)
     title = f"Spare Cards (>{limit} copies)"
     if fmt:
-        title += f" — illegal in {fmt}"
+        title += f" — legal in {fmt}"
     await _send_embed(
         interaction, reply,
         title=title,
@@ -307,7 +307,7 @@ async def cmd_stats(interaction: discord.Interaction):
 @app_commands.describe(
     min_price="Only show cards priced at or above this value in EUR (e.g. 1.0)",
     hide_price="Hide the price column — useful for posting publicly",
-    fmt="Only show cards illegal in this format (e.g. modern)",
+    fmt="Only show cards legal in this format (e.g. modern)",
 )
 async def cmd_forsale(
     interaction: discord.Interaction,

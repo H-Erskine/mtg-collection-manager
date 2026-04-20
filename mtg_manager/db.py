@@ -237,28 +237,28 @@ def clear_for_sale_color_group(conn: sqlite3.Connection, color_group: str) -> No
 
 def list_for_sale_cards(
     conn: sqlite3.Connection,
-    illegal_formats: list[str] | None = None,
+    legal_formats: list[str] | None = None,
 ) -> list[sqlite3.Row]:
     """Return all for-sale cards ordered by price desc then name.
 
-    When illegal_formats is provided, only cards illegal in at least one of those formats
-    are returned. Each row gains an extra `illegal_in` column (comma-separated format names).
+    When legal_formats is provided, only cards legal in at least one of those formats
+    are returned. Each row gains an extra `legal_in` column (comma-separated format names).
     """
-    if illegal_formats:
-        placeholders = ",".join("?" * len(illegal_formats))
+    if legal_formats:
+        placeholders = ",".join("?" * len(legal_formats))
         return conn.execute(
             f"""
             SELECT fs.name, fs.set_code, fs.collector_number, fs.foil, fs.quantity, fs.price,
-                   GROUP_CONCAT(cl.format) AS illegal_in
+                   GROUP_CONCAT(cl.format) AS legal_in
             FROM for_sale_cards fs
             JOIN card_legalities cl
               ON LOWER(cl.name) = LOWER(fs.name)
              AND cl.format IN ({placeholders})
-             AND cl.is_legal = 0
+             AND cl.is_legal = 1
             GROUP BY fs.name, fs.set_code, fs.collector_number, fs.foil, fs.quantity, fs.price
             ORDER BY fs.price DESC, fs.name
             """,
-            illegal_formats,
+            legal_formats,
         ).fetchall()
     return conn.execute(
         """
@@ -361,26 +361,26 @@ BASIC_LANDS = {"forest", "island", "mountain", "plains", "swamp"}
 def get_cards_over_limit(
     conn: sqlite3.Connection,
     limit: int = 4,
-    illegal_formats: list[str] | None = None,
+    legal_formats: list[str] | None = None,
 ) -> list[sqlite3.Row]:
     """Return all versions of cards whose total quantity exceeds `limit`, excluding basic lands
     and any cards currently listed in for_sale_cards.
     Rows are ordered by name then quantity DESC so the largest version comes first.
 
-    When illegal_formats is provided, only cards illegal in at least one of those formats
-    are returned. Each row gains an extra `illegal_in` column (comma-separated format names).
+    When legal_formats is provided, only cards legal in at least one of those formats
+    are returned. Each row gains an extra `legal_in` column (comma-separated format names).
     """
-    if illegal_formats:
-        placeholders = ",".join("?" * len(illegal_formats))
+    if legal_formats:
+        placeholders = ",".join("?" * len(legal_formats))
         return conn.execute(
             f"""
             SELECT oc.name, oc.set_code, oc.foil, oc.quantity, oc.color_group,
-                   GROUP_CONCAT(cl.format) AS illegal_in
+                   GROUP_CONCAT(cl.format) AS legal_in
             FROM owned_cards oc
             JOIN card_legalities cl
               ON LOWER(cl.name) = LOWER(oc.name)
              AND cl.format IN ({placeholders})
-             AND cl.is_legal = 0
+             AND cl.is_legal = 1
             WHERE LOWER(oc.name) NOT IN ('forest','island','mountain','plains','swamp')
               AND LOWER(oc.name) NOT IN (SELECT LOWER(name) FROM for_sale_cards)
               AND LOWER(oc.name) IN (
@@ -391,7 +391,7 @@ def get_cards_over_limit(
             GROUP BY oc.name, oc.set_code, oc.foil, oc.quantity, oc.color_group
             ORDER BY LOWER(oc.name), oc.quantity DESC
             """,
-            (*illegal_formats, limit),
+            (*legal_formats, limit),
         ).fetchall()
     return conn.execute(
         """
