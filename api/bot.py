@@ -25,6 +25,7 @@ from .handlers import (
     handle_help,
     handle_illegal,
     handle_missing,
+    handle_proxy,
     handle_search,
     handle_stats,
     handle_sync,
@@ -204,7 +205,30 @@ async def cmd_missing(
         color=color,
         code_block=True,
     )
-
+    
+@tree.command(name="proxy", description="Analyse decklists to find stock (core) cards vs flex slots")
+@app_commands.describe(
+    urls="Space- or comma-separated deck or compare URLs (MTGTop8, Moxfield, Goldfish)",
+    threshold="% of lists a card must appear in to count as stock (default 75)",
+    sideboard="Include sideboard cards in the analysis",
+)
+async def cmd_proxy(
+    interaction: discord.Interaction,
+    urls: str,
+    threshold: int = 75,
+    sideboard: bool = False,
+):
+    await interaction.response.defer()
+    reply = await asyncio.get_event_loop().run_in_executor(
+        None, handle_proxy, urls, threshold, sideboard
+    )
+    is_error = reply.startswith("Error:") or reply.startswith("Failed")
+    await _send_embed(
+        interaction, reply,
+        title="Stock / Flex Analysis",
+        color=COLOR_ERROR if is_error else COLOR_INFO,
+        code_block=True,
+    )
 
 @tree.command(name="build", description="Mark a deck as built and allocate its cards to a box")
 @app_commands.describe(

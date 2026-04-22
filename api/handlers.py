@@ -289,6 +289,110 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
 
     return "\n".join(lines)
 
+# ---------------------------------------------------------------------------
+# proxy — stock vs flex analysis
+# ---------------------------------------------------------------------------
+
+import re as _re_proxy
+
+def handle_proxy(urls_str: str, threshold: int = 75, sideboard: bool = False) -> str:
+    """
+    Analyse multiple decklists to split cards into stock (core) vs flex slots.
+
+    urls_str  — space- or comma-separated deck/compare URLs
+    threshold — % of lists a card must appear in to count as stock (default 75)
+    """
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    urls = [u for u in _re_proxy.split(r"[\s,]+", urls_str.strip()) if u]
+    if not urls:
+        return "Error: no URLs provided."
+
+    all_decklists = []
+    for url in urls:
+        try:
+            dls = fetch_decklists(url, delay=cfg.mtgtop8_delay)
+            all_decklists.extend(dls)
+        except Exception as e:
+            return f"Failed to fetch {url}: {e}"
+
+    if not all_decklists:
+        return "No decklists found at the provided URLs."
+
+    total = len(all_decklists)
+
+    # Per-card: how many lists contain it, and what's the modal/max quantity
+    list_count: dict[str, int] = defaultdict(int)   # appearances across lists
+    modal_qty: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))  # qty -> frequency
+    canonical: dict[str, str] = {}
+
+    for dl in all_decklists:
+        cards = dl.cards if sideboard else dl.maindeck
+        # Aggregate within this deck first (handles duplicates across boards)
+        deck_totals: dict[str, int] = defaultdict(int)
+        for card in cards:
+            key = card.name.lower()
+            canonical[key] = card.name
+            deck_totals[key] += card.quantity
+        for key, qty in deck_totals.items():
+            list_count[key] += 1
+            modal_qty[key][qty] += 1
+
+    def _modal(key: str) -> int:
+        """Return the most common quantity for a card across lists."""
+        return max(modal_qty[key], key=lambda q: (modal_qty[key][q], q))
+
+    threshold_count = max(1, round(total * threshold / 100))
+
+    stock_keys = sorted(
+        [k for k, n in list_count.items() if n >= threshold_count],
+        key=lambda k: (-list_count[k], -_modal(k), k),
+    )
+    flex_keys = sorted(
+        [k for k, n in list_count.items() if n < threshold_count],
+        key=lambda k: (-list_count[k], -_modal(k), k),
+    )
+
+    lines = [
+        f"Proxy analysis: {total} list(s)  |  stock >= {threshold}% ({threshold_count}/{total} lists)",
+        "",
+    ]
+
+    # Deck name summary
+    for dl in all_decklists:
+        lines.append(f"  {dl.name}")
+    lines.append("")
+
+    if stock_keys:
+        lines.append(f"Stock — {len(stock_keys)} card(s) (core, in {threshold_count}+ lists):")
+        for k in stock_keys:
+            qty = _modal(k)
+            n = list_count[k]
+            # Show quantity variation if not uniform across lists
+            all_qtys = modal_qty[k]
+            if len(all_qtys) > 1:
+                qty_range = f"{min(all_qtys)}–{max(all_qtys)}x"
+                lines.append(f"  {qty}x {canonical[k]}  [{n}/{total}]  (varies {qty_range})")
+            else:
+                lines.append(f"  {qty}x {canonical[k]}  [{n}/{total}]")
+    else:
+        lines.append("No cards meet the stock threshold.")
+
+    lines.append("")
+
+    if flex_keys:
+        lines.append(f"Flex slots — {len(flex_keys)} card(s) (appear in <{threshold_count} lists):")
+        for k in flex_keys:
+            qty = _modal(k)
+            n = list_count[k]
+            lines.append(f"  {qty}x {canonical[k]}  [{n}/{total}]")
+    else:
+        lines.append("No flex slots — all cards are stock.")
+
+    return "\n".join(lines)
 
 # ---------------------------------------------------------------------------
 # build
