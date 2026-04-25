@@ -57,17 +57,65 @@ packages = [
 ]
 request_delay_seconds = 1.0
 
+[mtgtop8]
+request_delay_seconds = 1.5
+cache_ttl_hours = 24
+
 [database]
+# Path to your local SQLite database. ~ is expanded automatically.
 path = "~/.mtg_manager/collection.db"
 
+[output]
+# How to sort cards in the pick list after building a deck.
+# Options: colour, set, alphabetical, cmc
+pick_list_sort = "colour"
+
 [formats]
-tracked = ["modern", "legacy"]   # formats to check legality against
+# Formats to track legality for. Names match Scryfall legality keys:
+# standard, pioneer, modern, legacy, vintage, commander, pauper
+tracked = ["modern", "standard"]
 ```
 
-**For the Discord bot**, create a `.env` file in the project root:
+### Setting up Moxfield packages
+
+This tool organises your physical collection using [Moxfield](https://www.moxfield.com) **packages** — Moxfield decks used as binders, one per colour group. Each package represents a section of your collection (e.g. all your White cards, all your Lands).
+
+**Steps:**
+
+1. Log in to [moxfield.com](https://www.moxfield.com) and create one deck per colour group you want to track. You can name them anything — "White Binder", "Lands", etc.
+2. Add your physical cards to each deck on Moxfield. Set the quantity to match how many copies you own.
+3. Make each deck **public** (Moxfield deck settings → Visibility → Public). The sync uses the public API, so private decks won't work.
+4. Copy the `public_id` from each deck's URL:
+   ```
+   https://www.moxfield.com/decks/abc123XYZ
+                                   ^^^^^^^^^^  ← this is the public_id
+   ```
+5. Paste each `public_id` into `config.toml` under `[moxfield] packages`, setting a matching `color_group` label.
+
+You can use as many or as few packages as you like — the `color_group` label is just a display name. `mtg sync` will pull all of them.
+
+### Setting up the Discord bot
+
+**For the Discord bot**, you need a bot token from the [Discord Developer Portal](https://discord.com/developers/applications):
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**. Give it a name (e.g. "MTG Manager").
+2. In the left sidebar, go to **Bot** → click **Add Bot** → confirm.
+3. Under the Bot page, click **Reset Token** to reveal your bot token. Copy it — you won't see it again.
+4. Scroll down and enable **Message Content Intent** and **Server Members Intent** under Privileged Gateway Intents (required by discord.py).
+5. Go to **OAuth2 → URL Generator**. Under Scopes select `bot` and `applications.commands`. Under Bot Permissions select `Send Messages`, `Embed Links`, and `Use Slash Commands`.
+6. Copy the generated URL, paste it in your browser, and invite the bot to your server.
+
+Then create a `.env` file in the project root:
 ```
 DISCORD_BOT_TOKEN=your_token_here
 ```
+
+Run the bot locally with:
+```bash
+python -m api.bot
+```
+
+Discord slash commands are registered globally on startup — they may take up to an hour to appear in all servers after the first run.
 
 ## CLI Usage
 
