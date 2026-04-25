@@ -485,6 +485,9 @@ def get_illegal_owned_cards(conn: sqlite3.Connection, formats: list[str]) -> lis
     ).fetchall()
 
 
+_PRINTING_BATCH = 100  # stay well under SQLite's expression-tree depth limit
+
+
 def get_owned_by_printings(
     conn: sqlite3.Connection,
     printings: list[tuple[str, str]],
@@ -492,23 +495,28 @@ def get_owned_by_printings(
     """Return owned cards matching any of the given (set_code, collector_number) pairs.
 
     printings: list of (set_code, collector_number) — set_code is matched case-insensitively.
+    Batches queries to avoid SQLite's expression-tree depth limit.
     Rows ordered by name then foil.
     """
     if not printings:
         return []
-    conditions = " OR ".join(
-        "(LOWER(set_code) = ? AND collector_number = ?)" for _ in printings
-    )
-    params = [v for p in printings for v in (p[0].lower(), p[1])]
-    return conn.execute(
-        f"""
-        SELECT name, set_code, collector_number, foil, quantity, color_group
-        FROM owned_cards
-        WHERE {conditions}
-        ORDER BY name, set_code, foil
-        """,
-        params,
-    ).fetchall()
+    rows: list[sqlite3.Row] = []
+    for i in range(0, len(printings), _PRINTING_BATCH):
+        batch = printings[i : i + _PRINTING_BATCH]
+        conditions = " OR ".join(
+            "(LOWER(set_code) = ? AND collector_number = ?)" for _ in batch
+        )
+        params = [v for p in batch for v in (p[0].lower(), p[1])]
+        rows.extend(conn.execute(
+            f"""
+            SELECT name, set_code, collector_number, foil, quantity, color_group
+            FROM owned_cards
+            WHERE {conditions}
+            ORDER BY name, set_code, foil
+            """,
+            params,
+        ).fetchall())
+    return rows
 
 
 def card_count(conn: sqlite3.Connection) -> int:
