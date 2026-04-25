@@ -1,11 +1,13 @@
 import logging
 import time
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
 logger = logging.getLogger(__name__)
 
 _COLLECTION_URL = "https://api.scryfall.com/cards/collection"
+_SEARCH_URL = "https://api.scryfall.com/cards/search"
 _HEADERS = {
     "User-Agent": "mtg-manager/1.0",
     "Accept": "application/json",
@@ -13,6 +15,7 @@ _HEADERS = {
 _LEGAL_STATUSES = {"legal", "restricted"}
 _BATCH_SIZE = 75
 _BATCH_DELAY = 0.1
+_SEARCH_PARAMS = {"q", "unique", "order", "dir"}
 
 
 def _front_face(name: str) -> str:
@@ -64,3 +67,30 @@ def fetch_legalities(
         time.sleep(_BATCH_DELAY)
 
     return result
+
+
+def search_scryfall(url: str) -> list[dict]:
+    """Fetch all cards matching a Scryfall search URL (web or API).
+
+    Handles pagination automatically. Returns a flat list of card objects.
+    """
+    parsed = urlparse(url)
+    params = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+    api_params = {k: v for k, v in params.items() if k in _SEARCH_PARAMS}
+
+    if not api_params.get("q"):
+        raise ValueError("No search query (q=) found in URL")
+
+    next_url: str | None = _SEARCH_URL + "?" + urlencode(api_params)
+    all_cards: list[dict] = []
+
+    while next_url:
+        resp = requests.get(next_url, headers=_HEADERS, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        all_cards.extend(data.get("data", []))
+        next_url = data.get("next_page") if data.get("has_more") else None
+        if next_url:
+            time.sleep(_BATCH_DELAY)
+
+    return all_cards

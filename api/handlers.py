@@ -913,6 +913,48 @@ def handle_search(query: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# scryfall (collection cross-reference)
+# ---------------------------------------------------------------------------
+
+def handle_scryfall(url: str) -> str:
+    """Fetch a Scryfall search URL and cross-reference results against the collection.
+
+    Returns a plain-text summary of owned printings.
+    """
+    from mtg_manager.db import get_owned_by_printings
+    from mtg_manager.scryfall import search_scryfall
+
+    try:
+        cards = search_scryfall(url)
+    except Exception as e:
+        return f"Error fetching Scryfall results: {e}"
+
+    if not cards:
+        return "No cards found for that Scryfall search."
+
+    try:
+        cfg = _load_cfg()
+    except FileNotFoundError as e:
+        return f"Error: {e}"
+
+    printings = [(c["set"], c["collector_number"]) for c in cards]
+    with get_conn(cfg.db_path) as conn:
+        owned_rows = get_owned_by_printings(conn, printings)
+
+    if not owned_rows:
+        return f"Found {len(cards)} Scryfall result(s) but none of those specific printings are in your collection."
+
+    lines = [f"Scryfall results: {len(cards)} card(s)  |  Owned printings: {len(owned_rows)}\n"]
+    for row in owned_rows:
+        foil_label = "[foil]" if row["foil"] else ""
+        set_label = row["set_code"].upper()
+        lines.append(f"  {row['quantity']}x {row['name']}  ({set_label} #{row['collector_number']}){' ' + foil_label if foil_label else ''}")
+    total_qty = sum(r["quantity"] for r in owned_rows)
+    lines.append(f"\nTotal: {total_qty} cop{'y' if total_qty == 1 else 'ies'} across {len(owned_rows)} printing(s)")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # stats
 # ---------------------------------------------------------------------------
 

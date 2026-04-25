@@ -485,6 +485,32 @@ def get_illegal_owned_cards(conn: sqlite3.Connection, formats: list[str]) -> lis
     ).fetchall()
 
 
+def get_owned_by_printings(
+    conn: sqlite3.Connection,
+    printings: list[tuple[str, str]],
+) -> list[sqlite3.Row]:
+    """Return owned cards matching any of the given (set_code, collector_number) pairs.
+
+    printings: list of (set_code, collector_number) — set_code is matched case-insensitively.
+    Rows ordered by name then foil.
+    """
+    if not printings:
+        return []
+    conditions = " OR ".join(
+        "(LOWER(set_code) = ? AND collector_number = ?)" for _ in printings
+    )
+    params = [v for p in printings for v in (p[0].lower(), p[1])]
+    return conn.execute(
+        f"""
+        SELECT name, set_code, collector_number, foil, quantity, color_group
+        FROM owned_cards
+        WHERE {conditions}
+        ORDER BY name, set_code, foil
+        """,
+        params,
+    ).fetchall()
+
+
 def card_count(conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT COALESCE(SUM(quantity), 0) AS total FROM owned_cards").fetchone()
     return row["total"] if row else 0

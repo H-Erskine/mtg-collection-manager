@@ -26,6 +26,7 @@ from .db import (
     get_deck,
     get_illegal_owned_cards,
     get_names_missing_legality,
+    get_owned_by_printings,
     get_owned_quantity,
     get_tags_for_sale_cards,
     insert_built_deck,
@@ -41,7 +42,7 @@ from .db import (
 from .models import BoxedCard, MissingCard
 from .moxfield import fetch_package_cards
 from .prices import fetch_cardmarket_prices
-from .scryfall import fetch_legalities
+from .scryfall import fetch_legalities, search_scryfall
 from .sources import fetch_decklists
 
 console = Console()
@@ -827,6 +828,73 @@ def cleartag(tag):
         return
     noun = "card" if count == 1 else "cards"
     console.print(f"[green]Cleared tag '{tag}' from {count} {noun}.[/green]")
+
+
+# ---------------------------------------------------------------------------
+# mtg scryfall
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.argument("url")
+def scryfall(url):
+    """Compare a Scryfall search result against your collection.
+
+    Accepts a Scryfall search URL (copy from browser). Shows which exact
+    printings (set + collector number) from the results you already own.
+
+    \b
+    Example:
+      mtg scryfall "https://scryfall.com/search?q=artist%3A%22Titus+Lunter%22"
+    """
+    with Progress(SpinnerColumn(), TextColumn("[cyan]Fetching Scryfall results...[/cyan]"),
+                  console=console, transient=True) as progress:
+        progress.add_task("fetch")
+        try:
+            cards = search_scryfall(url)
+        except Exception as e:
+            err_console.print(f"[red]Failed to fetch Scryfall results: {e}[/red]")
+            sys.exit(1)
+
+    if not cards:
+        console.print("[yellow]No cards found for that search.[/yellow]")
+        return
+
+    console.print(f"\nFound [bold]{len(cards)}[/bold] card(s) in Scryfall results.\n")
+
+    printings = [(c["set"], c["collector_number"]) for c in cards]
+
+    cfg = _load_cfg()
+    with get_conn(cfg.db_path) as conn:
+        owned_rows = get_owned_by_printings(conn, printings)
+
+    if not owned_rows:
+        console.print("[yellow]None of these specific printings are in your collection.[/yellow]")
+        return
+
+    table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+    table.add_column("Card", min_width=35)
+    table.add_column("Set", width=5)
+    table.add_column("No.", width=6)
+    table.add_column("Finish", width=10)
+    table.add_column("Qty", justify="right", style="bold yellow", width=4)
+
+    for row in owned_rows:
+        foil_label = "Foil" if row["foil"] else "Non-Foil"
+        table.add_row(
+            row["name"],
+            row["set_code"].upper(),
+            row["collector_number"],
+            foil_label,
+            str(row["quantity"]),
+        )
+
+    console.print(table)
+    total_qty = sum(r["quantity"] for r in owned_rows)
+    console.print(
+        f"\n[bold green]{len(owned_rows)} printing(s) owned[/bold green]"
+        f" ({total_qty} total cop{'y' if total_qty == 1 else 'ies'})"
+        f" out of [bold]{len(cards)}[/bold] Scryfall results"
+    )
 
 
 # ---------------------------------------------------------------------------

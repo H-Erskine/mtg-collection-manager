@@ -26,6 +26,7 @@ from .handlers import (
     handle_illegal,
     handle_missing,
     handle_proxy,
+    handle_scryfall,
     handle_search,
     handle_stats,
     handle_sync,
@@ -313,6 +314,20 @@ async def cmd_search(interaction: discord.Interaction, query: str):
         title=f'Search: "{query}"',
         color=COLOR_WARNING if not_found else COLOR_INFO,
         code_block=not not_found,
+    )
+
+
+@tree.command(name="scryfall", description="Cross-reference a Scryfall search URL against your collection")
+@app_commands.describe(url="Scryfall search URL — paste directly from your browser")
+async def cmd_scryfall(interaction: discord.Interaction, url: str):
+    await interaction.response.defer()
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_scryfall, url)
+    is_error = reply.startswith("Error") or "none of those" in reply
+    await _send_embed(
+        interaction, reply,
+        title="Scryfall Collection Match",
+        color=COLOR_ERROR if is_error else COLOR_INFO,
+        code_block=True,
     )
 
 

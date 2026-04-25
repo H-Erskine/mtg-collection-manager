@@ -36,6 +36,10 @@ mtg extras                        # list cards owned >4 copies
 python -m api.bot
 ```
 
+**Deployment:**
+
+The Discord bot runs on an Oracle VM and deploys automatically via GitHub Actions on every push to `main` (`.github/workflows/deploy.yml`). The workflow SSHs into the VM, runs `git pull`, and restarts the `mtg-bot` systemd service. There is no manual deploy step — merging to main is sufficient.
+
 **Tests:**
 ```bash
 pytest
