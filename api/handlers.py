@@ -1,14 +1,18 @@
 """
-Business logic for the WhatsApp API layer.
+Business logic for the Discord bot layer.
 
-Each handler mirrors a CLI command but returns a plain text string
-instead of printing Rich-formatted output to the terminal.
+Each handler accepts a pre-resolved ``cfg: Config`` (and ``is_owner: bool``
+where auto-sync behaviour differs) instead of loading the config itself.
+The bot resolves both from the user registry before calling handlers.
+
+The CLI (mtg_manager/cli.py) is a fully independent implementation and
+does not call these handlers.
 """
 from __future__ import annotations
 
 from collections import defaultdict
 
-from mtg_manager.config import get_git_commit, load_config
+from mtg_manager.config import Config
 from mtg_manager.db import (
     add_card_tag,
     card_count,
@@ -32,6 +36,7 @@ from mtg_manager.db import (
     get_decks_by_name,
     get_illegal_owned_cards,
     get_names_missing_legality,
+    get_owned_by_printings,
     get_owned_quantity,
     get_tags_for_sale_cards,
     insert_built_deck,
@@ -51,12 +56,7 @@ from mtg_manager.scryfall import fetch_legalities
 from mtg_manager.sources import fetch_decklists, source_name
 
 
-def _load_cfg():
-    return load_config()
-
-
 def _format_card_tag(foil: bool, set_code: str, basic: bool = False) -> str:
-    """Return a display suffix like ' [foil] (MH3)' for card list lines."""
     parts = []
     if foil:
         parts.append(" [foil]")
@@ -69,18 +69,15 @@ _SALE_PRICE_RE = __import__("re").compile(r"^\$(\d+(?:\.\d+)?)")
 
 
 def _is_sale_package(package_name: str) -> bool:
-    """Return True if this Moxfield package is a for-sale list (name starts with '$')."""
     return package_name.startswith("$")
 
 
 def _parse_sale_price(package_name: str) -> float:
-    """Extract a numeric price from a package name like '$2.50 Rare Singles', or 0.0."""
     m = _SALE_PRICE_RE.match(package_name)
     return float(m.group(1)) if m else 0.0
 
 
 def _sync_sale_prices(conn, sale_rows: list) -> None:
-    """Fetch CardMarket prices for for-sale cards and persist them. Silent on failure."""
     try:
         price_map = fetch_cardmarket_prices(sale_rows)
     except Exception:
@@ -94,7 +91,7 @@ def _sync_sale_prices(conn, sale_rows: list) -> None:
         update_sale_prices(conn, updates)
 
 
-def _auto_sync(cfg, conn) -> list[str]:
+def _auto_sync(cfg: Config, conn) -> list[str]:
     """Re-fetch all Moxfield packages. Returns list of warning strings."""
     warnings = []
     sale_rows: list = []
@@ -111,7 +108,6 @@ def _auto_sync(cfg, conn) -> list[str]:
                 upsert_cards(conn, cards)
         except Exception as e:
             warnings.append(f"Sync warning ({pkg.color_group}): {e}")
-    # Fetch prices for all sale cards in one pass after upsert
     try:
         sale_rows = list_for_sale_cards(conn)
         if sale_rows:
@@ -125,12 +121,7 @@ def _auto_sync(cfg, conn) -> list[str]:
 # sync
 # ---------------------------------------------------------------------------
 
-def handle_sync(color_group: str | None = None) -> str:
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_sync(cfg: Config, is_owner: bool = False, color_group: str | None = None) -> str:
     packages = cfg.packages
     if color_group:
         packages = [p for p in packages if p.color_group.lower() == color_group.lower()]
@@ -194,12 +185,7 @@ def handle_sync(color_group: str | None = None) -> str:
 # missing
 # ---------------------------------------------------------------------------
 
-def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> str:
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_missing(url: str, cfg: Config, is_owner: bool = False, sideboard: bool = False, min_variants: int = 1) -> str:
     try:
         decklists = fetch_decklists(url, delay=cfg.mtgtop8_delay)
     except Exception as e:
@@ -211,7 +197,6 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
     max_needed: dict[str, int] = defaultdict(int)
     variant_count: dict[str, int] = defaultdict(int)
     canonical_name: dict[str, str] = {}
-    # per-deck needed map: deck_id -> {lower_name: (name, qty)}
     deck_needed: dict[str, dict[str, tuple[str, int]]] = {}
 
     for dl in decklists:
@@ -222,7 +207,6 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
             canonical_name[key] = card.name
             max_needed[key] = max(max_needed[key], card.quantity)
             variant_count[key] += 1
-        # always use full 75 (maindeck + sideboard) for have/total counts
         for card in dl.cards:
             key = card.name.lower()
             if key not in deck_needed[dl.deck_id] or card.quantity > deck_needed[dl.deck_id][key][1]:
@@ -231,12 +215,12 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
     keys = [k for k in max_needed if variant_count[k] >= min_variants]
 
     with get_conn(cfg.db_path) as conn:
-        _auto_sync(cfg, conn)
+        if is_owner:
+            _auto_sync(cfg, conn)
         card_needs = [(canonical_name[k], max_needed[k], variant_count[k]) for k in keys]
         missing_cards, boxed_cards, available_cards = categorise_missing_cards(conn, card_needs, len(decklists))
 
-        # per-deck have/total
-        deck_counts: list[tuple[str, int, int]] = []  # (name, have, total)
+        deck_counts: list[tuple[str, int, int]] = []
         for dl in decklists:
             nm = deck_needed[dl.deck_id]
             total = sum(qty for _, qty in nm.values())
@@ -289,24 +273,15 @@ def handle_missing(url: str, sideboard: bool = False, min_variants: int = 1) -> 
 
     return "\n".join(lines)
 
+
 # ---------------------------------------------------------------------------
 # proxy — stock vs flex analysis
 # ---------------------------------------------------------------------------
 
 import re as _re_proxy
 
-def handle_proxy(urls_str: str, threshold: int = 75, sideboard: bool = False) -> str:
-    """
-    Analyse multiple decklists to split cards into stock (core) vs flex slots.
 
-    urls_str  — space- or comma-separated deck/compare URLs
-    threshold — % of lists a card must appear in to count as stock (default 75)
-    """
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_proxy(urls_str: str, cfg: Config, is_owner: bool = False, threshold: int = 75, sideboard: bool = False) -> str:
     urls = [u for u in _re_proxy.split(r"[\s,]+", urls_str.strip()) if u]
     if not urls:
         return "Error: no URLs provided."
@@ -324,14 +299,12 @@ def handle_proxy(urls_str: str, threshold: int = 75, sideboard: bool = False) ->
 
     total = len(all_decklists)
 
-    # Per-card: how many lists contain it, and what's the modal/max quantity
-    list_count: dict[str, int] = defaultdict(int)   # appearances across lists
-    modal_qty: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))  # qty -> frequency
+    list_count: dict[str, int] = defaultdict(int)
+    modal_qty: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
     canonical: dict[str, str] = {}
 
     for dl in all_decklists:
         cards = dl.cards if sideboard else dl.maindeck
-        # Aggregate within this deck first (handles duplicates across boards)
         deck_totals: dict[str, int] = defaultdict(int)
         for card in cards:
             key = card.name.lower()
@@ -342,7 +315,6 @@ def handle_proxy(urls_str: str, threshold: int = 75, sideboard: bool = False) ->
             modal_qty[key][qty] += 1
 
     def _modal(key: str) -> int:
-        """Return the most common quantity for a card across lists."""
         return max(modal_qty[key], key=lambda q: (modal_qty[key][q], q))
 
     threshold_count = max(1, round(total * threshold / 100))
@@ -361,7 +333,6 @@ def handle_proxy(urls_str: str, threshold: int = 75, sideboard: bool = False) ->
         "",
     ]
 
-    # Deck name summary
     for dl in all_decklists:
         lines.append(f"  {dl.name}")
     lines.append("")
@@ -371,7 +342,6 @@ def handle_proxy(urls_str: str, threshold: int = 75, sideboard: bool = False) ->
         for k in stock_keys:
             qty = _modal(k)
             n = list_count[k]
-            # Show quantity variation if not uniform across lists
             all_qtys = modal_qty[k]
             if len(all_qtys) > 1:
                 qty_range = f"{min(all_qtys)}–{max(all_qtys)}x"
@@ -394,16 +364,12 @@ def handle_proxy(urls_str: str, threshold: int = 75, sideboard: bool = False) ->
 
     return "\n".join(lines)
 
+
 # ---------------------------------------------------------------------------
 # build
 # ---------------------------------------------------------------------------
 
-def handle_build(url: str, box: str, sideboard: bool = False) -> str:
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_build(url: str, box: str, cfg: Config, is_owner: bool = False, sideboard: bool = False) -> str:
     try:
         decklists = fetch_decklists(url, delay=cfg.mtgtop8_delay)
     except Exception as e:
@@ -421,9 +387,9 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
     dl = decklists[0]
 
     with get_conn(cfg.db_path) as conn:
-        _auto_sync(cfg, conn)
+        if is_owner:
+            _auto_sync(cfg, conn)
 
-        # Duplicate check: URL is the most reliable identifier across all sources
         existing = get_deck_by_url(conn, url) or get_deck(conn, dl.deck_id)
         if existing:
             return (
@@ -440,7 +406,7 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
             needed[card.name] += card.quantity
 
         conflict_lines: list[str] = []
-        card_entries: list[tuple[str, int, bool]] = []  # (name, qty, is_proxy)
+        card_entries: list[tuple[str, int, bool]] = []
 
         for name, qty in sorted(needed.items()):
             available = get_available_quantity(conn, name)
@@ -451,9 +417,8 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
             is_proxy = available < qty
             card_entries.append((name, qty, is_proxy))
 
-        # Build pick list before insert so it's always available
         pick: dict[str, list[str]] = defaultdict(list)
-        cmc_entries: list[tuple[float, str]] = []  # for cmc sort mode
+        cmc_entries: list[tuple[float, str]] = []
         proxy_lines: list[str] = []
         sort_mode = cfg.pick_list_sort
         for name, qty, is_proxy in card_entries:
@@ -467,7 +432,7 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
             elif sort_mode == "cmc":
                 cmc = get_card_cmc(conn, name)
                 cmc_entries.append((cmc, f"  {qty}x {name}"))
-            else:  # colour (default)
+            else:
                 group = get_card_color_group(conn, name)
                 pick[group].append(f"  {qty}x {name}")
 
@@ -515,14 +480,10 @@ def handle_build(url: str, box: str, sideboard: bool = False) -> str:
 # boxes
 # ---------------------------------------------------------------------------
 
-def handle_boxes() -> str:
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_boxes(cfg: Config, is_owner: bool = False) -> str:
     with get_conn(cfg.db_path) as conn:
-        _auto_sync(cfg, conn)
+        if is_owner:
+            _auto_sync(cfg, conn)
         decks = list_built_decks(conn)
 
     if not decks:
@@ -545,12 +506,7 @@ def handle_boxes() -> str:
 # unbox
 # ---------------------------------------------------------------------------
 
-def handle_unbox(deck_name: str) -> str:
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_unbox(deck_name: str, cfg: Config, is_owner: bool = False) -> str:
     with get_conn(cfg.db_path) as conn:
         rows = get_decks_by_name(conn, deck_name)
         if not rows:
@@ -584,7 +540,6 @@ def handle_unbox(deck_name: str) -> str:
             loc = f"[{color_group}] " if color_group else ""
             lines.append(f"  {qty}x {card_name}  {loc}cmc {int(cmc) if cmc == int(cmc) else cmc}")
     else:
-        # colour (default) and set: group by color_group
         groups: dict[str, list[tuple]] = defaultdict(list)
         for card_name, qty, _, color_group, cmc in owned:
             groups[color_group or "?"].append((card_name, qty, cmc))
@@ -606,12 +561,7 @@ def handle_unbox(deck_name: str) -> str:
 # forsale
 # ---------------------------------------------------------------------------
 
-def handle_forsale(min_price: float = 0.0, show_price: bool = True, fmt: str | None = None) -> str:
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_forsale(cfg: Config, is_owner: bool = False, min_price: float = 0.0, show_price: bool = True, fmt: str | None = None) -> str:
     legal_formats = [fmt] if fmt else None
     with get_conn(cfg.db_path) as conn:
         rows = list_for_sale_cards(conn, legal_formats=legal_formats)
@@ -625,8 +575,6 @@ def handle_forsale(min_price: float = 0.0, show_price: bool = True, fmt: str | N
         if not rows:
             return f"No cards for sale at €{min_price:.2f} or above."
 
-    # Compact separator format — keeps lines short enough for Discord mobile
-    # Format: "Card Name (SET) | Foil | tag1, tag2 | €1.50"
     lines: list[str] = []
     for row in rows:
         qty_label = f"{row['quantity']}x " if row["quantity"] > 1 else ""
@@ -650,13 +598,7 @@ def handle_forsale(min_price: float = 0.0, show_price: bool = True, fmt: str | N
 # tag / untag
 # ---------------------------------------------------------------------------
 
-def handle_tag(name: str, tag: str, set_code: str = "", foil: bool = False) -> str:
-    """Add a tag to a card and return a confirmation string."""
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_tag(name: str, tag: str, cfg: Config, is_owner: bool = False, set_code: str = "", foil: bool = False) -> str:
     with get_conn(cfg.db_path) as conn:
         add_card_tag(conn, name, set_code, foil, tag)
         tags = get_card_tags(conn, name, set_code, foil if set_code else None)
@@ -669,13 +611,7 @@ def handle_tag(name: str, tag: str, set_code: str = "", foil: bool = False) -> s
     return f"Tagged: {descriptor}\nTags: {', '.join(tags)}"
 
 
-def handle_untag(name: str, tag: str, set_code: str = "", foil: bool = False) -> str:
-    """Remove a tag from a card and return a confirmation string."""
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_untag(name: str, tag: str, cfg: Config, is_owner: bool = False, set_code: str = "", foil: bool = False) -> str:
     with get_conn(cfg.db_path) as conn:
         removed = remove_card_tag(conn, name, set_code, foil, tag)
         tags = get_card_tags(conn, name, set_code, foil if set_code else None)
@@ -687,13 +623,7 @@ def handle_untag(name: str, tag: str, set_code: str = "", foil: bool = False) ->
     return f"Removed tag '{tag}' from {descriptor}.\n{remaining}"
 
 
-def handle_tagged(tag: str) -> str:
-    """List all cards carrying a given tag."""
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_tagged(tag: str, cfg: Config, is_owner: bool = False) -> str:
     with get_conn(cfg.db_path) as conn:
         rows = get_cards_by_tag(conn, tag)
 
@@ -711,13 +641,7 @@ def handle_tagged(tag: str) -> str:
     return "\n".join(lines)
 
 
-def handle_cleartag(tag: str) -> str:
-    """Remove a tag from all cards that have it."""
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_cleartag(tag: str, cfg: Config, is_owner: bool = False) -> str:
     with get_conn(cfg.db_path) as conn:
         count = remove_all_cards_with_tag(conn, tag)
 
@@ -728,8 +652,11 @@ def handle_cleartag(tag: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# version
+# version / help
 # ---------------------------------------------------------------------------
+
+from mtg_manager.config import get_git_commit
+
 
 def handle_version() -> str:
     commit = get_git_commit()
@@ -737,10 +664,6 @@ def handle_version() -> str:
         return "Could not determine version (git unavailable)."
     return f"mtg-manager  commit {commit[:7]}  ({commit})"
 
-
-# ---------------------------------------------------------------------------
-# help
-# ---------------------------------------------------------------------------
 
 HELP_TEXT = """\
 MTG Manager commands:
@@ -750,14 +673,13 @@ MTG Manager commands:
   Packages whose Moxfield name starts with $<price> are treated as for-sale
   stock and stored separately (not added to your collection).
   Optionally sync only one color group (e.g. White).
+  Non-owner users: rate-limited to once per 60 minutes.
 
 /forsale
   List all cards marked for sale, grouped by price.
-  Formatted for easy copy-paste to Discord or WhatsApp.
 
 /missing <url> [min_variants] [sideboard]
   Show cards you need to order for a MTGTop8 deck or compare URL.
-  Use min_variants to filter to cards in N+ variants.
 
 /build <url> <box_name> [sideboard]
   Mark a deck as built and allocate its cards to a named box.
@@ -767,11 +689,9 @@ MTG Manager commands:
 
 /unbox <deck_name>
   Remove a built deck and return its cards to the available pool.
-  Deck names are shown in /boxes.
 
 /extras [limit]
   List cards you own more than limit copies of (default 4).
-  Useful for identifying trade/sell stock.
 
 /search <query>
   Search your collection for cards matching a name.
@@ -781,7 +701,24 @@ MTG Manager commands:
 
 /card <name>
   Look up a card on Scryfall. Shows mana cost, type, oracle text, and price.
-  Supports fuzzy name matching."""
+
+/setup
+  Register yourself to use the bot (first-time setup).
+
+/addpackage <color_group> <public_id>
+  Add a Moxfield package to your account.
+
+/removepackage <color_group>
+  Remove a Moxfield package from your account.
+
+/listpackages
+  Show your registered Moxfield packages.
+
+/setsort <mode>
+  Set your pick list sort order (colour, alphabetical, set, cmc).
+
+/setformats <formats>
+  Set comma-separated tracked formats (e.g. modern,legacy)."""
 
 
 def handle_help() -> str:
@@ -792,21 +729,16 @@ def handle_help() -> str:
 # extras
 # ---------------------------------------------------------------------------
 
-def handle_extras(limit: int = 4, basic: bool = False, fmt: str | None = None) -> str:
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_extras(cfg: Config, is_owner: bool = False, limit: int = 4, basic: bool = False, fmt: str | None = None) -> str:
     legal_formats = [fmt] if fmt else None
     with get_conn(cfg.db_path) as conn:
-        _auto_sync(cfg, conn)
+        if is_owner:
+            _auto_sync(cfg, conn)
         rows = get_cards_over_limit(conn, limit, legal_formats=legal_formats)
 
     if not rows:
         return f"No cards with more than {limit} copies."
 
-    # Aggregate by (name, set_code, foil) — multiple collector numbers can exist per set
     aggregated: dict[str, dict[tuple, dict]] = defaultdict(dict)
     for row in rows:
         name = row["name"]
@@ -816,7 +748,6 @@ def handle_extras(limit: int = 4, basic: bool = False, fmt: str | None = None) -
                                      "quantity": 0, "color_group": row["color_group"]}
         aggregated[name][key]["quantity"] += row["quantity"]
 
-    # Sort each card's versions by quantity DESC so we fill playset from the largest first
     by_name: dict[str, list] = {
         name: sorted(versions.values(), key=lambda v: v["quantity"], reverse=True)
         for name, versions in aggregated.items()
@@ -844,13 +775,7 @@ def handle_extras(limit: int = 4, basic: bool = False, fmt: str | None = None) -
 # illegal
 # ---------------------------------------------------------------------------
 
-def handle_illegal(fmt: str | None = None) -> str:
-    """List all owned cards (not for sale) illegal in all configured formats."""
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_illegal(cfg: Config, is_owner: bool = False, fmt: str | None = None) -> str:
     active_formats = [fmt] if fmt else cfg.formats
     if not active_formats:
         return (
@@ -878,12 +803,7 @@ def handle_illegal(fmt: str | None = None) -> str:
 # search
 # ---------------------------------------------------------------------------
 
-def handle_search(query: str) -> str:
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_search(query: str, cfg: Config, is_owner: bool = False) -> str:
     query_lower = f"%{query.lower()}%"
     with get_conn(cfg.db_path) as conn:
         rows = conn.execute(
@@ -916,12 +836,7 @@ def handle_search(query: str) -> str:
 # scryfall (collection cross-reference)
 # ---------------------------------------------------------------------------
 
-def handle_scryfall(url: str) -> str:
-    """Fetch a Scryfall search URL and cross-reference results against the collection.
-
-    Returns a plain-text summary of owned printings.
-    """
-    from mtg_manager.db import get_owned_by_printings
+def handle_scryfall(url: str, cfg: Config, is_owner: bool = False) -> str:
     from mtg_manager.scryfall import search_scryfall
 
     try:
@@ -931,11 +846,6 @@ def handle_scryfall(url: str) -> str:
 
     if not cards:
         return "No cards found for that Scryfall search."
-
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
 
     printings = [(c["set"], c["collector_number"]) for c in cards]
     with get_conn(cfg.db_path) as conn:
@@ -958,12 +868,7 @@ def handle_scryfall(url: str) -> str:
 # stats
 # ---------------------------------------------------------------------------
 
-def handle_stats() -> str:
-    try:
-        cfg = _load_cfg()
-    except FileNotFoundError as e:
-        return f"Error: {e}"
-
+def handle_stats(cfg: Config, is_owner: bool = False) -> str:
     with get_conn(cfg.db_path) as conn:
         total = conn.execute(
             "SELECT COALESCE(SUM(quantity), 0) AS t FROM owned_cards"
@@ -987,7 +892,7 @@ def handle_stats() -> str:
         ).fetchone()["c"]
 
     lines = [
-        f"Collection stats:",
+        "Collection stats:",
         f"  Total cards:   {total}",
         f"  Unique cards:  {unique}",
         f"  Built decks:   {built_count}",
@@ -1002,18 +907,13 @@ def handle_stats() -> str:
 
 
 # ---------------------------------------------------------------------------
-# card (Scryfall lookup)
+# card (Scryfall lookup) — no cfg needed
 # ---------------------------------------------------------------------------
 
 import requests as _requests
 
 
 def fetch_card_data(name: str) -> dict | str:
-    """
-    Fetch a card from Scryfall by fuzzy name.
-
-    Returns a dict with card data on success, or an error string on failure.
-    """
     try:
         resp = _requests.get(
             "https://api.scryfall.com/cards/named",
@@ -1040,7 +940,6 @@ def fetch_card_data(name: str) -> dict | str:
 
     prices = c.get("prices", {})
 
-    # Image: prefer the front face for double-faced cards
     image_uris = c.get("image_uris") or (
         c["card_faces"][0].get("image_uris") if "card_faces" in c else {}
     )

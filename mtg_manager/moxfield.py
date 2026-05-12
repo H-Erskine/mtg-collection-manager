@@ -10,6 +10,8 @@ internal card ID). Each value has: quantity, isFoil, finish, card.name, card.set
 
 import logging
 import re
+import threading
+import time
 
 import cloudscraper
 
@@ -17,6 +19,11 @@ from .config import MoxfieldPackage
 from .models import DeckCard, Decklist, OwnedCard
 
 logger = logging.getLogger(__name__)
+
+# Global lock: all Moxfield HTTP requests serialise through this so concurrent
+# Discord users can't burst-hammer the API. The per-request delay still applies
+# inside the critical section, capping outbound rate at ~1 req/s globally.
+_MOXFIELD_LOCK = threading.Lock()
 
 
 BASE_URL = "https://api2.moxfield.com/v3/decks/all"
@@ -48,7 +55,9 @@ def fetch_package_cards(
     """
     scraper = _scraper()
     url = f"{BASE_URL}/{package.public_id}"
-    resp = scraper.get(url, headers=HEADERS, timeout=30)
+    with _MOXFIELD_LOCK:
+        resp = scraper.get(url, headers=HEADERS, timeout=30)
+        time.sleep(delay)
     resp.raise_for_status()
     data = resp.json()
 
@@ -126,7 +135,9 @@ def fetch_moxfield_deck(url: str) -> Decklist:
 
     scraper = _scraper()
     api_url = f"{BASE_URL}/{public_id}"
-    resp = scraper.get(api_url, headers=HEADERS, timeout=30)
+    with _MOXFIELD_LOCK:
+        resp = scraper.get(api_url, headers=HEADERS, timeout=30)
+        time.sleep(1.0)
     resp.raise_for_status()
     data = resp.json()
 
