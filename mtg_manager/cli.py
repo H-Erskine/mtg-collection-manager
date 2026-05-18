@@ -232,7 +232,7 @@ def sync(color_group, refresh_legality):
 
 @cli.command()
 @click.argument("urls", nargs=-1, required=True)
-@click.option("--sideboard/--no-sideboard", default=False, show_default=True,
+@click.option("--sideboard/--no-sideboard", default=True, show_default=True,
               help="Include sideboard cards.")
 @click.option("--min-variants", "-m", default=1, show_default=True, type=int,
               help="Only show cards appearing in at least N variants (single-URL compare mode).")

@@ -185,7 +185,7 @@ def handle_sync(cfg: Config, is_owner: bool = False, color_group: str | None = N
 # missing
 # ---------------------------------------------------------------------------
 
-def handle_missing(url: str, cfg: Config, is_owner: bool = False, sideboard: bool = False, min_variants: int = 1) -> str:
+def handle_missing(url: str, cfg: Config, is_owner: bool = False, sideboard: bool = True, min_variants: int = 1) -> str:
     try:
         decklists = fetch_decklists(url, delay=cfg.mtgtop8_delay)
     except Exception as e:
@@ -207,8 +207,6 @@ def handle_missing(url: str, cfg: Config, is_owner: bool = False, sideboard: boo
             canonical_name[key] = card.name
             max_needed[key] = max(max_needed[key], card.quantity)
             variant_count[key] += 1
-        for card in dl.cards:
-            key = card.name.lower()
             if key not in deck_needed[dl.deck_id] or card.quantity > deck_needed[dl.deck_id][key][1]:
                 deck_needed[dl.deck_id][key] = (card.name, card.quantity)
 

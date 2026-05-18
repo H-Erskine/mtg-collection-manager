@@ -543,7 +543,7 @@ async def cmd_missing(
     interaction: discord.Interaction,
     url: str,
     min_variants: int = 1,
-    sideboard: bool = False,
+    sideboard: bool = True,
     private: bool = False,
 ):
     await interaction.response.defer(ephemeral=private)
