@@ -585,6 +585,19 @@ def extras(limit, fmt):
             console.print(f"No cards with more than {limit} copies.")
         return
 
+    try:
+        price_map = fetch_cardmarket_prices(rows)
+    except Exception:
+        price_map = {}
+
+    name_max_price: dict[str, float] = {}
+    for row in rows:
+        pk = (row["set_code"].lower(), row["collector_number"], int(row["foil"]))
+        p = price_map.get(pk, 0.0)
+        name_max_price[row["name"].lower()] = max(name_max_price.get(row["name"].lower(), 0.0), p)
+
+    rows = sorted(rows, key=lambda r: (-name_max_price.get(r["name"].lower(), 0.0), r["name"].lower()))
+
     title = f"Cards with more than {limit} copies"
     if fmt:
         title += f" (legal in {fmt})"
@@ -595,11 +608,16 @@ def extras(limit, fmt):
     table.add_column("Package", style="dim")
     if fmt:
         table.add_column("Legal in", style="green dim")
+    table.add_column("Price", justify="right", width=8)
 
     for row in rows:
+        pk = (row["set_code"].lower(), row["collector_number"], int(row["foil"]))
+        price = price_map.get(pk, 0.0)
+        price_str = f"€{price:.2f}" if price else "—"
         cols = [str(row["quantity"]), row["name"], row["color_group"]]
         if fmt:
             cols.append(row["legal_in"] or "")
+        cols.append(price_str)
         table.add_row(*cols)
 
     console.print(table)

@@ -374,7 +374,7 @@ def get_cards_over_limit(
         placeholders = ",".join("?" * len(legal_formats))
         return conn.execute(
             f"""
-            SELECT oc.name, oc.set_code, oc.foil, oc.quantity, oc.color_group,
+            SELECT oc.name, oc.set_code, oc.collector_number, oc.foil, oc.quantity, oc.color_group,
                    GROUP_CONCAT(cl.format) AS legal_in
             FROM owned_cards oc
             JOIN card_legalities cl
@@ -388,14 +388,14 @@ def get_cards_over_limit(
                 GROUP BY LOWER(name)
                 HAVING SUM(quantity) > ?
               )
-            GROUP BY oc.name, oc.set_code, oc.foil, oc.quantity, oc.color_group
+            GROUP BY oc.name, oc.set_code, oc.collector_number, oc.foil, oc.quantity, oc.color_group
             ORDER BY LOWER(oc.name), oc.quantity DESC
             """,
             (*legal_formats, limit),
         ).fetchall()
     return conn.execute(
         """
-        SELECT name, set_code, foil, quantity, color_group
+        SELECT name, set_code, collector_number, foil, quantity, color_group
         FROM owned_cards
         WHERE LOWER(name) NOT IN ('forest','island','mountain','plains','swamp')
           AND LOWER(name) NOT IN (SELECT LOWER(name) FROM for_sale_cards)

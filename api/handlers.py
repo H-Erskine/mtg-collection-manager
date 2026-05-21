@@ -737,13 +737,23 @@ def handle_extras(cfg: Config, is_owner: bool = False, limit: int = 4, basic: bo
     if not rows:
         return f"No cards with more than {limit} copies."
 
+    try:
+        price_map = fetch_cardmarket_prices(rows)
+    except Exception:
+        price_map = {}
+
     aggregated: dict[str, dict[tuple, dict]] = defaultdict(dict)
     for row in rows:
         name = row["name"]
-        key = (row["set_code"], row["foil"])
+        key = (row["set_code"], row["collector_number"], row["foil"])
         if key not in aggregated[name]:
-            aggregated[name][key] = {"set_code": row["set_code"], "foil": row["foil"],
-                                     "quantity": 0, "color_group": row["color_group"]}
+            aggregated[name][key] = {
+                "set_code": row["set_code"],
+                "collector_number": row["collector_number"],
+                "foil": row["foil"],
+                "quantity": 0,
+                "color_group": row["color_group"],
+            }
         aggregated[name][key]["quantity"] += row["quantity"]
 
     by_name: dict[str, list] = {
@@ -751,7 +761,7 @@ def handle_extras(cfg: Config, is_owner: bool = False, limit: int = 4, basic: bo
         for name, versions in aggregated.items()
     }
 
-    excess_lines = []
+    spare_entries: list[tuple[float, str]] = []
     for name, versions in sorted(by_name.items()):
         remaining = limit
         for v in versions:
@@ -759,13 +769,18 @@ def handle_extras(cfg: Config, is_owner: bool = False, limit: int = 4, basic: bo
             remaining -= allocated
             spare = v["quantity"] - allocated
             if spare > 0:
-                excess_lines.append(f"  {spare}x {name}{_format_card_tag(v['foil'], v['set_code'], basic)}")
+                pk = (v["set_code"].lower(), v["collector_number"], int(v["foil"]))
+                price = price_map.get(pk, 0.0)
+                price_str = f" €{price:.2f}" if price else ""
+                tag = _format_card_tag(v["foil"], v["set_code"], basic)
+                spare_entries.append((price, f"  {spare}x {name}{tag}{price_str}"))
 
-    if not excess_lines:
+    if not spare_entries:
         return f"No spare cards beyond {limit} copies."
 
+    spare_entries.sort(key=lambda x: -x[0])
     lines = [f"Spare cards beyond a playset of {limit} ({len(by_name)} card(s) with extras):\n"]
-    lines.extend(excess_lines)
+    lines.extend(line for _, line in spare_entries)
     return "\n".join(lines)
 
 
