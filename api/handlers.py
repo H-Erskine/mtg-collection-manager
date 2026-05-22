@@ -498,7 +498,9 @@ def handle_build(url: str, box: str, cfg: Config, is_owner: bool = False, sidebo
             if tagged:
                 tag_summary.append(f"Tagged {tagged} card(s) with '{tag_name}' in Moxfield")
             if failed:
-                tag_summary.append(f"Warning: {failed} card(s) failed to tag in Moxfield")
+                tag_summary.append(f"Warning: {failed} card(s) failed to tag in Moxfield (token may be expired)")
+            if skipped and not tagged and not failed:
+                tag_summary.append(f"Warning: Moxfield tagging skipped — token expired or binder fetch failed")
     lines = [f"Built: {dl.name}", f"Box:   {box}"]
     if proxy_count:
         lines.append(f"Proxies: {proxy_count} card(s) not owned — marked in box, not deducted from collection")
