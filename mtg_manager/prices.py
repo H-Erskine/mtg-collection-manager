@@ -6,7 +6,10 @@ Scryfall sources its EUR prices from CardMarket, so ``prices.eur`` /
 """
 from __future__ import annotations
 
+import logging
 import requests
+
+log = logging.getLogger(__name__)
 
 SCRYFALL_COLLECTION_URL = "https://api.scryfall.com/cards/collection"
 BATCH_SIZE = 75  # Scryfall maximum per request
@@ -37,10 +40,11 @@ def fetch_cardmarket_prices(rows: list) -> dict[tuple, float]:
             resp = requests.post(
                 SCRYFALL_COLLECTION_URL,
                 json={"identifiers": identifiers},
-                timeout=30,
+                timeout=8,
             )
             resp.raise_for_status()
-        except Exception:
+        except Exception as exc:
+            log.warning("Scryfall price fetch failed: %s", exc)
             continue
         for card in resp.json().get("data", []):
             prices = card.get("prices", {})

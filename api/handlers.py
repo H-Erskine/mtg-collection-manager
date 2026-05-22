@@ -10,7 +10,10 @@ does not call these handlers.
 """
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
+
+log = logging.getLogger(__name__)
 
 from mtg_manager.config import Config
 from mtg_manager.db import (
@@ -874,7 +877,8 @@ def handle_extras(cfg: Config, is_owner: bool = False, limit: int = 4, basic: bo
 
     try:
         price_map = fetch_cardmarket_prices(rows)
-    except Exception:
+    except Exception as exc:
+        log.warning("fetch_cardmarket_prices failed in handle_extras: %s", exc)
         price_map = {}
 
     aggregated: dict[str, dict[tuple, dict]] = defaultdict(dict)
