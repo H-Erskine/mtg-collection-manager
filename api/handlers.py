@@ -15,12 +15,16 @@ from collections import defaultdict
 from mtg_manager.config import Config
 from mtg_manager.db import (
     add_card_tag,
+    add_moxfield_tag,
     card_count,
     categorise_missing_cards,
     clear_color_group,
     clear_for_sale_color_group,
     delete_built_deck,
     get_all_owned_names,
+    get_card_binder_color_group,
+    get_card_moxfield_tags,
+    get_cards_by_moxfield_tag,
     get_deck_return_list,
     get_available_quantity,
     get_card_allocations,
@@ -44,13 +48,15 @@ from mtg_manager.db import (
     list_for_sale_cards,
     remove_all_cards_with_tag,
     remove_card_tag,
+    remove_moxfield_tag,
     update_sale_prices,
     upsert_cards,
     upsert_for_sale_cards,
     upsert_legalities,
 )
 from mtg_manager.models import BoxedCard, MissingCard
-from mtg_manager.moxfield import fetch_package_cards
+from mtg_manager.moxfield import fetch_moxfield_card_ids, fetch_package_cards
+from mtg_manager.moxfield_write import deck_name_to_tag, fetch_deck_info, get_token, set_card_tags
 from mtg_manager.prices import fetch_cardmarket_prices
 from mtg_manager.scryfall import fetch_legalities
 from mtg_manager.sources import fetch_decklists, source_name
@@ -444,6 +450,55 @@ def handle_build(url: str, box: str, cfg: Config, is_owner: bool = False, sidebo
         )
 
     proxy_count = sum(1 for _, _, p in card_entries if p)
+
+    # Moxfield tagging — only for Moxfield deck URLs
+    _BASIC_LANDS = {"forest", "island", "mountain", "plains", "swamp", "wastes"}
+    tag_summary: list[str] = []
+    token = get_token()
+    if token and "moxfield.com/decks/" in url:
+        tag_name = deck_name_to_tag(dl.name)
+        try:
+            card_ids = fetch_moxfield_card_ids(url)
+        except Exception as e:
+            card_ids = {}
+            tag_summary.append(f"Warning: could not fetch card IDs for Moxfield tagging: {e}")
+        if card_ids:
+            tagged = failed = skipped = 0
+            binder_info_cache: dict[str, tuple[str, int]] = {}
+            with get_conn(cfg.db_path) as conn:
+                for name, qty, is_proxy in card_entries:
+                    if name.lower() in _BASIC_LANDS:
+                        continue
+                    card_id = card_ids.get(name.lower())
+                    if not card_id:
+                        skipped += 1
+                        continue
+                    color_group = get_card_binder_color_group(conn, name)
+                    if not color_group:
+                        skipped += 1
+                        continue
+                    pkg = next((p for p in cfg.packages if p.color_group.lower() == color_group.lower()), None)
+                    if not pkg:
+                        skipped += 1
+                        continue
+                    if pkg.public_id not in binder_info_cache:
+                        try:
+                            binder_info_cache[pkg.public_id] = fetch_deck_info(pkg.public_id, token)
+                        except Exception:
+                            skipped += 1
+                            continue
+                    binder_internal_id, binder_version = binder_info_cache[pkg.public_id]
+                    existing = get_card_moxfield_tags(conn, card_id, pkg.public_id)
+                    if tag_name not in existing:
+                        if set_card_tags(binder_internal_id, card_id, existing + [tag_name], token, binder_version, pkg.public_id):
+                            add_moxfield_tag(conn, card_id, pkg.public_id, tag_name)
+                            tagged += 1
+                        else:
+                            failed += 1
+            if tagged:
+                tag_summary.append(f"Tagged {tagged} card(s) with '{tag_name}' in Moxfield")
+            if failed:
+                tag_summary.append(f"Warning: {failed} card(s) failed to tag in Moxfield")
     lines = [f"Built: {dl.name}", f"Box:   {box}"]
     if proxy_count:
         lines.append(f"Proxies: {proxy_count} card(s) not owned — marked in box, not deducted from collection")
@@ -470,6 +525,10 @@ def handle_build(url: str, box: str, cfg: Config, is_owner: bool = False, sidebo
     if proxy_lines:
         lines.append("[Proxies — print or substitute]")
         lines.extend(proxy_lines)
+
+    if tag_summary:
+        lines.append("")
+        lines.extend(tag_summary)
 
     return "\n".join(lines)
 
@@ -520,7 +579,34 @@ def handle_unbox(deck_name: str, cfg: Config, is_owner: bool = False) -> str:
         box = row["box_name"]
         deck_id = row["deck_id"]
         return_cards = get_deck_return_list(conn, deck_id)
+        token = get_token()
+        tag_name = deck_name_to_tag(name)
+        cards_to_untag = get_cards_by_moxfield_tag(conn, tag_name) if token else []
         delete_built_deck(conn, deck_id)
+
+    untag_summary: list[str] = []
+    if token and cards_to_untag:
+        untagged = failed = 0
+        binder_info_cache: dict[str, tuple[str, int]] = {}
+        with get_conn(cfg.db_path) as conn:
+            for card_id, binder_public_id in cards_to_untag:
+                if binder_public_id not in binder_info_cache:
+                    try:
+                        binder_info_cache[binder_public_id] = fetch_deck_info(binder_public_id, token)
+                    except Exception:
+                        failed += 1
+                        continue
+                binder_internal_id, binder_version = binder_info_cache[binder_public_id]
+                remaining = [t for t in get_card_moxfield_tags(conn, card_id, binder_public_id) if t.lower() != tag_name.lower()]
+                if set_card_tags(binder_internal_id, card_id, remaining, token, binder_version, binder_public_id):
+                    remove_moxfield_tag(conn, card_id, binder_public_id, tag_name)
+                    untagged += 1
+                else:
+                    failed += 1
+        if untagged:
+            untag_summary.append(f"Removed tag '{tag_name}' from {untagged} card(s) in Moxfield")
+        if failed:
+            untag_summary.append(f"Warning: {failed} card(s) failed to untag in Moxfield")
 
     lines = [f"Unboxed: {name} (was in [{box}])", "", "Return to collection:"]
     sort_mode = cfg.pick_list_sort
@@ -551,6 +637,10 @@ def handle_unbox(deck_name: str, cfg: Config, is_owner: bool = False) -> str:
         lines.append("[Proxies — discard]")
         for card_name, qty in sorted(proxies):
             lines.append(f"  {qty}x {card_name}")
+
+    if untag_summary:
+        lines.append("")
+        lines.extend(untag_summary)
 
     return "\n".join(lines)
 
