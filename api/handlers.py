@@ -685,6 +685,46 @@ def handle_forsale(cfg: Config, is_owner: bool = False, min_price: float = 0.0, 
 
 
 # ---------------------------------------------------------------------------
+# forsale_csv
+# ---------------------------------------------------------------------------
+
+def handle_forsale_csv(cfg: Config, is_owner: bool = False) -> bytes | str:
+    """Return a CSV of for-sale cards grouped by set (price desc within set).
+
+    Returns bytes on success, or an error string if there are no cards.
+    """
+    import csv
+    import io
+
+    with get_conn(cfg.db_path) as conn:
+        rows = list_for_sale_cards(conn)
+        tag_map = get_tags_for_sale_cards(conn)
+
+    if not rows:
+        return "No cards listed for sale — nothing to export."
+
+    sorted_rows = sorted(rows, key=lambda r: (r["set_code"].upper(), -(r["price"] or 0.0)))
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Set", "Card", "Finish", "Tags", "Quantity", "Price (EUR)"])
+    for row in sorted_rows:
+        finish = "Foil" if row["foil"] else "Non-Foil"
+        tags = tag_map.get((row["name"].lower(), row["set_code"].lower(), row["foil"]), [])
+        price_str = f"{row['price']:.2f}" if row["price"] else ""
+        writer.writerow([
+            row["set_code"].upper(),
+            row["name"],
+            finish,
+            ", ".join(tags),
+            row["quantity"],
+            price_str,
+        ])
+
+    return buf.getvalue().encode("utf-8")
+
+
+# ---------------------------------------------------------------------------
 # tag / untag
 # ---------------------------------------------------------------------------
 
@@ -767,6 +807,9 @@ MTG Manager commands:
 
 /forsale
   List all cards marked for sale, grouped by price.
+
+/forsale_csv
+  Download a CSV of your for-sale list grouped by set, for CardMarket listing.
 
 /missing <url> [min_variants] [sideboard]
   Show cards you need to order for a MTGTop8 deck or compare URL.

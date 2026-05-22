@@ -26,6 +26,7 @@ from .handlers import (
     handle_cleartag,
     handle_extras,
     handle_forsale,
+    handle_forsale_csv,
     handle_help,
     handle_illegal,
     handle_missing,
@@ -648,6 +649,30 @@ async def cmd_forsale(
         title="For Sale",
         color=COLOR_WARNING if is_empty else COLOR_INFO,
         code_block=True,
+    )
+
+
+@tree.command(name="forsale_csv", description="Download a CSV of your for-sale list grouped by set")
+async def cmd_forsale_csv(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    cfg, owner = await _resolve_user(interaction, require_packages=True)
+    if cfg is None:
+        return
+
+    from datetime import date
+    import io
+
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, handle_forsale_csv, cfg, owner
+    )
+    if isinstance(result, str):
+        await _send_embed(interaction, result, title="For Sale CSV", color=COLOR_WARNING)
+        return
+
+    filename = f"forsale_{date.today().isoformat()}.csv"
+    await interaction.followup.send(
+        file=discord.File(io.BytesIO(result), filename=filename),
+        ephemeral=True,
     )
 
 
