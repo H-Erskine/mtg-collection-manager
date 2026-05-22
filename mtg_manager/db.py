@@ -63,6 +63,13 @@ CREATE TABLE IF NOT EXISTS card_legalities (
     is_legal INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (name, format)
 );
+
+CREATE TABLE IF NOT EXISTS moxfield_tags (
+    card_id          TEXT NOT NULL,
+    binder_public_id TEXT NOT NULL,
+    tag              TEXT NOT NULL,
+    PRIMARY KEY (card_id, binder_public_id, tag)
+);
 """
 
 
@@ -93,6 +100,19 @@ def get_conn(db_path: Path):
             conn.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+        # Migration: rebuild moxfield_tags with binder_public_id (old schema had unique_card_id only)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(moxfield_tags)")}
+        if "unique_card_id" in cols:
+            conn.execute("DROP TABLE moxfield_tags")
+            conn.execute("""
+                CREATE TABLE moxfield_tags (
+                    card_id          TEXT NOT NULL,
+                    binder_public_id TEXT NOT NULL,
+                    tag              TEXT NOT NULL,
+                    PRIMARY KEY (card_id, binder_public_id, tag)
+                )
+            """)
+            conn.commit()
         yield conn
         conn.commit()
     except Exception:
@@ -522,6 +542,50 @@ def get_owned_by_printings(
 def card_count(conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT COALESCE(SUM(quantity), 0) AS total FROM owned_cards").fetchone()
     return row["total"] if row else 0
+
+
+# ---------------------------------------------------------------------------
+# Moxfield binder tag tracking
+# ---------------------------------------------------------------------------
+
+def add_moxfield_tag(conn: sqlite3.Connection, card_id: str, binder_public_id: str, tag: str) -> None:
+    conn.execute(
+        "INSERT OR IGNORE INTO moxfield_tags (card_id, binder_public_id, tag) VALUES (?, ?, ?)",
+        (card_id, binder_public_id, tag),
+    )
+
+
+def remove_moxfield_tag(conn: sqlite3.Connection, card_id: str, binder_public_id: str, tag: str) -> None:
+    conn.execute(
+        "DELETE FROM moxfield_tags WHERE card_id = ? AND binder_public_id = ? AND LOWER(tag) = LOWER(?)",
+        (card_id, binder_public_id, tag),
+    )
+
+
+def get_card_moxfield_tags(conn: sqlite3.Connection, card_id: str, binder_public_id: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT tag FROM moxfield_tags WHERE card_id = ? AND binder_public_id = ? ORDER BY tag",
+        (card_id, binder_public_id),
+    ).fetchall()
+    return [r["tag"] for r in rows]
+
+
+def get_cards_by_moxfield_tag(conn: sqlite3.Connection, tag: str) -> list[tuple[str, str]]:
+    """Return (card_id, binder_public_id) pairs that have this tag."""
+    rows = conn.execute(
+        "SELECT card_id, binder_public_id FROM moxfield_tags WHERE LOWER(tag) = LOWER(?)",
+        (tag,),
+    ).fetchall()
+    return [(r["card_id"], r["binder_public_id"]) for r in rows]
+
+
+def get_card_binder_color_group(conn: sqlite3.Connection, card_name: str) -> str | None:
+    """Return a single color_group for the named card, for binder-routing in tagging."""
+    row = conn.execute(
+        "SELECT color_group FROM owned_cards WHERE LOWER(name) = LOWER(?) LIMIT 1",
+        (card_name,),
+    ).fetchone()
+    return row["color_group"] if row else None
 
 
 # ---------------------------------------------------------------------------

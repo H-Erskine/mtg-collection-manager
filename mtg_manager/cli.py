@@ -1,5 +1,7 @@
+import os
 import sys
 from collections import defaultdict
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -9,6 +11,7 @@ from rich.table import Table
 from .config import get_git_commit, load_config
 from .db import (
     add_card_tag,
+    add_moxfield_tag,
     card_count,
     categorise_missing_cards,
     clear_color_group,
@@ -16,11 +19,14 @@ from .db import (
     delete_built_deck,
     get_allocated_quantity,
     get_all_owned_names,
+    get_card_moxfield_tags,
     get_deck_return_list,
     get_available_quantity,
     get_card_allocations,
     get_card_tags,
     get_cards_by_tag,
+    get_card_binder_color_group,
+    get_cards_by_moxfield_tag,
     get_cards_over_limit,
     get_conn,
     get_deck,
@@ -34,16 +40,30 @@ from .db import (
     list_for_sale_cards,
     remove_all_cards_with_tag,
     remove_card_tag,
+    remove_moxfield_tag,
     update_sale_prices,
     upsert_cards,
     upsert_for_sale_cards,
     upsert_legalities,
 )
 from .models import BoxedCard, MissingCard
-from .moxfield import fetch_package_cards
+from .moxfield import fetch_moxfield_card_ids, fetch_package_cards
+from .moxfield_write import deck_name_to_tag, fetch_deck_info, get_token, set_card_tags
 from .prices import fetch_cardmarket_prices
 from .scryfall import fetch_legalities, search_scryfall
 from .sources import fetch_decklists
+
+
+def _load_env() -> None:
+    env = Path(__file__).parent.parent / ".env"
+    if env.exists():
+        for line in env.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                os.environ.setdefault(k.strip(), v.strip())
+
+_load_env()
 
 console = Console()
 err_console = Console(stderr=True)
@@ -552,12 +572,70 @@ def build(url, box, sideboard):
             deck_name=dl.name,
             deck_url=url,
             box_name=box,
-            cards=list(needed.items()),
+            cards=[(name, qty, False) for name, qty in needed.items()],
         )
 
     console.print(f"[green]Built:[/green] {dl.name}")
     console.print(f"[green]Box:[/green]   {box}")
     console.print(f"[dim]Deck ID: {dl.deck_id}[/dim]")
+
+    # Tag cards in Moxfield binder if token is available and URL is a Moxfield deck
+    token = get_token()
+    if token and "moxfield.com/decks/" in url:
+        tag_name = deck_name_to_tag(dl.name)
+        with Progress(SpinnerColumn(), TextColumn(f"[cyan]Fetching card IDs for Moxfield tagging...[/cyan]"),
+                      console=console, transient=True) as progress:
+            progress.add_task("tag")
+            try:
+                card_ids = fetch_moxfield_card_ids(url)
+            except Exception as e:
+                err_console.print(f"[yellow]Warning: could not fetch card IDs for tagging: {e}[/yellow]")
+                card_ids = {}
+
+        _BASIC_LANDS = {"forest", "island", "mountain", "plains", "swamp", "wastes"}
+        if card_ids:
+            tagged = 0
+            failed = 0
+            skipped = 0
+            binder_info_cache: dict[str, tuple[str, int]] = {}  # public_id -> (internal_id, version)
+            with get_conn(cfg.db_path) as conn:
+                for card_name in needed:
+                    if card_name.lower() in _BASIC_LANDS:
+                        continue
+                    card_id = card_ids.get(card_name.lower())
+                    if not card_id:
+                        skipped += 1
+                        continue
+                    color_group = get_card_binder_color_group(conn, card_name)
+                    if not color_group:
+                        skipped += 1
+                        continue
+                    pkg = next((p for p in cfg.packages if p.color_group.lower() == color_group.lower()), None)
+                    if not pkg:
+                        skipped += 1
+                        continue
+                    if pkg.public_id not in binder_info_cache:
+                        try:
+                            binder_info_cache[pkg.public_id] = fetch_deck_info(pkg.public_id, token)
+                        except Exception as e:
+                            err_console.print(f"[yellow]Warning: could not fetch binder info for {color_group}: {e}[/yellow]")
+                            skipped += 1
+                            continue
+                    binder_internal_id, binder_version = binder_info_cache[pkg.public_id]
+                    existing = get_card_moxfield_tags(conn, card_id, pkg.public_id)
+                    if tag_name not in existing:
+                        new_tags = existing + [tag_name]
+                        if set_card_tags(binder_internal_id, card_id, new_tags, token, binder_version, pkg.public_id):
+                            add_moxfield_tag(conn, card_id, pkg.public_id, tag_name)
+                            tagged += 1
+                        else:
+                            failed += 1
+            if tagged:
+                console.print(f"[green]Tagged:[/green] {tagged} card(s) with '{tag_name}' in Moxfield")
+            if skipped:
+                console.print(f"[dim]Skipped {skipped} card(s) (not in collection or no binder match)[/dim]")
+            if failed:
+                err_console.print(f"[yellow]Warning: {failed} card(s) failed to tag (token may be expired)[/yellow]")
 
 
 # ---------------------------------------------------------------------------
@@ -960,8 +1038,39 @@ def unbox(deck_id):
 
         name = row["deck_name"]
         box = row["box_name"]
+        deck_url = row["deck_url"]
         return_cards = get_deck_return_list(conn, deck_id)
+
+        # Remove Moxfield tags before deleting deck record
+        token = get_token()
+        tag_name = deck_name_to_tag(name)
+        cards_to_untag = get_cards_by_moxfield_tag(conn, tag_name) if token else []
+
         delete_built_deck(conn, deck_id)
+
+        if token and cards_to_untag:
+            untagged = 0
+            failed = 0
+            binder_info_cache: dict[str, tuple[str, int]] = {}
+            for card_id, binder_public_id in cards_to_untag:
+                if binder_public_id not in binder_info_cache:
+                    try:
+                        binder_info_cache[binder_public_id] = fetch_deck_info(binder_public_id, token)
+                    except Exception as e:
+                        err_console.print(f"[yellow]Warning: could not fetch binder info for {binder_public_id}: {e}[/yellow]")
+                        failed += 1
+                        continue
+                binder_internal_id, binder_version = binder_info_cache[binder_public_id]
+                remaining = [t for t in get_card_moxfield_tags(conn, card_id, binder_public_id) if t.lower() != tag_name.lower()]
+                if set_card_tags(binder_internal_id, card_id, remaining, token, binder_version, binder_public_id):
+                    remove_moxfield_tag(conn, card_id, binder_public_id, tag_name)
+                    untagged += 1
+                else:
+                    failed += 1
+            if untagged:
+                console.print(f"[green]Removed tag '{tag_name}' from {untagged} card(s) in Moxfield[/green]")
+            if failed:
+                err_console.print(f"[yellow]Warning: {failed} card(s) failed to untag (token may be expired)[/yellow]")
 
     console.print(f"[green]Unboxed:[/green] {name} (was in [{box}])")
     console.print()

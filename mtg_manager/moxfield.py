@@ -124,6 +124,35 @@ def public_id_from_url(url: str) -> str | None:
     return m.group(1) if m else None
 
 
+def fetch_moxfield_card_ids(url: str) -> dict[str, str]:
+    """Return {card_name_lower: card_id} for all cards in a Moxfield deck URL.
+
+    Uses card.id (not uniqueCardId) — required for the deck/binder tag endpoint.
+    """
+    public_id = public_id_from_url(url)
+    if not public_id:
+        raise ValueError(f"Cannot extract public_id from Moxfield URL: {url}")
+    scraper = _scraper()
+    api_url = f"{BASE_URL}/{public_id}"
+    with _MOXFIELD_LOCK:
+        resp = scraper.get(api_url, headers=HEADERS, timeout=30)
+        time.sleep(1.0)
+    resp.raise_for_status()
+    data = resp.json()
+    result: dict[str, str] = {}
+    for board in data.get("boards", {}).values():
+        for uid, ce in board.get("cards", {}).items():
+            name = ce.get("card", {}).get("name", "")
+            card_id = ce.get("card", {}).get("id") or uid
+            if name:
+                result[name.lower()] = card_id
+                # also index front face of DFCs so MTGTop8-sourced names match
+                if " // " in name:
+                    front = name.split(" // ")[0].lower()
+                    result.setdefault(front, card_id)
+    return result
+
+
 def fetch_moxfield_deck(url: str) -> Decklist:
     """
     Fetch a public Moxfield deck URL and return it as a Decklist.

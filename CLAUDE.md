@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Behaviour
+
+- When something is wrong or unexpected, say so directly. Do not invent alternative explanations to defend prior work.
+- If the user provides evidence that contradicts your analysis, accept it and investigate — do not dismiss it.
+
 ## Setup
 
 **Install (CLI only):**
