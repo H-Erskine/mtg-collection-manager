@@ -50,7 +50,7 @@ from .models import BoxedCard, MissingCard
 from .moxfield import fetch_moxfield_card_ids, fetch_package_cards
 from .moxfield_write import deck_name_to_tag, fetch_deck_info, get_token, set_card_tags
 from .prices import fetch_cardmarket_prices
-from .scryfall import fetch_legalities, search_scryfall
+from .scryfall import fetch_legalities, search_scryfall, search_scryfall_by_query
 from .sources import fetch_decklists
 
 
@@ -991,6 +991,78 @@ def scryfall(url):
         f" ({total_qty} total cop{'y' if total_qty == 1 else 'ies'})"
         f" out of [bold]{len(cards)}[/bold] Scryfall results"
     )
+
+
+# ---------------------------------------------------------------------------
+# mtg check
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.argument("query")
+def check(query):
+    """Check your collection for a full playset of cards matching a Scryfall query.
+
+    \b
+    Examples:
+      mtg check "is:fetchland"
+      mtg check "is:shockland"
+      mtg check "is:dual"
+    """
+    cfg = _load_cfg()
+
+    with Progress(SpinnerColumn(), TextColumn("[cyan]Fetching Scryfall results...[/cyan]"),
+                  console=console, transient=True) as progress:
+        progress.add_task("fetch")
+        try:
+            card_names = search_scryfall_by_query(query)
+        except Exception as e:
+            err_console.print(f"[red]Failed to fetch Scryfall results: {e}[/red]")
+            sys.exit(1)
+
+    if not card_names:
+        console.print("[yellow]No cards found for that search.[/yellow]")
+        return
+
+    console.print(f"\nFound [bold]{len(card_names)}[/bold] card(s) for '[cyan]{query}[/cyan]'.\n")
+
+    card_needs = [(name, 4, 1) for name in card_names]
+
+    with get_conn(cfg.db_path) as conn:
+        _auto_sync(cfg, conn)
+        missing_cards, boxed_cards, available_cards = categorise_missing_cards(conn, card_needs, 1)
+
+    if not missing_cards and not boxed_cards:
+        console.print("[green]You have a full playset of all cards![/green]\n")
+        for c in sorted(available_cards, key=lambda c: c.name):
+            console.print(f"  4x {c.name}  [dim](have {c.owned})[/dim]")
+        return
+
+    if missing_cards:
+        console.print(f"[bold red]Missing {len(missing_cards)} card(s):[/bold red]\n")
+        table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+        table.add_column("Need", justify="right", style="bold yellow", width=5)
+        table.add_column("Card", min_width=30)
+        table.add_column("Have", justify="right", width=5)
+        for c in sorted(missing_cards, key=lambda c: c.name):
+            table.add_row(str(c.short), c.name, str(c.owned))
+        console.print(table)
+
+    if boxed_cards:
+        console.print("\n[yellow]Owned but locked in boxes:[/yellow]")
+        for line in _boxed_lines(boxed_cards):
+            console.print(line)
+
+    if available_cards:
+        console.print()
+        console.print(f"[bold green]Full playset owned ({len(available_cards)} card(s)):[/bold green]")
+        for c in sorted(available_cards, key=lambda c: c.name):
+            console.print(f"  4x {c.name}  [dim](have {c.owned})[/dim]")
+
+    if missing_cards:
+        console.print()
+        console.print("[bold]Order list:[/bold]")
+        for c in sorted(missing_cards, key=lambda c: c.name):
+            console.print(f"{c.short}x {c.name}")
 
 
 # ---------------------------------------------------------------------------

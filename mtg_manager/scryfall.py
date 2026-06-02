@@ -69,6 +69,27 @@ def fetch_legalities(
     return result
 
 
+def search_scryfall_by_query(query: str) -> list[str]:
+    """Search Scryfall by query string and return unique card names.
+
+    Uses unique=cards so each card name appears once regardless of printing.
+    """
+    next_url: str | None = _SEARCH_URL + "?" + urlencode({"q": query, "unique": "cards"})
+    names: list[str] = []
+
+    while next_url:
+        resp = requests.get(next_url, headers=_HEADERS, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        for card in data.get("data", []):
+            names.append(card["name"])
+        next_url = data.get("next_page") if data.get("has_more") else None
+        if next_url:
+            time.sleep(_BATCH_DELAY)
+
+    return names
+
+
 def search_scryfall(url: str) -> list[dict]:
     """Fetch all cards matching a Scryfall search URL (web or API).
 

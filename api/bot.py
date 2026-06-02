@@ -23,6 +23,7 @@ from .handlers import (
     fetch_card_data,
     handle_boxes,
     handle_build,
+    handle_check,
     handle_cleartag,
     handle_extras,
     handle_forsale,
@@ -723,6 +724,27 @@ async def cmd_scryfall(interaction: discord.Interaction, url: str, private: bool
     await _send_embed(
         interaction, reply,
         title="Scryfall Collection Match",
+        color=COLOR_ERROR if is_error else COLOR_INFO,
+        code_block=True,
+    )
+
+
+@tree.command(name="check", description="Check if you own a playset of cards matching a Scryfall query")
+@app_commands.describe(
+    query="Scryfall search query (e.g. 'is:fetchland', 'is:shockland', 'is:dual')",
+    private="Only show the response to you (default: public)",
+)
+async def cmd_check(interaction: discord.Interaction, query: str, private: bool = False):
+    await interaction.response.defer(ephemeral=private)
+    cfg, owner = await _resolve_user(interaction, require_packages=True)
+    if cfg is None:
+        return
+
+    reply = await asyncio.get_event_loop().run_in_executor(None, handle_check, query, cfg, owner)
+    is_error = reply.startswith("Error") or reply.startswith("No cards found")
+    await _send_embed(
+        interaction, reply,
+        title=f"Collection Check: {query}",
         color=COLOR_ERROR if is_error else COLOR_INFO,
         code_block=True,
     )

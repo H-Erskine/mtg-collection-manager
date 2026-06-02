@@ -61,7 +61,7 @@ from mtg_manager.models import BoxedCard, MissingCard
 from mtg_manager.moxfield import fetch_moxfield_card_ids, fetch_package_cards
 from mtg_manager.moxfield_write import deck_name_to_tag, fetch_deck_info, get_token, set_card_tags
 from mtg_manager.prices import fetch_cardmarket_prices
-from mtg_manager.scryfall import fetch_legalities
+from mtg_manager.scryfall import fetch_legalities, search_scryfall_by_query
 from mtg_manager.sources import fetch_decklists, source_name
 
 
@@ -1013,6 +1013,58 @@ def handle_scryfall(url: str, cfg: Config, is_owner: bool = False) -> str:
         lines.append(f"  {row['quantity']}x {row['name']}  ({set_label} #{row['collector_number']}){' ' + foil_label if foil_label else ''}")
     total_qty = sum(r["quantity"] for r in owned_rows)
     lines.append(f"\nTotal: {total_qty} cop{'y' if total_qty == 1 else 'ies'} across {len(owned_rows)} printing(s)")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# check — playset completeness via Scryfall query
+# ---------------------------------------------------------------------------
+
+def handle_check(query: str, cfg: Config, is_owner: bool = False) -> str:
+    try:
+        card_names = search_scryfall_by_query(query)
+    except Exception as e:
+        return f"Error fetching Scryfall results: {e}"
+
+    if not card_names:
+        return f"No cards found for query '{query}'."
+
+    card_needs = [(name, 4, 1) for name in card_names]
+
+    with get_conn(cfg.db_path) as conn:
+        if is_owner:
+            _auto_sync(cfg, conn)
+        missing_cards, boxed_cards, available_cards = categorise_missing_cards(conn, card_needs, 1)
+
+    lines = [f"{len(card_names)} card(s) found for '{query}'.\n"]
+
+    if not missing_cards and not boxed_cards:
+        lines.append("You have a full playset of all cards!")
+        for c in sorted(available_cards, key=lambda c: c.name):
+            lines.append(f"  4x {c.name}  (have {c.owned})")
+        return "\n".join(lines)
+
+    if missing_cards:
+        lines.append(f"Missing {len(missing_cards)} card(s):")
+        for c in sorted(missing_cards, key=lambda c: c.name):
+            lines.append(f"  {c.short}x {c.name}  (have {c.owned})")
+
+    if boxed_cards:
+        lines.append("\nOwned but locked in boxes:")
+        for bc in sorted(boxed_cards, key=lambda c: c.name):
+            for a in bc.allocations:
+                lines.append(f"  {bc.needed}x {bc.name} -> {a.quantity}x in [{a.box_name}] ({a.deck_name})")
+
+    if available_cards:
+        lines.append(f"\nFull playset ({len(available_cards)} card(s)):")
+        for c in sorted(available_cards, key=lambda c: c.name):
+            lines.append(f"  4x {c.name}  (have {c.owned})")
+
+    if missing_cards:
+        lines.append("\nOrder list:")
+        for c in sorted(missing_cards, key=lambda c: c.name):
+            lines.append(f"{c.short}x {c.name}")
+
     return "\n".join(lines)
 
 
