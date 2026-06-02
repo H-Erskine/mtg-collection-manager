@@ -560,19 +560,29 @@ def build(url, box, sideboard):
             console.print()
 
         if short_cards:
-            console.print(f"[red]Cannot build — {len(short_cards)} card(s) unavailable:[/red]\n")
+            console.print(f"[yellow]Warning — {len(short_cards)} card(s) will be proxied:[/yellow]")
             for name, qty, available in short_cards:
-                console.print(f"  need {qty}x {name}, have {available} available")
-            sys.exit(1)
+                console.print(f"  {qty - available}x proxy  {name}  [dim](have {available}, need {qty})[/dim]")
+            console.print()
 
-        # All good — record the build
+        # Allocate owned copies as real; proxy the remainder for any shortages
+        short_map = {name: available for name, _qty, available in short_cards}
+        all_cards: list[tuple[str, int, bool]] = []
+        for name, qty in needed.items():
+            avail = short_map.get(name, qty)
+            if avail > 0:
+                all_cards.append((name, avail, False))
+            proxy_qty = qty - avail
+            if proxy_qty > 0:
+                all_cards.append((name, proxy_qty, True))
+
         insert_built_deck(
             conn,
             deck_id=dl.deck_id,
             deck_name=dl.name,
             deck_url=url,
             box_name=box,
-            cards=[(name, qty, False) for name, qty in needed.items()],
+            cards=all_cards,
         )
 
     console.print(f"[green]Built:[/green] {dl.name}")

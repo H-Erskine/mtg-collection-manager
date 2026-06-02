@@ -86,6 +86,8 @@ def _parse_deck_lines(soup: BeautifulSoup, deck_id: str, url: str) -> Decklist:
             name_span = div.find("span")
             if name_span:
                 card_name = name_span.get_text(strip=True)
+                # MTGTop8 uses " / " for split cards; normalise to standard " // "
+                card_name = re.sub(r"\s*/\s*", " // ", card_name)
                 # Quantity is the text before the span
                 raw = div.get_text(strip=True)
                 m = re.match(r"^(\d+)", raw)

@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS allocated_cards (
     card_name   TEXT NOT NULL,
     quantity    INTEGER NOT NULL DEFAULT 1,
     is_proxy    INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (deck_id, card_name)
+    PRIMARY KEY (deck_id, card_name, is_proxy)
 );
 
 CREATE INDEX IF NOT EXISTS idx_allocated_card_name ON allocated_cards (card_name);
@@ -100,6 +100,24 @@ def get_conn(db_path: Path):
             conn.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+        # Migration: change allocated_cards PK to (deck_id, card_name, is_proxy) for partial proxy support
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='allocated_cards'"
+        ).fetchone()
+        if row and "PRIMARY KEY (deck_id, card_name, is_proxy)" not in (row["sql"] or ""):
+            conn.executescript("""
+                CREATE TABLE allocated_cards_new (
+                    deck_id     TEXT NOT NULL REFERENCES built_decks(deck_id),
+                    card_name   TEXT NOT NULL,
+                    quantity    INTEGER NOT NULL DEFAULT 1,
+                    is_proxy    INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (deck_id, card_name, is_proxy)
+                );
+                INSERT INTO allocated_cards_new SELECT * FROM allocated_cards;
+                DROP TABLE allocated_cards;
+                ALTER TABLE allocated_cards_new RENAME TO allocated_cards;
+                CREATE INDEX IF NOT EXISTS idx_allocated_card_name ON allocated_cards (card_name);
+            """)
         # Migration: rebuild moxfield_tags with binder_public_id (old schema had unique_card_id only)
         cols = {row[1] for row in conn.execute("PRAGMA table_info(moxfield_tags)")}
         if "unique_card_id" in cols:
