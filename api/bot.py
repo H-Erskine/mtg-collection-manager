@@ -711,15 +711,23 @@ async def cmd_proxy(
 @tree.command(name="scryfall", description="Cross-reference a Scryfall search URL against your collection")
 @app_commands.describe(
     url="Scryfall search URL — paste directly from your browser",
+    alt_printings="Also show cards you own in different printings of artist matches (default: false)",
     private="Only show the response to you (default: public)",
 )
-async def cmd_scryfall(interaction: discord.Interaction, url: str, private: bool = False):
+async def cmd_scryfall(
+    interaction: discord.Interaction,
+    url: str,
+    alt_printings: bool = False,
+    private: bool = False,
+):
     await interaction.response.defer(ephemeral=private)
     cfg, owner = await _resolve_user(interaction, require_packages=True)
     if cfg is None:
         return
 
-    reply = await asyncio.get_event_loop().run_in_executor(None, handle_scryfall, url, cfg, owner)
+    import functools
+    fn = functools.partial(handle_scryfall, url, cfg, owner, alt_printings)
+    reply = await asyncio.get_event_loop().run_in_executor(None, fn)
     is_error = reply.startswith("Error") or "none of those" in reply
     await _send_embed(
         interaction, reply,

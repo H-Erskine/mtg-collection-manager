@@ -43,8 +43,11 @@ from mtg_manager.db import (
     get_decks_by_name,
     get_illegal_owned_cards,
     get_names_missing_legality,
+    get_for_sale_names,
+    get_owned_by_names,
     get_owned_by_printings,
     get_owned_quantity,
+    get_tagged_names,
     get_tags_for_sale_cards,
     insert_built_deck,
     list_built_decks,
@@ -988,7 +991,12 @@ def handle_search(query: str, cfg: Config, is_owner: bool = False) -> str:
 # scryfall (collection cross-reference)
 # ---------------------------------------------------------------------------
 
-def handle_scryfall(url: str, cfg: Config, is_owner: bool = False) -> str:
+def handle_scryfall(
+    url: str,
+    cfg: Config,
+    is_owner: bool = False,
+    alt_printings: bool = False,
+) -> str:
     from mtg_manager.scryfall import search_scryfall
 
     try:
@@ -1004,28 +1012,75 @@ def handle_scryfall(url: str, cfg: Config, is_owner: bool = False) -> str:
         (c["set"].lower(), c["collector_number"]): c.get("artist", "Unknown")
         for c in cards
     }
+    # card name → list of artist printings (for alt_printings display)
+    name_to_artist_prints: dict[str, list[dict]] = {}
+    for c in cards:
+        name_to_artist_prints.setdefault(c["name"], []).append({
+            "artist": c.get("artist", "Unknown"),
+            "set": c["set"].upper(),
+            "collector_number": c["collector_number"],
+        })
 
     with get_conn(cfg.db_path) as conn:
-        owned_rows = get_owned_by_printings(conn, printings)
+        for_sale = get_for_sale_names(conn)
+        tagged = get_tagged_names(conn)
+        owned_rows = [
+            r for r in get_owned_by_printings(conn, printings)
+            if r["name"].lower() not in for_sale
+        ]
+        alt_rows: list = []
+        if alt_printings:
+            exact_names = {r["name"].lower() for r in owned_rows}
+            alt_names = [n for n in name_to_artist_prints if n.lower() not in exact_names]
+            if alt_names:
+                alt_rows = get_owned_by_names(conn, alt_names)
 
-    if not owned_rows:
-        return f"Found {len(cards)} Scryfall result(s) but none of those specific printings are in your collection."
+    # by_artist: artist → list of (is_tagged, is_alt, name, display_line)
+    # sort: tagged+exact → tagged+alt → untagged+exact → untagged+alt
+    by_artist: dict[str, list[tuple[bool, bool, str, str]]] = {}
 
-    by_artist: dict[str, list] = {}
     for row in owned_rows:
         artist = artist_by_printing.get((row["set_code"].lower(), row["collector_number"]), "Unknown")
-        by_artist.setdefault(artist, []).append(row)
+        foil_label = " [foil]" if row["foil"] else ""
+        is_tagged = row["name"].lower() in tagged
+        line = f"{row['quantity']}x {row['name']} - {row['set_code'].upper()}{foil_label}"
+        by_artist.setdefault(artist, []).append((is_tagged, False, row["name"], line))
 
-    lines = [f"Scryfall results: {len(cards)} card(s)  |  Owned printings: {len(owned_rows)}\n"]
-    for artist in sorted(by_artist):
-        lines.append(f"{artist}")
-        for row in by_artist[artist]:
+    for row in alt_rows:
+        name = row["name"]
+        artist_prints = name_to_artist_prints.get(name, [])
+        by_ap: dict[str, list[str]] = {}
+        for ap in artist_prints:
+            by_ap.setdefault(ap["artist"], []).append(f"{ap['set']} #{ap['collector_number']}")
+        for artist, ver_list in by_ap.items():
             foil_label = " [foil]" if row["foil"] else ""
-            set_label = row["set_code"].upper()
-            lines.append(f"  {row['quantity']}x {row['name']} - {set_label}{foil_label}")
+            is_tagged = name.lower() in tagged
+            vers = ", ".join(ver_list)
+            line = (
+                f"{row['quantity']}x {name} - {row['set_code'].upper()}{foil_label}"
+                f"  [diff. printing — artist ver: {vers}]"
+            )
+            by_artist.setdefault(artist, []).append((is_tagged, True, name, line))
+
+    if not by_artist:
+        suffix = " (including other printings of matching cards)" if alt_printings else ""
+        return f"Found {len(cards)} Scryfall result(s) but none{suffix} are in your collection."
+
+    summary = f"Scryfall results: {len(cards)} card(s)  |  Owned: {len(owned_rows)} exact printing(s)"
+    if alt_printings and alt_rows:
+        summary += f"  |  Alt printings: {len(alt_rows)}"
+    lines = [summary, ""]
+
+    for artist in sorted(by_artist):
+        lines.append(artist)
+        for is_tagged, _is_alt, _name, line in sorted(by_artist[artist], key=lambda x: (not x[0], x[1], x[2])):
+            prefix = "★ " if is_tagged else "  "
+            lines.append(f"{prefix}{line}")
         lines.append("")
-    total_qty = sum(r["quantity"] for r in owned_rows)
-    lines.append(f"Total: {total_qty} cop{'y' if total_qty == 1 else 'ies'} across {len(owned_rows)} printing(s)")
+
+    total_qty = sum(r["quantity"] for r in owned_rows) + sum(r["quantity"] for r in alt_rows)
+    total_prints = len(owned_rows) + len(alt_rows)
+    lines.append(f"Total: {total_qty} cop{'y' if total_qty == 1 else 'ies'} across {total_prints} printing(s)")
     return "\n".join(lines)
 
 

@@ -104,8 +104,14 @@ def get_conn(db_path: Path):
         row = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='allocated_cards'"
         ).fetchone()
-        if row and "PRIMARY KEY (deck_id, card_name, is_proxy)" not in (row["sql"] or ""):
+        ac_cols = {r[1] for r in conn.execute("PRAGMA table_info(allocated_cards)")}
+        if (
+            row
+            and "PRIMARY KEY (deck_id, card_name, is_proxy)" not in (row["sql"] or "")
+            and "proxy_qty" not in ac_cols  # already on a newer schema variant
+        ):
             conn.executescript("""
+                DROP TABLE IF EXISTS allocated_cards_new;
                 CREATE TABLE allocated_cards_new (
                     deck_id     TEXT NOT NULL REFERENCES built_decks(deck_id),
                     card_name   TEXT NOT NULL,
@@ -553,6 +559,42 @@ def get_owned_by_printings(
             ORDER BY name, set_code, foil
             """,
             params,
+        ).fetchall())
+    return rows
+
+
+def get_for_sale_names(conn: sqlite3.Connection) -> set[str]:
+    """Return lowercase names of all cards currently listed for sale."""
+    rows = conn.execute("SELECT DISTINCT LOWER(name) AS name FROM for_sale_cards").fetchall()
+    return {r["name"] for r in rows}
+
+
+def get_tagged_names(conn: sqlite3.Connection) -> set[str]:
+    """Return lowercase card names that have at least one tag."""
+    rows = conn.execute("SELECT DISTINCT LOWER(name) AS name FROM card_tags").fetchall()
+    return {r["name"] for r in rows}
+
+
+def get_owned_by_names(
+    conn: sqlite3.Connection,
+    names: list[str],
+) -> list[sqlite3.Row]:
+    """Return owned cards matching any of the given card names (case-insensitive), excluding for_sale_cards."""
+    if not names:
+        return []
+    rows: list[sqlite3.Row] = []
+    for i in range(0, len(names), _PRINTING_BATCH):
+        batch = names[i : i + _PRINTING_BATCH]
+        placeholders = ",".join("?" for _ in batch)
+        rows.extend(conn.execute(
+            f"""
+            SELECT name, set_code, collector_number, foil, quantity, color_group
+            FROM owned_cards
+            WHERE LOWER(name) IN ({placeholders})
+              AND LOWER(name) NOT IN (SELECT LOWER(name) FROM for_sale_cards)
+            ORDER BY name, set_code, foil
+            """,
+            [n.lower() for n in batch],
         ).fetchall())
     return rows
 

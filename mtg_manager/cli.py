@@ -32,8 +32,11 @@ from .db import (
     get_deck,
     get_illegal_owned_cards,
     get_names_missing_legality,
+    get_for_sale_names,
+    get_owned_by_names,
     get_owned_by_printings,
     get_owned_quantity,
+    get_tagged_names,
     get_tags_for_sale_cards,
     insert_built_deck,
     list_built_decks,
@@ -942,15 +945,20 @@ def cleartag(tag):
 
 @cli.command()
 @click.argument("url")
-def scryfall(url):
+@click.option("--alt-printings", is_flag=True, default=False,
+              help="Also show cards you own in different printings of artist matches.")
+def scryfall(url, alt_printings):
     """Compare a Scryfall search result against your collection.
 
     Accepts a Scryfall search URL (copy from browser). Shows which exact
     printings (set + collector number) from the results you already own.
+    Cards with Moxfield tags are highlighted and listed first.
+    For-sale cards are excluded.
 
     \b
     Example:
       mtg scryfall "https://scryfall.com/search?q=artist%3A%22Titus+Lunter%22"
+      mtg scryfall --alt-printings "https://scryfall.com/search?q=artist%3A%22Titus+Lunter%22"
     """
     with Progress(SpinnerColumn(), TextColumn("[cyan]Fetching Scryfall results...[/cyan]"),
                   console=console, transient=True) as progress:
@@ -965,39 +973,85 @@ def scryfall(url):
         console.print("[yellow]No cards found for that search.[/yellow]")
         return
 
-    console.print(f"\nFound [bold]{len(cards)}[/bold] card(s) in Scryfall results.\n")
-
     printings = [(c["set"], c["collector_number"]) for c in cards]
+    artist_by_printing: dict[tuple[str, str], str] = {
+        (c["set"].lower(), c["collector_number"]): c.get("artist", "Unknown")
+        for c in cards
+    }
+    name_to_artist_prints: dict[str, list[dict]] = {}
+    for c in cards:
+        name_to_artist_prints.setdefault(c["name"], []).append({
+            "artist": c.get("artist", "Unknown"),
+            "set": c["set"].upper(),
+            "collector_number": c["collector_number"],
+        })
 
     cfg = _load_cfg()
     with get_conn(cfg.db_path) as conn:
-        owned_rows = get_owned_by_printings(conn, printings)
+        for_sale = get_for_sale_names(conn)
+        tagged = get_tagged_names(conn)
+        owned_rows = [
+            r for r in get_owned_by_printings(conn, printings)
+            if r["name"].lower() not in for_sale
+        ]
+        alt_rows: list = []
+        if alt_printings:
+            exact_names = {r["name"].lower() for r in owned_rows}
+            alt_names = [n for n in name_to_artist_prints if n.lower() not in exact_names]
+            if alt_names:
+                alt_rows = get_owned_by_names(conn, alt_names)
 
-    if not owned_rows:
-        console.print("[yellow]None of these specific printings are in your collection.[/yellow]")
+    if not owned_rows and not alt_rows:
+        suffix = " (including other printings)" if alt_printings else ""
+        console.print(f"[yellow]None of these results{suffix} are in your collection.[/yellow]")
         return
 
-    table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
-    table.add_column("Card", min_width=35)
-    table.add_column("Set", width=5)
-    table.add_column("No.", width=6)
-    table.add_column("Finish", width=10)
-    table.add_column("Qty", justify="right", style="bold yellow", width=4)
+    summary = (
+        f"\nFound [bold]{len(cards)}[/bold] Scryfall result(s)"
+        f"  |  [bold green]{len(owned_rows)}[/bold green] exact printing(s) owned"
+    )
+    if alt_printings and alt_rows:
+        summary += f"  |  [bold cyan]{len(alt_rows)}[/bold cyan] alt printing(s)"
+    console.print(summary + "\n")
+
+    # by_artist: artist → list of (is_tagged, sort_name, display_line, is_alt)
+    by_artist: dict[str, list[tuple[bool, str, str, bool]]] = {}
 
     for row in owned_rows:
-        foil_label = "Foil" if row["foil"] else "Non-Foil"
-        table.add_row(
-            row["name"],
-            row["set_code"].upper(),
-            row["collector_number"],
-            foil_label,
-            str(row["quantity"]),
-        )
+        artist = artist_by_printing.get((row["set_code"].lower(), row["collector_number"]), "Unknown")
+        foil_label = " [foil]" if row["foil"] else ""
+        is_tagged = row["name"].lower() in tagged
+        line = f"{row['quantity']}x {row['name']} - {row['set_code'].upper()}{foil_label}"
+        by_artist.setdefault(artist, []).append((is_tagged, False, row["name"], line))
 
-    console.print(table)
-    total_qty = sum(r["quantity"] for r in owned_rows)
+    for row in alt_rows:
+        name = row["name"]
+        by_ap: dict[str, list[str]] = {}
+        for ap in name_to_artist_prints.get(name, []):
+            by_ap.setdefault(ap["artist"], []).append(f"{ap['set']} #{ap['collector_number']}")
+        for artist, ver_list in by_ap.items():
+            foil_label = " [foil]" if row["foil"] else ""
+            is_tagged = name.lower() in tagged
+            vers = ", ".join(ver_list)
+            line = (
+                f"{row['quantity']}x {name} - {row['set_code'].upper()}{foil_label}"
+                f"  [dim][diff. printing — artist ver: {vers}][/dim]"
+            )
+            by_artist.setdefault(artist, []).append((is_tagged, True, name, line))
+
+    for artist in sorted(by_artist):
+        console.print(f"[bold]{artist}[/bold]")
+        for is_tagged, _is_alt, _name, line in sorted(by_artist[artist], key=lambda x: (not x[0], x[1], x[2])):
+            if is_tagged:
+                console.print(f"  [bold green]★[/bold green] {line}")
+            else:
+                console.print(f"    {line}")
+        console.print()
+
+    total_qty = sum(r["quantity"] for r in owned_rows) + sum(r["quantity"] for r in alt_rows)
+    total_prints = len(owned_rows) + len(alt_rows)
     console.print(
-        f"\n[bold green]{len(owned_rows)} printing(s) owned[/bold green]"
+        f"[bold green]{total_prints} printing(s) owned[/bold green]"
         f" ({total_qty} total cop{'y' if total_qty == 1 else 'ies'})"
         f" out of [bold]{len(cards)}[/bold] Scryfall results"
     )
