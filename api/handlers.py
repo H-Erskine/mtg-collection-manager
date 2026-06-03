@@ -1000,19 +1000,32 @@ def handle_scryfall(url: str, cfg: Config, is_owner: bool = False) -> str:
         return "No cards found for that Scryfall search."
 
     printings = [(c["set"], c["collector_number"]) for c in cards]
+    artist_by_printing: dict[tuple[str, str], str] = {
+        (c["set"].lower(), c["collector_number"]): c.get("artist", "Unknown")
+        for c in cards
+    }
+
     with get_conn(cfg.db_path) as conn:
         owned_rows = get_owned_by_printings(conn, printings)
 
     if not owned_rows:
         return f"Found {len(cards)} Scryfall result(s) but none of those specific printings are in your collection."
 
-    lines = [f"Scryfall results: {len(cards)} card(s)  |  Owned printings: {len(owned_rows)}\n"]
+    by_artist: dict[str, list] = {}
     for row in owned_rows:
-        foil_label = "[foil]" if row["foil"] else ""
-        set_label = row["set_code"].upper()
-        lines.append(f"  {row['quantity']}x {row['name']}  ({set_label} #{row['collector_number']}){' ' + foil_label if foil_label else ''}")
+        artist = artist_by_printing.get((row["set_code"].lower(), row["collector_number"]), "Unknown")
+        by_artist.setdefault(artist, []).append(row)
+
+    lines = [f"Scryfall results: {len(cards)} card(s)  |  Owned printings: {len(owned_rows)}\n"]
+    for artist in sorted(by_artist):
+        lines.append(f"{artist}")
+        for row in by_artist[artist]:
+            foil_label = " [foil]" if row["foil"] else ""
+            set_label = row["set_code"].upper()
+            lines.append(f"  {row['quantity']}x {row['name']} - {set_label}{foil_label}")
+        lines.append("")
     total_qty = sum(r["quantity"] for r in owned_rows)
-    lines.append(f"\nTotal: {total_qty} cop{'y' if total_qty == 1 else 'ies'} across {len(owned_rows)} printing(s)")
+    lines.append(f"Total: {total_qty} cop{'y' if total_qty == 1 else 'ies'} across {len(owned_rows)} printing(s)")
     return "\n".join(lines)
 
 
