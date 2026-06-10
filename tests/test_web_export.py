@@ -170,6 +170,35 @@ def test_dfc_name_resolution(tmp_path):
     assert card["collector_number"] == "213"
 
 
+def test_dfc_back_face_resolution(tmp_path):
+    """'Front // Back' in owned_cards must also resolve when allocated_cards has 'Back'."""
+    cfg = _cfg(tmp_path, web_static_dir=tmp_path / "static")
+    with get_conn(cfg.db_path) as conn:
+        upsert_cards(conn, [OwnedCard(
+            name="Ral, Monsoon Mage // Ral, Leyline Prodigy",
+            set_code="dsk",
+            collector_number="213",
+            color_group="blue",
+            foil=False,
+            quantity=1,
+        )])
+        insert_built_deck(
+            conn,
+            deck_id="deck1",
+            deck_name="Control",
+            deck_url="https://example.com/control",
+            box_name="Blue Box",
+            cards=[("Ral, Leyline Prodigy", 1, False)],
+        )
+
+    export_static(cfg)
+
+    data = json.loads((cfg.web_static_dir / "decks.json").read_text(encoding="utf-8"))
+    card = data["decks"][0]["cards"][0]
+    assert card["set_code"] == "dsk"
+    assert card["collector_number"] == "213"
+
+
 def test_decks_ordered_by_box_then_name(tmp_path):
     cfg = _cfg(tmp_path, web_static_dir=tmp_path / "static")
     with get_conn(cfg.db_path) as conn:

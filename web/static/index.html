@@ -175,6 +175,10 @@ async function init() {
         collectionMap[key] = { quantity: 0, set_code: card.set_code, collector_number: card.collector_number };
       }
       collectionMap[key].quantity += card.quantity;
+      if (key.includes(' // ')) {
+        const frontKey = key.split(' // ')[0].trim();
+        if (!collectionMap[frontKey]) collectionMap[frontKey] = collectionMap[key];
+      }
     }
 
     const syncedAt = new Date(colData.updated_at).toLocaleString();

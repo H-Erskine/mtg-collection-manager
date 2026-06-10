@@ -55,8 +55,11 @@ def _get_decks(conn) -> list[dict]:
             printing_map[full_lower] = (r["set_code"], r["collector_number"])
         if " // " in r["name"]:
             front_lower = r["name"].split(" // ")[0].strip().lower()
+            back_lower  = r["name"].split(" // ")[1].strip().lower()
             if front_lower not in printing_map:
                 printing_map[front_lower] = (r["set_code"], r["collector_number"])
+            if back_lower not in printing_map:
+                printing_map[back_lower] = (r["set_code"], r["collector_number"])
 
     deck_rows = conn.execute(
         "SELECT deck_id, deck_name, deck_url, box_name, built_at "
