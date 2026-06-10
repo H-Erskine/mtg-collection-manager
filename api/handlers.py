@@ -1182,12 +1182,12 @@ def handle_stats(cfg: Config, is_owner: bool = False) -> str:
 # meta — top N meta decks vs collection
 # ---------------------------------------------------------------------------
 
-def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = False) -> tuple[str, list]:
+def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = False, date_range: str = "week") -> tuple[str, list]:
     """Returns (text, deck_results) where deck_results is [(dl, dm, total, owned), ...]."""
     from mtg_manager.goldfish import fetch_meta_decklists
 
     try:
-        decklists = fetch_meta_decklists(format_name, limit=count, delay=cfg.mtgtop8_delay)
+        decklists = fetch_meta_decklists(format_name, limit=count, delay=cfg.mtgtop8_delay, date_range=date_range)
     except Exception as e:
         return f"Failed to fetch meta: {e}", []
 
@@ -1218,8 +1218,9 @@ def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = Fals
     deck_results.sort(key=lambda x: -(x[3] / x[2] if x[2] else 0))
 
     buildable = sum(1 for _, dm, _, _ in deck_results if not dm)
+    range_label = {"week": "last 7 days", "two_weeks": "last 2 weeks", "month": "last month"}.get(date_range, date_range or "all time")
     lines = [
-        f"Top {len(decklists)} {format_name.capitalize()} meta (MTGGoldfish)",
+        f"Top {len(decklists)} {format_name.capitalize()} meta — {range_label} (MTGGoldfish)",
         f"Buildable: {buildable}/{len(decklists)}",
         "",
     ]

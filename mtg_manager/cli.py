@@ -1350,22 +1350,25 @@ def modern(file_path):
               help="Format name (e.g. modern, standard, pioneer).")
 @click.option("--count", "-n", default=15, show_default=True, type=int,
               help="Number of top meta decks to fetch.")
+@click.option("--range", "-r", "date_range", default="week", show_default=True,
+              help="Time range: week, two_weeks, month, or all.")
 @click.option("--sideboard/--no-sideboard", default=True, show_default=True,
               help="Include sideboard in the comparison.")
-def meta(fmt, count, sideboard):
+def meta(fmt, count, date_range, sideboard):
     """Fetch top meta decks from MTGGoldfish and compare against your collection.
 
     Shows per-deck ownership percentage and an aggregate list of the most-needed
     cards across all fetched decks.
     """
     cfg = _load_cfg()
+    dr = "" if date_range == "all" else date_range
 
     with Progress(SpinnerColumn(),
                   TextColumn(f"[cyan]Fetching top {count} {fmt} meta from MTGGoldfish...[/cyan]"),
                   console=console, transient=True) as progress:
         progress.add_task("fetch")
         try:
-            decklists = fetch_meta_decklists(fmt, limit=count, delay=cfg.mtgtop8_delay)
+            decklists = fetch_meta_decklists(fmt, limit=count, delay=cfg.mtgtop8_delay, date_range=dr)
         except Exception as e:
             err_console.print(f"[red]Failed to fetch meta: {e}[/red]")
             sys.exit(1)
