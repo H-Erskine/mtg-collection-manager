@@ -102,9 +102,12 @@ def _parse_visual_page(html: str, deck_id: str, deck_name: str, url: str) -> Dec
     """
     Parse the /deck/visual/{id} page into a Decklist.
 
-    Maindeck piles: <div class="deck-visual-pile"> with N same-named <img> tags.
+    Maindeck piles: <div class="deck-visual-pile"> with one <img alt="Name"> per copy.
     Sideboard pile: <div class="deck-visual-pile"> containing <h3>Sideboard</h3>
                     followed by individual <a><img alt="Name"></a> per card copy.
+
+    Container piles (those that wrap other piles) are skipped so cards are only
+    counted from the leaf-level piles, preventing double-counting.
     """
     soup = BeautifulSoup(html, "lxml")
 
@@ -113,34 +116,33 @@ def _parse_visual_page(html: str, deck_id: str, deck_name: str, url: str) -> Dec
         title_tag = soup.find("title")
         if title_tag:
             raw = title_tag.get_text(strip=True)
-            # "Deck Name by Author Visual Deck View" → strip suffix
             raw = re.sub(r"\s+Visual Deck View$", "", raw)
             raw = re.sub(r"\s+by\s+\S+$", "", raw)
             deck_name = raw or deck_id
 
-    cards: list[DeckCard] = []
     maindeck_counts: dict[str, int] = defaultdict(int)
+    sideboard_counts: dict[str, int] = defaultdict(int)
 
     for pile in soup.find_all("div", class_="deck-visual-pile"):
         sb_label = pile.find("h3", class_="deck-visual-sideboard-label")
         if sb_label:
             # Sideboard pile: each <a><img alt="Name"></a> is one card copy
-            sb_counts: dict[str, int] = defaultdict(int)
             for a in pile.find_all("a"):
                 img = a.find("img", alt=True)
                 if img:
-                    sb_counts[img["alt"]] += 1
-            for name, qty in sb_counts.items():
-                cards.append(DeckCard(name=name, quantity=qty, is_sideboard=True))
+                    sideboard_counts[img["alt"]] += 1
         else:
-            # Maindeck pile: all <img> tags have the same alt text
-            imgs = pile.find_all("img", alt=True)
-            if imgs:
-                maindeck_counts[imgs[0]["alt"]] += len(imgs)
+            # Skip container piles that wrap other piles — only count leaf piles
+            if pile.find("div", class_="deck-visual-pile"):
+                continue
+            # Count each img individually by its own card name (one img = one copy)
+            for img in pile.find_all("img", alt=True):
+                maindeck_counts[img["alt"]] += 1
 
-    for name, qty in maindeck_counts.items():
-        cards.insert(0, DeckCard(name=name, quantity=qty, is_sideboard=False))
-
+    cards: list[DeckCard] = (
+        [DeckCard(name=n, quantity=q, is_sideboard=False) for n, q in maindeck_counts.items()]
+        + [DeckCard(name=n, quantity=q, is_sideboard=True) for n, q in sideboard_counts.items()]
+    )
     return Decklist(deck_id=deck_id, name=deck_name, url=url, cards=cards)
 
 
