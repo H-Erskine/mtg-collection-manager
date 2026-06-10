@@ -208,3 +208,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Web export — generated on sync, not committed
+web/static/collection.json
+web/static/decks.json
