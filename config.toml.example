@@ -33,3 +33,9 @@ pick_list_sort = "colour"
 # Legality data is fetched from Scryfall during 'mtg sync'.
 # Leave empty or omit this section to disable format legality features.
 tracked = ["modern", "standard"]
+
+# [web]
+# Path where collection.json and decks.json are written after each sync.
+# Serve this directory with nginx to host the collection website.
+# Omit this section to disable web export.
+# static_dir = "/var/www/mtg"

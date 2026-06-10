@@ -21,6 +21,7 @@ class Config:
     db_path: Path
     pick_list_sort: str = "colour"
     formats: list[str] = field(default_factory=list)
+    web_static_dir: Path | None = None
 
 
 DEFAULT_CONFIG = Path("~/.mtg_manager/config.toml").expanduser()
@@ -63,6 +64,9 @@ def load_config(path: Path | str | None = None) -> Config:
             f"Must be one of: {', '.join(PICK_LIST_SORT_OPTIONS)}"
         )
 
+    web = data.get("web", {})
+    web_static_dir_raw = web.get("static_dir")
+
     return Config(
         packages=packages,
         moxfield_delay=data["moxfield"].get("request_delay_seconds", 1.0),
@@ -71,4 +75,5 @@ def load_config(path: Path | str | None = None) -> Config:
         db_path=Path(data["database"]["path"]).expanduser(),
         pick_list_sort=pick_list_sort,
         formats=data.get("formats", {}).get("tracked", []),
+        web_static_dir=Path(web_static_dir_raw).expanduser() if web_static_dir_raw else None,
     )
