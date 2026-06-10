@@ -1420,15 +1420,15 @@ def meta(fmt, count, sideboard):
             dl.name,
             f"{owned}/{total}",
             f"[{pct_style}]{pct}%[/{pct_style}]",
-            str(len(dm)) if dm else "—",
+            str(sum(mc.short for mc in dm)) if dm else "—",
             status,
         )
 
     console.print(table)
     console.print()
 
-    # Aggregate most-needed cards across all decks
-    agg_short: dict[str, int] = defaultdict(int)
+    # Max shortage per card across all decks — buying this many covers any single deck
+    agg_short: dict[str, int] = {}
     agg_decks: dict[str, int] = defaultdict(int)
     canonical: dict[str, str] = {}
 
@@ -1436,7 +1436,7 @@ def meta(fmt, count, sideboard):
         for mc in dm:
             key = mc.name.lower()
             canonical[key] = mc.name
-            agg_short[key] += mc.short
+            agg_short[key] = max(agg_short.get(key, 0), mc.short)
             agg_decks[key] += 1
 
     if agg_short:

@@ -1182,16 +1182,17 @@ def handle_stats(cfg: Config, is_owner: bool = False) -> str:
 # meta — top N meta decks vs collection
 # ---------------------------------------------------------------------------
 
-def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = False) -> str:
+def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = False) -> tuple[str, list]:
+    """Returns (text, deck_results) where deck_results is [(dl, dm, total, owned), ...]."""
     from mtg_manager.goldfish import fetch_meta_decklists
 
     try:
         decklists = fetch_meta_decklists(format_name, limit=count, delay=cfg.mtgtop8_delay)
     except Exception as e:
-        return f"Failed to fetch meta: {e}"
+        return f"Failed to fetch meta: {e}", []
 
     if not decklists:
-        return f"No meta decks found for '{format_name}'."
+        return f"No meta decks found for '{format_name}'.", []
 
     with get_conn(cfg.db_path) as conn:
         if is_owner:
@@ -1225,18 +1226,20 @@ def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = Fals
 
     for dl, dm, total, owned in deck_results:
         pct = round(owned / total * 100) if total else 0
+        to_buy = sum(mc.short for mc in dm)
         if not dm:
             icon = "✅"
             suffix = ""
         elif pct >= 80:
             icon = "🟡"
-            suffix = f"  — {len(dm)} missing"
+            suffix = f"  — {to_buy} to buy"
         else:
             icon = "🔴"
-            suffix = f"  — {len(dm)} missing"
+            suffix = f"  — {to_buy} to buy"
         lines.append(f"{icon} {dl.name}: {owned}/{total} ({pct}%){suffix}")
 
-    agg_short: dict[str, int] = defaultdict(int)
+    # max shortage per card across all decks — buying this many covers any single deck
+    agg_short: dict[str, int] = {}
     agg_decks: dict[str, int] = defaultdict(int)
     canonical: dict[str, str] = {}
 
@@ -1244,7 +1247,7 @@ def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = Fals
         for mc in dm:
             key = mc.name.lower()
             canonical[key] = mc.name
-            agg_short[key] += mc.short
+            agg_short[key] = max(agg_short.get(key, 0), mc.short)
             agg_decks[key] += 1
 
     if agg_short:
@@ -1254,7 +1257,7 @@ def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = Fals
         for k in top:
             lines.append(f"  {agg_short[k]}x {canonical[k]}  ({agg_decks[k]}/{len(decklists)} decks)")
 
-    return "\n".join(lines)
+    return "\n".join(lines), deck_results
 
 
 # ---------------------------------------------------------------------------

@@ -773,6 +773,33 @@ async def cmd_card(interaction: discord.Interaction, name: str, private: bool = 
     await _send_card_embed(interaction, data)
 
 
+class _MetaDeckButton(discord.ui.Button):
+    def __init__(self, dl_name: str, dm: list, pct: int):
+        label = dl_name if len(dl_name) <= 80 else dl_name[:77] + "..."
+        super().__init__(label=label, style=discord.ButtonStyle.secondary)
+        self._dl_name = dl_name
+        self._dm = dm
+        self._pct = pct
+
+    async def callback(self, interaction: discord.Interaction):
+        lines = [f"{self._dl_name} ({self._pct}%) — missing cards:"]
+        for mc in sorted(self._dm, key=lambda c: c.name):
+            lines.append(f"  {mc.short}x {mc.name}")
+        lines.append(f"\nTotal to buy: {sum(mc.short for mc in self._dm)}")
+        await interaction.response.send_message(
+            "```\n" + "\n".join(lines) + "\n```", ephemeral=True
+        )
+
+
+class _MetaView(discord.ui.View):
+    def __init__(self, deck_results: list):
+        super().__init__(timeout=300)
+        incomplete = [(dl, dm, total, owned) for dl, dm, total, owned in deck_results if dm][:5]
+        for dl, dm, total, owned in incomplete:
+            pct = round(owned / total * 100) if total else 0
+            self.add_item(_MetaDeckButton(dl.name, dm, pct))
+
+
 @tree.command(name="meta", description="Compare top meta decks against your collection")
 @app_commands.describe(
     format="Format name (e.g. modern, standard, pioneer) — default: modern",
@@ -792,7 +819,7 @@ async def cmd_meta(
 
     import functools
     fn = functools.partial(handle_meta, format, min(count, 30), cfg, owner)
-    reply = await asyncio.get_event_loop().run_in_executor(None, fn)
+    reply, deck_results = await asyncio.get_event_loop().run_in_executor(None, fn)
     is_error = reply.startswith("Failed") or reply.startswith("No meta")
     await _send_embed(
         interaction, reply,
@@ -800,6 +827,14 @@ async def cmd_meta(
         color=COLOR_ERROR if is_error else COLOR_INFO,
         code_block=True,
     )
+
+    if not is_error and any(dm for _, dm, _, _ in deck_results):
+        view = _MetaView(deck_results)
+        await interaction.followup.send(
+            "Select a deck for the full missing card list:",
+            view=view,
+            ephemeral=True,
+        )
 
 
 # ---------------------------------------------------------------------------
