@@ -806,14 +806,12 @@ class _MetaView(discord.ui.View):
 @app_commands.describe(
     format="Format name (e.g. modern, standard, pioneer) — default: modern",
     count="Number of top decks to check, up to 30 (default: 15)",
-    range="Time range: week (default), two_weeks, month, or all",
     private="Only show the response to you (default: public)",
 )
 async def cmd_meta(
     interaction: discord.Interaction,
     format: str = "modern",
     count: int = 15,
-    range: str = "week",
     private: bool = False,
 ):
     await interaction.response.defer(ephemeral=private)
@@ -821,9 +819,8 @@ async def cmd_meta(
     if cfg is None:
         return
 
-    date_range = "" if range == "all" else range
     import functools
-    fn = functools.partial(handle_meta, format, min(count, 30), cfg, owner, date_range)
+    fn = functools.partial(handle_meta, format, min(count, 30), cfg, owner)
     reply, deck_results = await asyncio.get_event_loop().run_in_executor(None, fn)
     is_error = reply.startswith("Failed") or reply.startswith("No meta")
     await _send_embed(

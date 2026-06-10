@@ -159,20 +159,19 @@ def fetch_meta_decklists(
     format_name: str,
     limit: int = 15,
     delay: float = 1.0,
-    date_range: str = "week",
 ) -> list[Decklist]:
     """
     Fetch the top `limit` meta decklists for `format_name` from MTGGoldfish.
 
-    Scrapes /metagame/{format}/full to extract archetype URLs in meta-share order,
-    then fetches each archetype's representative decklist (maindeck + sideboard).
+    Scrapes /metagame/{format}/full (30-day window, the site default) to extract
+    archetype URLs in meta-share order, then fetches each archetype's representative
+    decklist (maindeck + sideboard).
 
-    date_range: MTGGoldfish filter — "week" (7 days), "month", "two_weeks", or ""
-                for all-time. Defaults to "week" for the most current data.
+    MTGGoldfish's period filter requires a Rails form POST with CSRF validation that
+    cannot be replicated externally; the GET query parameters are silently ignored.
     """
     scraper = _scraper()
-    qs = f"?date_range={date_range}" if date_range else ""
-    meta_url = f"{BASE}/metagame/{format_name.lower()}/full{qs}"
+    meta_url = f"{BASE}/metagame/{format_name.lower()}/full"
     html = _fetch_page(scraper, meta_url)
     soup = BeautifulSoup(html, "lxml")
 
