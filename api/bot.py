@@ -774,10 +774,11 @@ async def cmd_card(interaction: discord.Interaction, name: str, private: bool = 
 
 
 class _MetaDeckButton(discord.ui.Button):
-    def __init__(self, dl_name: str, dm: list, pct: int):
+    def __init__(self, dl_name: str, dl_url: str, dm: list, pct: int):
         label = dl_name if len(dl_name) <= 80 else dl_name[:77] + "..."
         super().__init__(label=label, style=discord.ButtonStyle.secondary)
         self._dl_name = dl_name
+        self._dl_url = dl_url
         self._dm = dm
         self._pct = pct
 
@@ -787,17 +788,18 @@ class _MetaDeckButton(discord.ui.Button):
             lines.append(f"  {mc.short}x {mc.name}")
         lines.append(f"\nTotal to buy: {sum(mc.short for mc in self._dm)}")
         await interaction.response.send_message(
-            "```\n" + "\n".join(lines) + "\n```", ephemeral=True
+            "```\n" + "\n".join(lines) + f"\n```\n{self._dl_url}", ephemeral=True
         )
 
 
 class _MetaView(discord.ui.View):
     def __init__(self, deck_results: list):
         super().__init__(timeout=300)
-        incomplete = [(dl, dm, total, owned) for dl, dm, total, owned in deck_results if dm][:5]
+        # Show buttons for all incomplete decks, up to Discord's 25-button limit
+        incomplete = [(dl, dm, total, owned) for dl, dm, total, owned in deck_results if dm][:25]
         for dl, dm, total, owned in incomplete:
             pct = round(owned / total * 100) if total else 0
-            self.add_item(_MetaDeckButton(dl.name, dm, pct))
+            self.add_item(_MetaDeckButton(dl.name, dl.url, dm, pct))
 
 
 @tree.command(name="meta", description="Compare top meta decks against your collection")
@@ -825,7 +827,7 @@ async def cmd_meta(
         interaction, reply,
         title=f"Meta: {format.capitalize()}",
         color=COLOR_ERROR if is_error else COLOR_INFO,
-        code_block=True,
+        code_block=False,
     )
 
     if not is_error and any(dm for _, dm, _, _ in deck_results):

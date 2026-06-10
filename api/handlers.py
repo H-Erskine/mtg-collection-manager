@@ -1236,7 +1236,7 @@ def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = Fals
         else:
             icon = "🔴"
             suffix = f"  — {to_buy} to buy"
-        lines.append(f"{icon} {dl.name}: {owned}/{total} ({pct}%){suffix}")
+        lines.append(f"{icon} {dl.name}: {owned}/{total} ({pct}%){suffix}  [link](<{dl.url}>)")
 
     # max shortage per card across all decks — buying this many covers any single deck
     agg_short: dict[str, int] = {}
