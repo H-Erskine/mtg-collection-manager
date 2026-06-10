@@ -1283,7 +1283,8 @@ def modern(file_path):
     try:
         with open(file_path) as fh:
             names = [
-                line.strip() for line in fh
+                _re.sub(r"\s+/\s+", " // ", line.strip())
+                for line in fh
                 if line.strip() and not line.strip().startswith("#")
             ]
     except FileNotFoundError:
