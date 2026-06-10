@@ -30,6 +30,7 @@ from .handlers import (
     handle_forsale_csv,
     handle_help,
     handle_illegal,
+    handle_meta,
     handle_missing,
     handle_proxy,
     handle_scryfall,
@@ -770,6 +771,35 @@ async def cmd_card(interaction: discord.Interaction, name: str, private: bool = 
         await _send_embed(interaction, data, title="Card Lookup", color=COLOR_ERROR)
         return
     await _send_card_embed(interaction, data)
+
+
+@tree.command(name="meta", description="Compare top meta decks against your collection")
+@app_commands.describe(
+    format="Format name (e.g. modern, standard, pioneer) — default: modern",
+    count="Number of top decks to check, up to 30 (default: 15)",
+    private="Only show the response to you (default: public)",
+)
+async def cmd_meta(
+    interaction: discord.Interaction,
+    format: str = "modern",
+    count: int = 15,
+    private: bool = False,
+):
+    await interaction.response.defer(ephemeral=private)
+    cfg, owner = await _resolve_user(interaction, require_packages=True)
+    if cfg is None:
+        return
+
+    import functools
+    fn = functools.partial(handle_meta, format, min(count, 30), cfg, owner)
+    reply = await asyncio.get_event_loop().run_in_executor(None, fn)
+    is_error = reply.startswith("Failed") or reply.startswith("No meta")
+    await _send_embed(
+        interaction, reply,
+        title=f"Meta: {format.capitalize()}",
+        color=COLOR_ERROR if is_error else COLOR_INFO,
+        code_block=True,
+    )
 
 
 # ---------------------------------------------------------------------------

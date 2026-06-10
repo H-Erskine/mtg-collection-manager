@@ -1179,6 +1179,85 @@ def handle_stats(cfg: Config, is_owner: bool = False) -> str:
 
 
 # ---------------------------------------------------------------------------
+# meta — top N meta decks vs collection
+# ---------------------------------------------------------------------------
+
+def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = False) -> str:
+    from mtg_manager.goldfish import fetch_meta_decklists
+
+    try:
+        decklists = fetch_meta_decklists(format_name, limit=count, delay=cfg.mtgtop8_delay)
+    except Exception as e:
+        return f"Failed to fetch meta: {e}"
+
+    if not decklists:
+        return f"No meta decks found for '{format_name}'."
+
+    with get_conn(cfg.db_path) as conn:
+        if is_owner:
+            _auto_sync(cfg, conn)
+
+        deck_results = []
+        for dl in decklists:
+            card_totals: dict[str, int] = defaultdict(int)
+            for card in dl.cards:  # includes sideboard
+                card_totals[card.name] += card.quantity
+
+            total_slots = sum(card_totals.values())
+            card_needs_list = [(name, qty, 1) for name, qty in card_totals.items()]
+            dm, db, av = categorise_missing_cards(conn, card_needs_list, 1)
+
+            owned_slots = (
+                sum(mc.owned for mc in dm)
+                + sum(bc.needed for bc in db)
+                + sum(ac.needed for ac in av)
+            )
+            deck_results.append((dl, dm, total_slots, owned_slots))
+
+    deck_results.sort(key=lambda x: -(x[3] / x[2] if x[2] else 0))
+
+    buildable = sum(1 for _, dm, _, _ in deck_results if not dm)
+    lines = [
+        f"Top {len(decklists)} {format_name.capitalize()} meta (MTGGoldfish)",
+        f"Buildable: {buildable}/{len(decklists)}",
+        "",
+    ]
+
+    for dl, dm, total, owned in deck_results:
+        pct = round(owned / total * 100) if total else 0
+        if not dm:
+            icon = "✅"
+            suffix = ""
+        elif pct >= 80:
+            icon = "🟡"
+            suffix = f"  — {len(dm)} missing"
+        else:
+            icon = "🔴"
+            suffix = f"  — {len(dm)} missing"
+        lines.append(f"{icon} {dl.name}: {owned}/{total} ({pct}%){suffix}")
+
+    agg_short: dict[str, int] = defaultdict(int)
+    agg_decks: dict[str, int] = defaultdict(int)
+    canonical: dict[str, str] = {}
+
+    for dl, dm, total, owned in deck_results:
+        for mc in dm:
+            key = mc.name.lower()
+            canonical[key] = mc.name
+            agg_short[key] += mc.short
+            agg_decks[key] += 1
+
+    if agg_short:
+        top = sorted(agg_short.keys(), key=lambda k: (-agg_decks[k], -agg_short[k], k))[:15]
+        lines.append("")
+        lines.append(f"Most needed (across {len(decklists)} decks):")
+        for k in top:
+            lines.append(f"  {agg_short[k]}x {canonical[k]}  ({agg_decks[k]}/{len(decklists)} decks)")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # card (Scryfall lookup) — no cfg needed
 # ---------------------------------------------------------------------------
 

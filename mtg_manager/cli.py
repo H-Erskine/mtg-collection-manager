@@ -54,6 +54,7 @@ from .moxfield import fetch_moxfield_card_ids, fetch_package_cards
 from .moxfield_write import deck_name_to_tag, fetch_deck_info, get_token, set_card_tags
 from .prices import fetch_cardmarket_prices
 from .scryfall import fetch_legalities, search_scryfall, search_scryfall_by_query
+from .goldfish import fetch_meta_decklists
 from .sources import fetch_decklists
 
 
@@ -1262,3 +1263,188 @@ def unbox(deck_id):
         console.print("[yellow][Proxies — discard][/yellow]")
         for card_name, qty in sorted(proxies):
             console.print(f"  [dim]{qty}x {card_name}[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# mtg modern
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("--file", "-f", "file_path", default="modern.txt", show_default=True,
+              help="Path to the card list file (one card name per line).")
+def modern(file_path):
+    """Check your collection against a card list for missing/incomplete playsets.
+
+    Reads a file of card names (default: modern.txt) and reports which cards
+    you own 0 copies of, and which you have fewer than 4 copies of.
+    """
+    cfg = _load_cfg()
+
+    try:
+        with open(file_path) as fh:
+            names = [
+                line.strip() for line in fh
+                if line.strip() and not line.strip().startswith("#")
+            ]
+    except FileNotFoundError:
+        err_console.print(f"[red]File not found: {file_path}[/red]")
+        sys.exit(1)
+
+    if not names:
+        console.print("[yellow]No cards found in the file.[/yellow]")
+        return
+
+    console.print(f"\nChecking [bold]{len(names)}[/bold] cards from [cyan]{file_path}[/cyan]...\n")
+
+    card_needs = [(name, 4, 1) for name in names]
+
+    with get_conn(cfg.db_path) as conn:
+        _auto_sync(cfg, conn)
+        missing_cards, boxed_cards, available_cards = categorise_missing_cards(conn, card_needs, 1)
+
+    no_copies = [mc for mc in missing_cards if mc.owned == 0]
+    has_some = sorted([mc for mc in missing_cards if mc.owned > 0], key=lambda c: (c.owned, c.name))
+    complete_count = len(available_cards) + len(boxed_cards)
+
+    if not missing_cards:
+        console.print(f"[green]You have a full playset of all {len(names)} cards![/green]")
+        return
+
+    if no_copies:
+        console.print(f"[bold red]Missing entirely ({len(no_copies)} card(s)):[/bold red]\n")
+        table = Table(show_header=False, box=None, pad_edge=False)
+        table.add_column("Card", min_width=35)
+        for mc in sorted(no_copies, key=lambda c: c.name):
+            table.add_row(mc.name)
+        console.print(table)
+        console.print()
+
+    if has_some:
+        console.print(f"[bold yellow]Incomplete playset ({len(has_some)} card(s)):[/bold yellow]\n")
+        table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+        table.add_column("Have", justify="right", style="yellow", width=5)
+        table.add_column("Need", justify="right", style="dim", width=5)
+        table.add_column("Card", min_width=35)
+        for mc in has_some:
+            table.add_row(str(mc.owned), str(mc.needed), mc.name)
+        console.print(table)
+        console.print()
+
+    console.print(
+        f"[dim]Summary: {len(no_copies)} missing, {len(has_some)} incomplete, "
+        f"{complete_count} complete out of {len(names)} cards[/dim]"
+    )
+    console.print()
+    console.print("[bold]Order list:[/bold]")
+    for mc in sorted(missing_cards, key=lambda c: c.name):
+        console.print(f"{mc.short}x {mc.name}")
+
+
+# ---------------------------------------------------------------------------
+# mtg meta
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("--format", "-f", "fmt", default="modern", show_default=True,
+              help="Format name (e.g. modern, standard, pioneer).")
+@click.option("--count", "-n", default=15, show_default=True, type=int,
+              help="Number of top meta decks to fetch.")
+@click.option("--sideboard/--no-sideboard", default=True, show_default=True,
+              help="Include sideboard in the comparison.")
+def meta(fmt, count, sideboard):
+    """Fetch top meta decks from MTGGoldfish and compare against your collection.
+
+    Shows per-deck ownership percentage and an aggregate list of the most-needed
+    cards across all fetched decks.
+    """
+    cfg = _load_cfg()
+
+    with Progress(SpinnerColumn(),
+                  TextColumn(f"[cyan]Fetching top {count} {fmt} meta from MTGGoldfish...[/cyan]"),
+                  console=console, transient=True) as progress:
+        progress.add_task("fetch")
+        try:
+            decklists = fetch_meta_decklists(fmt, limit=count, delay=cfg.mtgtop8_delay)
+        except Exception as e:
+            err_console.print(f"[red]Failed to fetch meta: {e}[/red]")
+            sys.exit(1)
+
+    if not decklists:
+        err_console.print(f"[red]No meta decks found for format '{fmt}'.[/red]")
+        sys.exit(1)
+
+    console.print(f"\nFetched [bold]{len(decklists)}[/bold] {fmt} deck(s).\n")
+
+    with get_conn(cfg.db_path) as conn:
+        _auto_sync(cfg, conn)
+
+        deck_results = []
+        for dl in decklists:
+            cards = dl.cards if sideboard else dl.maindeck
+            card_totals: dict[str, int] = defaultdict(int)
+            for card in cards:
+                card_totals[card.name] += card.quantity
+
+            total_slots = sum(card_totals.values())
+            card_needs_list = [(name, qty, 1) for name, qty in card_totals.items()]
+            dm, db, av = categorise_missing_cards(conn, card_needs_list, 1)
+
+            owned_slots = (
+                sum(mc.owned for mc in dm)
+                + sum(bc.needed for bc in db)
+                + sum(ac.needed for ac in av)
+            )
+            deck_results.append((dl, dm, db, total_slots, owned_slots))
+
+    deck_results.sort(key=lambda x: -(x[4] / x[3] if x[3] else 0))
+
+    buildable = sum(1 for _, dm, _, _, _ in deck_results if not dm)
+    console.print(f"[bold]Buildable: {buildable}/{len(deck_results)}[/bold]\n")
+
+    table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+    table.add_column("Deck", min_width=32)
+    table.add_column("Have", justify="right", width=9)
+    table.add_column("%", justify="right", width=6)
+    table.add_column("Missing", justify="right", width=8)
+    table.add_column("Status", width=11)
+
+    for dl, dm, db, total, owned in deck_results:
+        pct = round(owned / total * 100) if total else 0
+        pct_style = "green" if pct == 100 else ("yellow" if pct >= 75 else "red")
+        if not dm:
+            status = "[green]Buildable[/green]" if not db else "[yellow]In boxes[/yellow]"
+        else:
+            status = ""
+        table.add_row(
+            dl.name,
+            f"{owned}/{total}",
+            f"[{pct_style}]{pct}%[/{pct_style}]",
+            str(len(dm)) if dm else "—",
+            status,
+        )
+
+    console.print(table)
+    console.print()
+
+    # Aggregate most-needed cards across all decks
+    agg_short: dict[str, int] = defaultdict(int)
+    agg_decks: dict[str, int] = defaultdict(int)
+    canonical: dict[str, str] = {}
+
+    for dl, dm, db, total, owned in deck_results:
+        for mc in dm:
+            key = mc.name.lower()
+            canonical[key] = mc.name
+            agg_short[key] += mc.short
+            agg_decks[key] += 1
+
+    if agg_short:
+        top = sorted(agg_short.keys(), key=lambda k: (-agg_decks[k], -agg_short[k], k))[:15]
+        console.print(f"[bold]Most needed (across {len(deck_results)} decks):[/bold]\n")
+        agg_table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+        agg_table.add_column("Short", justify="right", style="bold yellow", width=6)
+        agg_table.add_column("Card", min_width=35)
+        agg_table.add_column(f"Decks/{len(deck_results)}", justify="right", width=10)
+        for k in top:
+            agg_table.add_row(str(agg_short[k]), canonical[k], f"{agg_decks[k]}/{len(deck_results)}")
+        console.print(agg_table)

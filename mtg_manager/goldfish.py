@@ -18,6 +18,7 @@ Visual deck structure:
 """
 
 import re
+import time
 from collections import defaultdict
 from urllib.parse import urlparse
 
@@ -150,3 +151,48 @@ def fetch_goldfish_deck(url: str) -> Decklist:
     visual_url = f"{BASE}/deck/visual/{deck_id}"
     html = _fetch_page(scraper, visual_url)
     return _parse_visual_page(html, deck_id, deck_name, url)
+
+
+def fetch_meta_decklists(format_name: str, limit: int = 15, delay: float = 1.0) -> list[Decklist]:
+    """
+    Fetch the top `limit` meta decklists for `format_name` from MTGGoldfish.
+
+    Scrapes /metagame/{format}/full to extract archetype URLs in meta-share order,
+    then fetches each archetype's representative decklist (maindeck + sideboard).
+    """
+    scraper = _scraper()
+    meta_url = f"{BASE}/metagame/{format_name.lower()}/full"
+    html = _fetch_page(scraper, meta_url)
+    soup = BeautifulSoup(html, "lxml")
+
+    # Collect /archetype/ links in order, deduplicating by path (strips #fragment)
+    seen: set[str] = set()
+    archetype_paths: list[str] = []
+    for a in soup.find_all("a", href=True):
+        path = urlparse(a["href"]).path
+        if path.startswith("/archetype/") and path not in seen:
+            seen.add(path)
+            archetype_paths.append(path)
+        if len(archetype_paths) >= limit:
+            break
+
+    if not archetype_paths:
+        raise ValueError(
+            f"No archetypes found for '{format_name}' on MTGGoldfish. "
+            "Check the format name (e.g. modern, standard, pioneer)."
+        )
+
+    decklists: list[Decklist] = []
+    for path in archetype_paths:
+        url = f"{BASE}{path}"
+        try:
+            time.sleep(delay)
+            deck_id, deck_name = _resolve_deck_id(scraper, url)
+            visual_url = f"{BASE}/deck/visual/{deck_id}"
+            page_html = _fetch_page(scraper, visual_url)
+            dl = _parse_visual_page(page_html, deck_id, deck_name, url)
+            decklists.append(dl)
+        except Exception:
+            continue
+
+    return decklists
