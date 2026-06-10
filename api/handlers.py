@@ -190,6 +190,13 @@ def handle_sync(cfg: Config, is_owner: bool = False, color_group: str | None = N
         total = card_count(conn)
 
     lines.append(f"\nCollection total: {total} cards")
+
+    try:
+        from web.export import export_static
+        export_static(cfg)
+    except Exception as e:
+        lines.append(f"Web export failed: {e}")
+
     return "\n".join(lines)
 
 
