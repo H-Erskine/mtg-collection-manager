@@ -84,6 +84,32 @@
   .results-summary .miss { color: var(--red); font-weight: 600; }
   .section-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin: 16px 0 8px; }
   .placeholder-text { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.9rem; min-height: 200px; }
+
+  /* SALE */
+  .sale-section { margin-bottom: 36px; }
+  .sale-section-title { font-size: 0.75rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--surface2); }
+  .badge.price { background: rgba(0,0,0,0.85); color: #7ec88a; }
+  .badge.extra { background: rgba(0,0,0,0.85); color: var(--gold); }
+
+  /* META */
+  .meta-layout { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 800px) { .meta-layout { grid-template-columns: 1fr; } }
+  .meta-sidebar { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); overflow: hidden; position: sticky; top: 20px; max-height: calc(100vh - 80px); overflow-y: auto; }
+  .meta-format-header { font-size: 0.7rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); padding: 10px 14px 8px; background: var(--bg); position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--surface2); }
+  .meta-deck-item { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--surface2); user-select: none; transition: background 0.1s; border-left: 3px solid transparent; }
+  .meta-deck-item:last-child { border-bottom: none; }
+  .meta-deck-item:hover { background: var(--surface2); }
+  .meta-deck-item.active { background: var(--surface2); border-left-color: var(--accent); }
+  .meta-deck-name { font-size: 0.88rem; font-weight: 600; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta-deck-frac { font-size: 0.75rem; color: var(--muted); margin-bottom: 5px; }
+  .meta-bar-bg { height: 3px; background: var(--surface2); border-radius: 2px; }
+  .meta-bar-fill { height: 3px; border-radius: 2px; transition: width 0.3s; }
+  .meta-panel { min-height: 300px; }
+  .meta-deck-header { margin-bottom: 20px; }
+  .meta-deck-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
+  .meta-deck-subtitle { font-size: 0.82rem; color: var(--muted); display: flex; align-items: center; gap: 12px; }
+  .meta-deck-link { color: #6ab0f5; text-decoration: none; }
+  .meta-deck-link:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -93,6 +119,8 @@
   <div class="tab active" onclick="showTab('collection', this)">Collection</div>
   <div class="tab" onclick="showTab('decks', this)">Decks</div>
   <div class="tab" onclick="showTab('missing', this)">Missing</div>
+  <div class="tab" onclick="showTab('meta', this)">Meta</div>
+  <div class="tab" onclick="showTab('sale', this)">For Sale</div>
   <div class="nav-meta" id="last-synced">Loading…</div>
 </nav>
 
@@ -127,6 +155,49 @@
   <div id="decks-content"></div>
 </div>
 
+<!-- META -->
+<div id="page-meta" class="page">
+  <div class="meta-layout">
+    <div class="meta-sidebar" id="meta-sidebar">
+      <div class="loading" id="meta-loading">Loading meta…</div>
+    </div>
+    <div class="meta-panel" id="meta-panel">
+      <div class="placeholder-text" id="meta-placeholder">Select a deck to see its cards</div>
+      <div id="meta-deck-view" style="display:none">
+        <div class="meta-deck-header">
+          <div class="meta-deck-title" id="meta-deck-title"></div>
+          <div class="meta-deck-subtitle">
+            <span id="meta-deck-stats"></span>
+            <a class="meta-deck-link" id="meta-deck-link" href="#" target="_blank" rel="noopener">View on Goldfish ↗</a>
+          </div>
+        </div>
+        <div class="section-label">Missing / Insufficient</div>
+        <div class="card-grid" id="meta-missing-grid"></div>
+        <p id="meta-missing-empty" style="display:none;color:var(--green);padding:8px 0;font-size:0.85rem">✓ You own all cards in this deck</p>
+        <div class="section-label" style="margin-top:24px">Owned</div>
+        <div class="card-grid" id="meta-owned-grid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SALE -->
+<div id="page-sale" class="page">
+  <div class="loading" id="sale-loading">Loading sale data…</div>
+  <div id="sale-content" style="display:none">
+    <div class="sale-section">
+      <div class="sale-section-title">For Sale</div>
+      <div class="card-grid" id="sale-grid"></div>
+      <p id="sale-empty" style="display:none;color:var(--muted);padding:20px 0">No cards listed for sale.</p>
+    </div>
+    <div class="sale-section">
+      <div class="sale-section-title">Extras (own &gt;4 copies)</div>
+      <div class="card-grid" id="extras-grid"></div>
+      <p id="extras-empty" style="display:none;color:var(--muted);padding:20px 0">No extras.</p>
+    </div>
+  </div>
+</div>
+
 <!-- MISSING -->
 <div id="page-missing" class="page">
   <div class="missing-layout">
@@ -158,13 +229,15 @@ let activeGroup = 'all';
 
 async function init() {
   try {
-    const [colRes, deckRes] = await Promise.all([
+    const [colRes, deckRes, saleRes] = await Promise.all([
       fetch('./collection.json'),
       fetch('./decks.json'),
+      fetch('./sale.json'),
     ]);
     if (!colRes.ok || !deckRes.ok) throw new Error('data missing');
     const colData = await colRes.json();
     const deckData = await deckRes.json();
+    const saleData = saleRes.ok ? await saleRes.json() : { for_sale: [], extras: [] };
 
     collectionCards = colData.cards;
 
@@ -186,21 +259,26 @@ async function init() {
 
     renderCollection(collectionCards);
     renderDecks(deckData.decks);
+    renderSale(saleData);
   } catch {
     document.getElementById('load-error').style.display = 'block';
     document.getElementById('last-synced').textContent = 'Data unavailable';
     document.getElementById('collection-loading').style.display = 'none';
     document.getElementById('decks-loading').style.display = 'none';
+    document.getElementById('sale-loading').style.display = 'none';
   }
 }
 
 // ─── Image helpers ───────────────────────────────────────────────────────────
 
-function imgUrl(set_code, collector_number) {
-  if (set_code && collector_number) {
-    return `https://api.scryfall.com/cards/${set_code}/${collector_number}?format=image&version=normal`;
-  }
-  return null;
+function localImgUrl(set_code, collector_number) {
+  if (!set_code || !collector_number) return null;
+  const safeCn = collector_number.replace(/\//g, '_');
+  return `./images/${encodeURIComponent(set_code)}/${encodeURIComponent(safeCn)}.jpg`;
+}
+
+function scryfallImgUrl(set_code, collector_number) {
+  return `https://api.scryfall.com/cards/${set_code}/${collector_number}?format=image&version=normal`;
 }
 
 function namedImgUrl(name) {
@@ -211,17 +289,23 @@ function makeCard(name, set_code, collector_number, badgeText, badgeCls, overlay
   const wrap = document.createElement('div');
   wrap.className = 'mtg-card';
 
-  const src = imgUrl(set_code, collector_number) || namedImgUrl(name);
+  const hasSetCn = set_code && collector_number;
+  const src = hasSetCn ? localImgUrl(set_code, collector_number) : namedImgUrl(name);
   const img = document.createElement('img');
   img.src = src;
   img.alt = name;
   img.loading = 'lazy';
   img.onerror = () => {
-    img.remove();
-    const fb = document.createElement('div');
-    fb.className = 'card-fallback';
-    fb.innerHTML = `<span style="font-size:1.5rem">🃏</span><span>${name}</span>`;
-    wrap.prepend(fb);
+    if (hasSetCn && !img.dataset.triedScryfall) {
+      img.dataset.triedScryfall = '1';
+      img.src = scryfallImgUrl(set_code, collector_number);
+    } else {
+      img.remove();
+      const fb = document.createElement('div');
+      fb.className = 'card-fallback';
+      fb.innerHTML = `<span style="font-size:1.5rem">🃏</span><span>${name}</span>`;
+      wrap.prepend(fb);
+    }
   };
   wrap.appendChild(img);
 
@@ -383,6 +467,109 @@ function checkMissing() {
   }
 }
 
+// ─── Sale tab ────────────────────────────────────────────────────────────────
+
+function renderSale(data) {
+  document.getElementById('sale-loading').style.display = 'none';
+  document.getElementById('sale-content').style.display = 'block';
+
+  const saleGrid = document.getElementById('sale-grid');
+  saleGrid.innerHTML = '';
+  if (data.for_sale && data.for_sale.length) {
+    for (const c of data.for_sale) {
+      const priceLabel = c.price > 0 ? `€${c.price.toFixed(2)}` : '—';
+      const badge = c.foil ? `✦ ${priceLabel}` : priceLabel;
+      saleGrid.appendChild(makeCard(c.name, c.set_code, c.collector_number, badge, 'price', null));
+    }
+  } else {
+    document.getElementById('sale-empty').style.display = 'block';
+  }
+
+  const extrasGrid = document.getElementById('extras-grid');
+  extrasGrid.innerHTML = '';
+  if (data.extras && data.extras.length) {
+    for (const c of data.extras) {
+      const badge = c.foil ? `✦ ×${c.quantity}` : `×${c.quantity}`;
+      extrasGrid.appendChild(makeCard(c.name, c.set_code, c.collector_number, badge, 'extra', null));
+    }
+  } else {
+    document.getElementById('extras-empty').style.display = 'block';
+  }
+}
+
+// ─── Meta tab ────────────────────────────────────────────────────────────────
+
+let metaData = null;
+
+async function loadMeta() {
+  if (metaData) return;
+  try {
+    const res = await fetch('./meta.json');
+    if (!res.ok) throw new Error('not found');
+    metaData = await res.json();
+    renderMetaSidebar(metaData);
+  } catch {
+    document.getElementById('meta-loading').textContent = 'meta.json not found — run web/export_meta.py to generate it.';
+  }
+}
+
+function renderMetaSidebar(data) {
+  const sidebar = document.getElementById('meta-sidebar');
+  sidebar.innerHTML = '';
+
+  for (const fmt of data.formats) {
+    const header = document.createElement('div');
+    header.className = 'meta-format-header';
+    header.textContent = fmt.format.charAt(0).toUpperCase() + fmt.format.slice(1);
+    sidebar.appendChild(header);
+
+    for (const deck of fmt.decks) {
+      const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
+      const barColor = pct === 100 ? 'var(--green)' : pct >= 75 ? 'var(--gold)' : 'var(--red)';
+
+      const item = document.createElement('div');
+      item.className = 'meta-deck-item';
+      item.innerHTML = `
+        <div class="meta-deck-name" title="${deck.name}">${deck.name}</div>
+        <div class="meta-deck-frac">${deck.owned_slots}/${deck.total_slots} (${pct}%)</div>
+        <div class="meta-bar-bg"><div class="meta-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`;
+      item.addEventListener('click', () => selectMetaDeck(item, fmt.format, deck));
+      sidebar.appendChild(item);
+    }
+  }
+}
+
+function selectMetaDeck(itemEl, format, deck) {
+  document.querySelectorAll('.meta-deck-item').forEach(el => el.classList.remove('active'));
+  itemEl.classList.add('active');
+
+  document.getElementById('meta-placeholder').style.display = 'none';
+  document.getElementById('meta-deck-view').style.display = 'block';
+
+  const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
+  document.getElementById('meta-deck-title').textContent = deck.name;
+  document.getElementById('meta-deck-stats').textContent =
+    `${format.charAt(0).toUpperCase() + format.slice(1)} · ${deck.owned_slots}/${deck.total_slots} owned (${pct}%)`;
+  document.getElementById('meta-deck-link').href = deck.url;
+
+  const missing = deck.cards.filter(c => c.owned < c.quantity);
+  const owned   = deck.cards.filter(c => c.owned >= c.quantity);
+
+  const mg = document.getElementById('meta-missing-grid');
+  mg.innerHTML = '';
+  document.getElementById('meta-missing-empty').style.display = missing.length ? 'none' : 'block';
+  for (const c of missing) {
+    const label = c.owned > 0 ? `${c.owned}/${c.quantity}` : 'MISSING';
+    mg.appendChild(makeCard(c.name, c.set_code, c.collector_number, null, '', label));
+  }
+
+  const og = document.getElementById('meta-owned-grid');
+  og.innerHTML = '';
+  for (const c of owned) {
+    og.appendChild(makeCard(c.name, c.set_code, c.collector_number, `×${c.quantity}`, 'green', null));
+  }
+}
+
 // ─── Tab switching ────────────────────────────────────────────────────────────
 
 function showTab(name, tabEl) {
@@ -390,6 +577,7 @@ function showTab(name, tabEl) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   tabEl.classList.add('active');
+  if (name === 'meta') loadMeta();
 }
 
 init();
