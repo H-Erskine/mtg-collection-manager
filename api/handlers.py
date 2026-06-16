@@ -387,6 +387,9 @@ def handle_proxy(urls_str: str, cfg: Config, is_owner: bool = False, threshold: 
 # ---------------------------------------------------------------------------
 
 def handle_build(url: str, box: str, cfg: Config, is_owner: bool = False, sideboard: bool = False) -> str:
+    from urllib.parse import urlparse as _urlparse
+    if _urlparse(url).scheme not in ("http", "https"):
+        return "Invalid deck URL — only http/https links are accepted."
     try:
         decklists = fetch_decklists(url, delay=cfg.mtgtop8_delay)
     except Exception as e:
@@ -545,6 +548,12 @@ def handle_build(url: str, box: str, cfg: Config, is_owner: bool = False, sidebo
         lines.append("")
         lines.extend(tag_summary)
 
+    try:
+        from web.export import export_static
+        export_static(cfg)
+    except Exception as e:
+        lines.append(f"Web export failed: {e}")
+
     return "\n".join(lines)
 
 
@@ -656,6 +665,12 @@ def handle_unbox(deck_name: str, cfg: Config, is_owner: bool = False) -> str:
     if untag_summary:
         lines.append("")
         lines.extend(untag_summary)
+
+    try:
+        from web.export import export_static
+        export_static(cfg)
+    except Exception as e:
+        lines.append(f"Web export failed: {e}")
 
     return "\n".join(lines)
 
