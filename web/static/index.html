@@ -365,9 +365,12 @@ function renderCollection(cards) {
       for (const e of entries) {
         for (let i = 0; i < e.quantity; i++) {
           shadows.push(`0 0 0 ${spread}px hsl(${e.color}, 75%, 65%)`);
-          spread += 3;
+          spread += 2;
+          shadows.push(`0 0 0 ${spread}px #1a1a2e`);
+          spread += 2;
         }
       }
+      shadows.pop(); // remove trailing gap
       shadows.push(`0 0 12px hsla(${entries[entries.length - 1].color}, 75%, 65%, 0.35)`);
       el.style.setProperty('--deck-glow', shadows.join(', '));
       el.title = 'In deck: ' + entries.map(e => `${e.deckName} (×${e.quantity})`).join(', ');
