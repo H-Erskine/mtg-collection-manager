@@ -93,6 +93,29 @@
   .badge.price { background: rgba(0,0,0,0.85); color: #7ec88a; }
   .badge.extra { background: rgba(0,0,0,0.85); color: var(--gold); }
 
+  /* STATS BANNER */
+  .stats-banner { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stat-tile { border-radius: var(--radius); padding: 10px 14px; text-align: center; min-width: 68px; border: 1px solid; cursor: default; }
+  .stat-tile-icon { font-size: 1.2rem; line-height: 1; margin-bottom: 2px; }
+  .stat-tile-count { font-size: 1.1rem; font-weight: 700; line-height: 1.2; }
+  .stat-tile-label { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+
+  /* COLLECTION BODY (flex when lands sidebar open) */
+  #collection-body { display: flex; gap: 16px; align-items: flex-start; }
+  #collection-grid-wrap { flex: 1; min-width: 0; }
+
+  /* LANDS SIDEBAR */
+  .lands-sidebar { width: 220px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 14px 16px; position: sticky; top: 20px; max-height: calc(100vh - 120px); overflow-y: auto; }
+  .lands-sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 12px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .cycle-row { margin-bottom: 10px; }
+  .cycle-row-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+  .cycle-name { font-size: 0.8rem; color: var(--text); }
+  .cycle-stat { font-size: 0.72rem; }
+  .cycle-bar-bg { height: 5px; background: var(--surface2); border-radius: 3px; }
+  .cycle-bar-fill { height: 5px; border-radius: 3px; transition: width 0.3s; }
+  .breakdown-btn { padding: 5px 12px; background: var(--surface); border: 1px solid var(--surface2); color: var(--gold); border-radius: var(--radius); font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
+  .breakdown-btn:hover { background: var(--surface2); }
+
   /* META */
   .meta-layout { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
   @media (max-width: 800px) { .meta-layout { grid-template-columns: 1fr; } }
@@ -135,6 +158,7 @@
 <div id="page-collection" class="page active">
   <div class="loading" id="collection-loading">Loading collection…</div>
   <div id="collection-content" style="display:none">
+    <div id="collection-stats" class="stats-banner"></div>
     <div class="toolbar">
       <input class="search" id="col-search" placeholder="Search cards…" oninput="filterCollection()">
       <div class="chip active" data-group="all" onclick="setGroup(this)">All</div>
@@ -147,9 +171,15 @@
       <div class="chip" data-group="colourless" onclick="setGroup(this)">Colorless</div>
       <div class="chip" data-group="lands" onclick="setGroup(this)">Lands</div>
       <div class="chip" data-group="in-deck" onclick="setGroup(this)">In Deck</div>
+      <button id="breakdown-toggle" class="breakdown-btn" style="display:none" onclick="toggleLandsSidebar()">📊 Breakdown</button>
       <div class="stat" id="col-stat"></div>
     </div>
-    <div class="card-grid" id="collection-grid"></div>
+    <div id="collection-body">
+      <div id="lands-sidebar" class="lands-sidebar" style="display:none"></div>
+      <div id="collection-grid-wrap">
+        <div class="card-grid" id="collection-grid"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -229,6 +259,114 @@ let collectionCards = [];
 let collectionMap = {};   // lower_name -> { quantity, set_code, collector_number }
 let allocatedCards = {};  // lower_name -> [{deckName, color, quantity}]
 let activeGroup = 'all';
+let landsSidebarOpen = false;
+
+const COLOUR_TILES = [
+  { group: 'White',       icon: '☀️', iconColor: null,      numColor: '#e8e8d0', bg: '#2a2a1e', border: '#4a4a2e', label: 'White' },
+  { group: 'Blue',        icon: '💧', iconColor: null,      numColor: '#6ab0f5', bg: '#1a1e2e', border: '#2a3a5e', label: 'Blue' },
+  { group: 'Black',       icon: '💀', iconColor: null,      numColor: '#aaaaaa', bg: '#1a1a1a', border: '#2e2e2e', label: 'Black' },
+  { group: 'Red',         icon: '🔥', iconColor: null,      numColor: '#e94560', bg: '#2e1a1a', border: '#4e2a2a', label: 'Red' },
+  { group: 'Green',       icon: '🌿', iconColor: null,      numColor: '#4caf50', bg: '#1a2e1a', border: '#2a4e2a', label: 'Green' },
+  { group: 'Multicolour', icon: '🌈', iconColor: null,      numColor: '#f0c040', bg: '#2e2a10', border: '#5e4a20', label: 'Multi' },
+  { group: 'Lands',       icon: '🗺️', iconColor: null,      numColor: '#c8894a', bg: '#1e1208', border: '#3e2418', label: 'Lands' },
+  { group: 'Colourless',  icon: '⬡',  iconColor: '#ffffff', numColor: '#b0b0b0', bg: '#1e1e1e', border: '#2e2e2e', label: 'Colorless' },
+];
+
+const LAND_CYCLES = [
+  { name: 'Shocklands',   size: 10, cards: ['Blood Crypt','Breeding Pool','Godless Shrine','Hallowed Fountain','Overgrown Tomb','Sacred Foundry','Steam Vents','Stomping Ground','Temple Garden','Watery Grave'] },
+  { name: 'Fetchlands',   size: 13, cards: ['Arid Mesa','Bloodstained Mire','Flooded Strand','Marsh Flats','Misty Rainforest','Polluted Delta','Scalding Tarn','Verdant Catacombs','Windswept Heath','Wooded Foothills','Fabled Passage','Evolving Wilds','Terramorphic Expanse'] },
+  { name: 'Fast lands',   size: 10, cards: ['Blackcleave Cliffs','Copperline Gorge','Darkslick Shores','Inspiring Vantage','Razorverge Thicket','Spirebluff Canal','Blooming Marsh','Concealed Courtyard','Botanical Sanctum','Seachrome Coast'] },
+  { name: 'Pain lands',   size: 10, cards: ['Adarkar Wastes','Battlefield Forge','Brushland','Caves of Koilos','Karplusan Forest','Llanowar Wastes','Shivan Reef','Sulfurous Springs','Underground River','Yavimaya Coast'] },
+  { name: 'Verge lands',  size: 9,  cards: ['Bleachbone Verge','Floodfarm Verge','Gloomlake Verge','Hushwood Verge','Riverpyre Verge','Sunbillow Verge','Thornspire Verge','Wastewood Verge','Willowrush Verge'] },
+  { name: 'Horizon lands',size: 6,  cards: ['Fiery Islet','Sunbaked Canyon','Nurturing Peatland','Silent Clearing','Waterlogged Grove','Horizon Canopy'] },
+  { name: 'Filter lands', size: 10, cards: ['Mystic Gate','Sunken Ruins','Wooded Bastion','Flooded Grove','Fire-Lit Thicket','Fetid Heath','Cascade Bluffs','Rugged Prairie','Twilight Mire','Graven Cairns'] },
+  { name: 'Bounce lands', size: 10, cards: ['Azorius Chancery','Dimir Aqueduct','Rakdos Carnarium','Gruul Turf','Selesnya Sanctuary','Orzhov Basilica','Izzet Boilerworks','Golgari Rot Farm','Simic Growth Chamber','Boros Garrison'] },
+  { name: 'Basics',       size: 5,  cards: ['Plains','Island','Swamp','Mountain','Forest'] },
+];
+
+// ─── Stats banner ────────────────────────────────────────────────────────────
+
+function buildStatsBanner() {
+  const counts = {};
+  for (const c of collectionCards) {
+    counts[c.color_group] = (counts[c.color_group] || 0) + c.quantity;
+  }
+  const banner = document.getElementById('collection-stats');
+  banner.innerHTML = '';
+  for (const t of COLOUR_TILES) {
+    const qty = counts[t.group] || 0;
+    const tile = document.createElement('div');
+    tile.className = 'stat-tile';
+    tile.style.cssText = `background:${t.bg};border-color:${t.border}`;
+    const iconStyle = t.iconColor ? ` style="color:${t.iconColor}"` : '';
+    tile.innerHTML = `
+      <div class="stat-tile-icon"${iconStyle}>${t.icon}</div>
+      <div class="stat-tile-count" style="color:${t.numColor}">${qty}</div>
+      <div class="stat-tile-label">${t.label}</div>`;
+    banner.appendChild(tile);
+  }
+}
+
+// ─── Lands sidebar ────────────────────────────────────────────────────────────
+
+function buildLandsSidebar() {
+  const qtyMap = {};
+  for (const c of collectionCards) {
+    if (c.color_group !== 'Lands') continue;
+    qtyMap[c.name] = (qtyMap[c.name] || 0) + c.quantity;
+  }
+
+  const sidebar = document.getElementById('lands-sidebar');
+  sidebar.innerHTML = '<div class="lands-sidebar-title">Land Cycles</div>';
+  const usedNames = new Set();
+
+  for (const cycle of LAND_CYCLES) {
+    let unique = 0, playsets = 0;
+    for (const name of cycle.cards) {
+      const qty = qtyMap[name] || 0;
+      if (qty > 0) { unique++; usedNames.add(name); }
+      if (qty >= 4) playsets++;
+    }
+    const pct = Math.round(playsets / cycle.size * 100);
+    const barColor = playsets === cycle.size ? 'var(--green)' : playsets > 0 ? 'var(--gold)' : 'var(--red)';
+    const statColor = playsets === cycle.size ? 'var(--green)' : playsets > 0 ? 'var(--gold)' : 'var(--red)';
+    const row = document.createElement('div');
+    row.className = 'cycle-row';
+    row.innerHTML = `
+      <div class="cycle-row-header">
+        <span class="cycle-name">${cycle.name}</span>
+        <span class="cycle-stat" style="color:${statColor}">${unique}u · ${playsets}p</span>
+      </div>
+      <div class="cycle-bar-bg"><div class="cycle-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`;
+    sidebar.appendChild(row);
+  }
+
+  let otherUnique = 0;
+  for (const name of Object.keys(qtyMap)) {
+    if (!usedNames.has(name)) otherUnique++;
+  }
+  if (otherUnique > 0) {
+    const row = document.createElement('div');
+    row.className = 'cycle-row';
+    row.innerHTML = `
+      <div class="cycle-row-header">
+        <span class="cycle-name" style="color:var(--muted)">Other</span>
+        <span class="cycle-stat" style="color:var(--muted)">${otherUnique} unique</span>
+      </div>`;
+    sidebar.appendChild(row);
+  }
+
+  const note = document.createElement('div');
+  note.style.cssText = 'font-size:0.65rem;color:var(--muted);margin-top:10px;border-top:1px solid var(--surface2);padding-top:8px';
+  note.textContent = 'u = unique owned · p = full playsets (≥4)';
+  sidebar.appendChild(note);
+}
+
+function toggleLandsSidebar() {
+  landsSidebarOpen = !landsSidebarOpen;
+  document.getElementById('lands-sidebar').style.display = landsSidebarOpen ? 'block' : 'none';
+  document.getElementById('breakdown-toggle').textContent = landsSidebarOpen ? '📊 Hide' : '📊 Breakdown';
+}
 
 // ─── Data loading ───────────────────────────────────────────────────────────
 
@@ -280,6 +418,7 @@ async function init() {
     const syncedAt = new Date(colData.updated_at).toLocaleString();
     document.getElementById('last-synced').textContent = `Last synced: ${syncedAt}`;
 
+    buildStatsBanner();
     renderCollection(collectionCards);
     renderDecks(deckData.decks);
     renderSale(saleData);
@@ -385,6 +524,22 @@ function setGroup(el) {
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   activeGroup = el.dataset.group;
+
+  const isLands = activeGroup === 'lands';
+  const toggle = document.getElementById('breakdown-toggle');
+  const sidebar = document.getElementById('lands-sidebar');
+  if (isLands) {
+    toggle.style.display = 'inline-block';
+    landsSidebarOpen = true;
+    sidebar.style.display = 'block';
+    toggle.textContent = '📊 Hide';
+    buildLandsSidebar();
+  } else {
+    toggle.style.display = 'none';
+    landsSidebarOpen = false;
+    sidebar.style.display = 'none';
+  }
+
   filterCollection();
 }
 
