@@ -225,7 +225,6 @@
 </div>
 
 <script>
-const DECK_COLORS = ['#5b9cf6','#b57bf5','#26c6da','#f5a623','#f48fb1','#aed581','#4db6ac','#ff8a65'];
 let collectionCards = [];
 let collectionMap = {};   // lower_name -> { quantity, set_code, collector_number }
 let allocatedCards = {};  // lower_name -> [{deckName, color, quantity}]
@@ -247,12 +246,12 @@ async function init() {
 
     collectionCards = colData.cards;
 
-    // Assign a unique color to each deck
+    // Assign a random vibrant color to each deck on page load
     const deckColorMap = {};
-    let colorIdx = 0;
     for (const deck of deckData.decks) {
       if (!deckColorMap[deck.deck_name]) {
-        deckColorMap[deck.deck_name] = DECK_COLORS[colorIdx++ % DECK_COLORS.length];
+        const hue = Math.floor(Math.random() * 360);
+        deckColorMap[deck.deck_name] = `hsl(${hue}, 75%, 65%)`;
       }
     }
 
