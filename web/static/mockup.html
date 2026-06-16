@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTG Manager — Mockup</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --accent: #e94560;
+    --text: #eaeaea;
+    --muted: #888;
+    --green: #4caf50;
+    --red: #e94560;
+    --gold: #f0c040;
+    --radius: 8px;
+    --card-w: 130px;
+    --card-h: 181px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  /* NAV */
+  nav { background: var(--surface); border-bottom: 2px solid var(--surface2); padding: 0 24px; display: flex; align-items: center; gap: 0; }
+  .nav-brand { font-weight: 700; font-size: 1.1rem; color: var(--gold); padding: 16px 24px 16px 0; border-right: 1px solid var(--surface2); margin-right: 8px; }
+  .tab { padding: 16px 20px; cursor: pointer; border-bottom: 3px solid transparent; color: var(--muted); font-size: 0.95rem; transition: all 0.15s; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .nav-meta { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
+
+  /* PAGES */
+  .page { display: none; padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .page.active { display: block; }
+
+  /* COLLECTION PAGE */
+  .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+  .search { background: var(--surface); border: 1px solid var(--surface2); color: var(--text); padding: 8px 14px; border-radius: var(--radius); font-size: 0.9rem; width: 220px; }
+  .search:focus { outline: none; border-color: var(--accent); }
+  .chip { padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--surface2); background: var(--surface); color: var(--muted); }
+  .chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .chip.white.active  { background: #f5f0e0; color: #333; border-color: #ccc; }
+  .chip.blue.active   { background: #1a4a8a; color: #fff; border-color: #2a6aaa; }
+  .chip.black.active  { background: #2a1a2a; color: #ccc; border-color: #555; }
+  .chip.red.active    { background: #8a1a1a; color: #fff; border-color: #aa3333; }
+  .chip.green.active  { background: #1a5a2a; color: #fff; border-color: #2a7a3a; }
+  .chip.multi.active  { background: #6a4a1a; color: #fff; border-color: #8a6a2a; }
+  .chip.colorless.active { background: #3a3a3a; color: #ccc; border-color: #666; }
+  .stat { margin-left: auto; font-size: 0.85rem; color: var(--muted); }
+
+  .card-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .mtg-card { position: relative; width: var(--card-w); flex-shrink: 0; cursor: pointer; transition: transform 0.15s; }
+  .mtg-card:hover { transform: translateY(-4px); }
+  .mtg-card img { width: 100%; border-radius: 6px; display: block; }
+  .card-placeholder { width: var(--card-w); height: var(--card-h); border-radius: 6px; background: var(--surface); border: 1px solid var(--surface2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+  .card-placeholder .pname { font-size: 0.65rem; color: var(--muted); text-align: center; padding: 0 6px; }
+  .badge { position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.85); color: var(--gold); font-size: 0.7rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+  .badge.foil { background: linear-gradient(135deg, #b8860b, #daa520); color: #1a1a1a; }
+  .overlay-missing { position: absolute; inset: 0; border-radius: 6px; background: rgba(233,69,96,0.55); display: flex; align-items: center; justify-content: center; }
+  .overlay-missing span { background: var(--red); color: white; font-size: 0.65rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.5px; }
+  .overlay-owned { position: absolute; inset: 0; border-radius: 6px; }
+  .badge.owned { background: rgba(0,0,0,0.85); color: var(--green); }
+
+  /* DECKS PAGE */
+  .box-section { margin-bottom: 32px; }
+  .box-title { font-size: 1rem; font-weight: 700; color: var(--gold); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--surface2); display: flex; align-items: center; gap: 8px; }
+  .box-icon { font-size: 1.2rem; }
+  .deck-list { display: flex; flex-direction: column; gap: 12px; }
+  .deck-item { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); overflow: hidden; }
+  .deck-header { padding: 12px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer; }
+  .deck-header:hover { background: var(--surface2); }
+  .deck-name { font-weight: 600; font-size: 0.95rem; }
+  .deck-meta { font-size: 0.78rem; color: var(--muted); }
+  .deck-url { font-size: 0.78rem; color: #6ab0f5; text-decoration: none; margin-left: auto; }
+  .deck-url:hover { text-decoration: underline; }
+  .chevron { color: var(--muted); font-size: 0.8rem; margin-right: 4px; transition: transform 0.2s; }
+  .deck-item.open .chevron { transform: rotate(90deg); }
+  .deck-cards { display: none; padding: 12px 16px 16px; border-top: 1px solid var(--surface2); }
+  .deck-item.open .deck-cards { display: flex; flex-wrap: wrap; gap: 8px; }
+  .proxy-badge { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.85); color: var(--muted); font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; }
+
+  /* MISSING PAGE */
+  .missing-layout { display: grid; grid-template-columns: 340px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 800px) { .missing-layout { grid-template-columns: 1fr; } }
+  .input-panel { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 20px; position: sticky; top: 20px; }
+  .input-panel h3 { margin-bottom: 4px; font-size: 1rem; }
+  .input-panel .hint { font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; }
+  textarea { width: 100%; height: 240px; background: var(--bg); border: 1px solid var(--surface2); color: var(--text); padding: 10px 12px; border-radius: var(--radius); font-family: 'Courier New', monospace; font-size: 0.82rem; resize: vertical; }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  .btn { display: block; width: 100%; padding: 10px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-size: 0.95rem; font-weight: 600; cursor: pointer; margin-top: 12px; }
+  .btn:hover { background: #c73652; }
+  .results-panel h3 { margin-bottom: 4px; font-size: 1rem; }
+  .results-summary { font-size: 0.85rem; color: var(--muted); margin-bottom: 16px; }
+  .results-summary .ok { color: var(--green); font-weight: 600; }
+  .results-summary .miss { color: var(--red); font-weight: 600; }
+
+  /* SECTION LABEL */
+  .section-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin: 16px 0 8px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">⚔ MTG Manager</div>
+  <div class="tab active" onclick="showTab('collection', this)">Collection</div>
+  <div class="tab" onclick="showTab('decks', this)">Decks</div>
+  <div class="tab" onclick="showTab('missing', this)">Missing</div>
+  <div class="nav-meta">Last synced: today at 14:32</div>
+</nav>
+
+<!-- COLLECTION PAGE -->
+<div id="page-collection" class="page active">
+  <div class="toolbar">
+    <input class="search" placeholder="Search cards…" oninput="filterCollection(this.value)">
+    <div class="chip active" onclick="toggleChip(this,'all')">All</div>
+    <div class="chip white" onclick="toggleChip(this,'white')">White</div>
+    <div class="chip blue" onclick="toggleChip(this,'blue')">Blue</div>
+    <div class="chip black" onclick="toggleChip(this,'black')">Black</div>
+    <div class="chip red" onclick="toggleChip(this,'red')">Red</div>
+    <div class="chip green" onclick="toggleChip(this,'green')">Green</div>
+    <div class="chip multi" onclick="toggleChip(this,'multi')">Multi</div>
+    <div class="chip colorless" onclick="toggleChip(this,'colorless')">Colorless</div>
+    <div class="stat">847 cards · 312 unique</div>
+  </div>
+  <div class="card-grid" id="collection-grid">
+    <!-- sample cards using real Scryfall images -->
+  </div>
+</div>
+
+<!-- DECKS PAGE -->
+<div id="page-decks" class="page">
+  <div class="box-section">
+    <div class="box-title"><span class="box-icon">📦</span> Red Box</div>
+    <div class="deck-list">
+      <div class="deck-item open">
+        <div class="deck-header" onclick="toggleDeck(this)">
+          <span class="chevron">▶</span>
+          <div>
+            <div class="deck-name">Burn</div>
+            <div class="deck-meta">Built 2026-01-15 · 60 cards · 0 proxies</div>
+          </div>
+          <a class="deck-url" href="#" onclick="return false">mtggoldfish.com ↗</a>
+        </div>
+        <div class="deck-cards" id="deck-cards-burn"></div>
+      </div>
+      <div class="deck-item">
+        <div class="deck-header" onclick="toggleDeck(this)">
+          <span class="chevron">▶</span>
+          <div>
+            <div class="deck-name">Goblins</div>
+            <div class="deck-meta">Built 2026-02-03 · 60 cards · 3 proxies</div>
+          </div>
+          <a class="deck-url" href="#" onclick="return false">moxfield.com ↗</a>
+        </div>
+        <div class="deck-cards"></div>
+      </div>
+    </div>
+  </div>
+  <div class="box-section">
+    <div class="box-title"><span class="box-icon">📦</span> Blue Box</div>
+    <div class="deck-list">
+      <div class="deck-item">
+        <div class="deck-header" onclick="toggleDeck(this)">
+          <span class="chevron">▶</span>
+          <div>
+            <div class="deck-name">Merfolk</div>
+            <div class="deck-meta">Built 2026-03-10 · 60 cards · 0 proxies</div>
+          </div>
+          <a class="deck-url" href="#" onclick="return false">mtgtop8.com ↗</a>
+        </div>
+        <div class="deck-cards"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MISSING PAGE -->
+<div id="page-missing" class="page">
+  <div class="missing-layout">
+    <div class="input-panel">
+      <h3>Check a decklist</h3>
+      <p class="hint">Paste cards in MTG Arena / MTGO format</p>
+      <textarea id="decklist-input" placeholder="4 Lightning Bolt&#10;4 Goblin Guide&#10;4 Monastery Swiftspear&#10;2 Shard Volley&#10;4 Eidolon of the Great Revel&#10;4 Skullcrack&#10;4 Light Up the Stage&#10;4 Lava Spike&#10;4 Rift Bolt&#10;4 Searing Blaze&#10;20 Mountain"></textarea>
+      <button class="btn" onclick="checkMissing()">Check Collection</button>
+    </div>
+    <div class="results-panel" id="missing-results" style="display:none">
+      <h3>Results</h3>
+      <div class="results-summary" id="missing-summary"></div>
+      <div class="section-label">Missing / Insufficient</div>
+      <div class="card-grid" id="missing-grid"></div>
+      <div class="section-label" style="margin-top:24px">Owned</div>
+      <div class="card-grid" id="owned-grid"></div>
+    </div>
+    <div id="missing-placeholder" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.9rem;">
+      Paste a decklist and hit Check Collection
+    </div>
+  </div>
+</div>
+
+<script>
+// Sample data — mirrors what collection.json + decks.json will look like
+const SAMPLE_CARDS = [
+  { name: "Lightning Bolt",        set_code: "m10", collector_number: "146", foil: false, quantity: 4,  color_group: "red" },
+  { name: "Goblin Guide",          set_code: "znr", collector_number: "148", foil: false, quantity: 4,  color_group: "red" },
+  { name: "Monastery Swiftspear",  set_code: "ktk", collector_number: "118", foil: false, quantity: 4,  color_group: "red" },
+  { name: "Searing Blaze",         set_code: "wwk", collector_number: "110", foil: false, quantity: 4,  color_group: "red" },
+  { name: "Eidolon of the Great Revel", set_code: "jou", collector_number: "92", foil: false, quantity: 4, color_group: "red" },
+  { name: "Snapcaster Mage",       set_code: "isd", collector_number: "78",  foil: false, quantity: 2,  color_group: "blue" },
+  { name: "Force of Will",         set_code: "all", collector_number: "60",  foil: false, quantity: 1,  color_group: "blue" },
+  { name: "Thoughtseize",          set_code: "ths", collector_number: "107", foil: false, quantity: 4,  color_group: "black" },
+  { name: "Fatal Push",            set_code: "aer", collector_number: "57",  foil: false, quantity: 4,  color_group: "black" },
+  { name: "Tarmogoyf",             set_code: "fut", collector_number: "153", foil: true,  quantity: 2,  color_group: "green" },
+  { name: "Noble Hierarch",        set_code: "con", collector_number: "75",  foil: false, quantity: 4,  color_group: "green" },
+  { name: "Path to Exile",         set_code: "con", collector_number: "14",  foil: false, quantity: 4,  color_group: "white" },
+  { name: "Wrenn and Six",         set_code: "mh1", collector_number: "217", foil: false, quantity: 2,  color_group: "multi" },
+  { name: "Arclight Phoenix",      set_code: "grn", collector_number: "91",  foil: false, quantity: 4,  color_group: "red" },
+  { name: "Ragavan, Nimble Pilferer", set_code: "mh2", collector_number: "138", foil: false, quantity: 2, color_group: "red" },
+  { name: "Solitude",              set_code: "mh2", collector_number: "32",  foil: false, quantity: 3,  color_group: "white" },
+  { name: "Urza's Saga",           set_code: "mh2", collector_number: "259", foil: false, quantity: 2,  color_group: "colorless" },
+  { name: "Chalice of the Void",   set_code: "mrd", collector_number: "152", foil: false, quantity: 2,  color_group: "colorless" },
+];
+
+const DECK_BURN_CARDS = [
+  { name: "Lightning Bolt",        set_code: "m10", collector_number: "146", quantity: 4, is_proxy: false },
+  { name: "Goblin Guide",          set_code: "znr", collector_number: "148", quantity: 4, is_proxy: false },
+  { name: "Monastery Swiftspear",  set_code: "ktk", collector_number: "118", quantity: 4, is_proxy: false },
+  { name: "Eidolon of the Great Revel", set_code: "jou", collector_number: "92", quantity: 4, is_proxy: false },
+  { name: "Searing Blaze",         set_code: "wwk", collector_number: "110", quantity: 4, is_proxy: false },
+  { name: "Arclight Phoenix",      set_code: "grn", collector_number: "91",  quantity: 4, is_proxy: false },
+  { name: "Ragavan, Nimble Pilferer", set_code: "mh2", collector_number: "138", quantity: 2, is_proxy: true },
+];
+
+function scryfallImg(set_code, collector_number) {
+  return `https://api.scryfall.com/cards/${set_code}/${collector_number}?format=image&version=normal`;
+}
+function scryfallNameImg(name) {
+  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=normal`;
+}
+
+function makeCardEl(card, badge, overlay) {
+  const wrap = document.createElement('div');
+  wrap.className = 'mtg-card';
+  const img = document.createElement('img');
+  img.src = (card.set_code && card.collector_number)
+    ? scryfallImg(card.set_code, card.collector_number)
+    : scryfallNameImg(card.name);
+  img.alt = card.name;
+  img.style.width = '130px';
+  img.style.height = '181px';
+  img.style.objectFit = 'cover';
+  img.style.borderRadius = '6px';
+  img.onerror = () => { img.style.display='none'; wrap.querySelector('.card-placeholder')?.remove(); const p=document.createElement('div');p.className='card-placeholder';p.innerHTML=`<span style="font-size:1.5rem">🃏</span><span class="pname">${card.name}</span>`;wrap.appendChild(p); };
+  wrap.appendChild(img);
+  if (overlay) { const o=document.createElement('div'); o.className=overlay.cls; if(overlay.text){const s=document.createElement('span');s.textContent=overlay.text;o.appendChild(s);} wrap.appendChild(o); }
+  if (badge) { const b=document.createElement('div'); b.className='badge '+(badge.cls||''); b.textContent=badge.text; wrap.appendChild(b); }
+  return wrap;
+}
+
+// Render collection
+function renderCollection(cards) {
+  const grid = document.getElementById('collection-grid');
+  grid.innerHTML = '';
+  cards.forEach(card => {
+    const badgeCls = card.foil ? 'foil' : '';
+    const badgeText = card.foil ? `✦ ×${card.quantity}` : `×${card.quantity}`;
+    grid.appendChild(makeCardEl(card, { text: badgeText, cls: badgeCls }, null));
+  });
+}
+
+let activeColorGroup = 'all';
+function toggleChip(el, group) {
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  activeColorGroup = group;
+  filterCollection(document.querySelector('.search').value);
+}
+function filterCollection(query) {
+  const q = query.toLowerCase();
+  const filtered = SAMPLE_CARDS.filter(c => {
+    const nameOk = c.name.toLowerCase().includes(q);
+    const groupOk = activeColorGroup === 'all' || c.color_group === activeColorGroup;
+    return nameOk && groupOk;
+  });
+  renderCollection(filtered);
+}
+
+// Render deck cards
+function renderDeckCards(containerId, cards) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  cards.forEach(card => {
+    const overlay = card.is_proxy ? { cls: 'overlay-missing', text: 'PROXY' } : null;
+    const badge = { text: `×${card.quantity}`, cls: '' };
+    el.appendChild(makeCardEl(card, badge, overlay));
+  });
+}
+
+// Tab switching
+function showTab(name, tabEl) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  tabEl.classList.add('active');
+}
+
+// Deck accordion
+function toggleDeck(header) {
+  const item = header.closest('.deck-item');
+  item.classList.toggle('open');
+}
+
+// Missing checker
+function parseDeckList(text) {
+  const lines = text.trim().split('\n');
+  const cards = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith('//')) continue;
+    const m = line.match(/^(\d+)x?\s+(.+?)(?:\s+\([\w\d]+\)\s*\d+)?$/i);
+    if (m) cards.push({ qty: parseInt(m[1]), name: m[2].trim() });
+  }
+  return cards;
+}
+
+function checkMissing() {
+  const text = document.getElementById('decklist-input').value;
+  const parsed = parseDeckList(text);
+  if (!parsed.length) return;
+
+  const collectionByName = {};
+  SAMPLE_CARDS.forEach(c => {
+    const key = c.name.toLowerCase();
+    collectionByName[key] = (collectionByName[key] || 0) + c.quantity;
+  });
+
+  const missing = [], owned = [];
+  parsed.forEach(({ qty, name }) => {
+    const have = collectionByName[name.toLowerCase()] || 0;
+    const card = SAMPLE_CARDS.find(c => c.name.toLowerCase() === name.toLowerCase())
+      || { name, set_code: null, collector_number: null };
+    if (have >= qty) {
+      owned.push({ ...card, quantity: qty, have });
+    } else {
+      missing.push({ ...card, quantity: qty, have });
+    }
+  });
+
+  document.getElementById('missing-placeholder').style.display = 'none';
+  document.getElementById('missing-results').style.display = 'block';
+  document.getElementById('missing-summary').innerHTML =
+    `<span class="ok">${owned.length} cards owned</span> · <span class="miss">${missing.length} cards missing or insufficient</span>`;
+
+  const mg = document.getElementById('missing-grid');
+  mg.innerHTML = '';
+  missing.forEach(card => {
+    const label = card.have > 0 ? `${card.have}/${card.quantity}` : 'MISSING';
+    mg.appendChild(makeCardEl(card, null, { cls: 'overlay-missing', text: label }));
+  });
+
+  const og = document.getElementById('owned-grid');
+  og.innerHTML = '';
+  owned.forEach(card => {
+    og.appendChild(makeCardEl(card, { text: `×${card.quantity}`, cls: 'owned' }, null));
+  });
+}
+
+// Init
+renderCollection(SAMPLE_CARDS);
+renderDeckCards('deck-cards-burn', DECK_BURN_CARDS);
+</script>
+</body>
+</html>
