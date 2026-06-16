@@ -789,20 +789,32 @@ function buildSaleFilterBanner() {
   const container = document.getElementById('sale-color-filter');
   container.innerHTML = '';
 
-  function makeSaleTile(dataGroup, icon, iconColor, bg, border, label, isActive) {
+  const counts = {};
+  const cards = saleView === 'wants'
+    ? (saleData ? saleData.wants || [] : [])
+    : [...(saleData ? saleData.for_sale || [] : []), ...(saleData ? saleData.extras || [] : [])];
+  for (const c of cards) {
+    if (c.color_group) counts[c.color_group] = (counts[c.color_group] || 0) + (c.quantity || 1);
+  }
+  const totalQty = Object.values(counts).reduce((s, v) => s + v, 0);
+
+  function makeSaleTile(dataGroup, icon, iconColor, numColor, bg, border, label, count, isActive) {
     const tile = document.createElement('div');
     tile.className = 'stat-tile' + (isActive ? ' active' : '');
     tile.dataset.group = dataGroup;
     tile.style.cssText = `background:${bg};border-color:${border}`;
     const iconStyle = iconColor ? ` style="color:${iconColor}"` : '';
-    tile.innerHTML = `<div class="stat-tile-icon"${iconStyle}>${icon}</div><div class="stat-tile-label">${label}</div>`;
+    tile.innerHTML = `
+      <div class="stat-tile-icon"${iconStyle}>${icon}</div>
+      <div class="stat-tile-count" style="color:${numColor}">${count}</div>
+      <div class="stat-tile-label">${label}</div>`;
     tile.onclick = () => setSaleTile(tile);
     return tile;
   }
 
-  container.appendChild(makeSaleTile('all', '✦', '#aaaaaa', '#141420', '#28283e', 'All', saleColorGroup === 'all'));
+  container.appendChild(makeSaleTile('all', '✦', '#aaaaaa', 'var(--text)', '#141420', '#28283e', 'All', totalQty, saleColorGroup === 'all'));
   for (const t of COLOUR_TILES) {
-    container.appendChild(makeSaleTile(t.group, t.icon, t.iconColor, t.bg, t.border, t.label, saleColorGroup === t.group));
+    container.appendChild(makeSaleTile(t.group, t.icon, t.iconColor, t.numColor, t.bg, t.border, t.label, counts[t.group] || 0, saleColorGroup === t.group));
   }
 }
 

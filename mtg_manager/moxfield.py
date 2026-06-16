@@ -42,11 +42,16 @@ def _color_group_from_card(card_data: dict, fallback: str | None) -> str | None:
     type_line: str = card_data.get("type_line") or ""
     if "Land" in type_line:
         return "Lands"
-    colors: list[str] = card_data.get("colors") or []
+    colors: list[str] = list(card_data.get("colors") or [])
     if not colors:
+        # DFCs store colors per face; merge them
+        for face in card_data.get("card_faces") or []:
+            colors.extend(face.get("colors") or [])
+    unique = list(dict.fromkeys(colors))
+    if not unique:
         return "Colourless"
-    if len(colors) == 1:
-        return _COLOR_CODES.get(colors[0], fallback)
+    if len(unique) == 1:
+        return _COLOR_CODES.get(unique[0], fallback)
     return "Multicolour"
 
 HEADERS = {
