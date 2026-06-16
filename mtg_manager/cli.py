@@ -16,6 +16,7 @@ from .db import (
     categorise_missing_cards,
     clear_color_group,
     clear_for_sale_color_group,
+    clear_wants_cards,
     delete_built_deck,
     get_allocated_quantity,
     get_all_owned_names,
@@ -47,6 +48,7 @@ from .db import (
     update_sale_prices,
     upsert_cards,
     upsert_for_sale_cards,
+    upsert_wants_cards,
     upsert_legalities,
 )
 from .models import BoxedCard, MissingCard
@@ -91,13 +93,17 @@ def _is_sale_package(package_name: str) -> bool:
     return package_name.startswith("$")
 
 
+def _is_wants_package(package_name: str) -> bool:
+    return package_name.strip() == "Wants"
+
+
 def _parse_sale_price(package_name: str) -> float:
     m = _SALE_PRICE_RE.match(package_name)
     return float(m.group(1)) if m else 0.0
 
 
 def _auto_sync(cfg, conn) -> None:
-    """Silently re-fetch all Moxfield packages. Only touches owned_cards/for_sale_cards, never box tables."""
+    """Silently re-fetch all Moxfield packages. Only touches owned_cards/for_sale_cards/wants_cards, never box tables."""
     for pkg in cfg.packages:
         try:
             cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
@@ -105,6 +111,9 @@ def _auto_sync(cfg, conn) -> None:
                 clear_color_group(conn, pkg.color_group)
                 clear_for_sale_color_group(conn, pkg.color_group)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
+            elif _is_wants_package(pkg_name):
+                clear_wants_cards(conn)
+                upsert_wants_cards(conn, cards)
             else:
                 clear_for_sale_color_group(conn, pkg.color_group)
                 clear_color_group(conn, pkg.color_group)
@@ -183,6 +192,10 @@ def sync(color_group, refresh_legality):
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
                 console.print(f"  [green]OK[/green] {pkg.color_group} [yellow][for sale][/yellow]: {qty} cards ({len(cards)} unique entries)")
                 synced_sale = True
+            elif _is_wants_package(pkg_name):
+                clear_wants_cards(conn)
+                upsert_wants_cards(conn, cards)
+                console.print(f"  [green]OK[/green] {pkg.color_group} [blue][wants][/blue]: {qty} cards ({len(cards)} unique entries)")
             else:
                 clear_for_sale_color_group(conn, pkg.color_group)
                 clear_color_group(conn, pkg.color_group)

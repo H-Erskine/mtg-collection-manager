@@ -23,6 +23,7 @@ from mtg_manager.db import (
     categorise_missing_cards,
     clear_color_group,
     clear_for_sale_color_group,
+    clear_wants_cards,
     delete_built_deck,
     get_all_owned_names,
     get_card_binder_color_group,
@@ -58,6 +59,7 @@ from mtg_manager.db import (
     update_sale_prices,
     upsert_cards,
     upsert_for_sale_cards,
+    upsert_wants_cards,
     upsert_legalities,
 )
 from mtg_manager.models import BoxedCard, MissingCard
@@ -82,6 +84,10 @@ _SALE_PRICE_RE = __import__("re").compile(r"^\$(\d+(?:\.\d+)?)")
 
 def _is_sale_package(package_name: str) -> bool:
     return package_name.startswith("$")
+
+
+def _is_wants_package(package_name: str) -> bool:
+    return package_name.strip() == "Wants"
 
 
 def _parse_sale_price(package_name: str) -> float:
@@ -114,6 +120,9 @@ def _auto_sync(cfg: Config, conn) -> list[str]:
                 clear_color_group(conn, pkg.color_group)
                 clear_for_sale_color_group(conn, pkg.color_group)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
+            elif _is_wants_package(pkg_name):
+                clear_wants_cards(conn)
+                upsert_wants_cards(conn, cards)
             else:
                 clear_for_sale_color_group(conn, pkg.color_group)
                 clear_color_group(conn, pkg.color_group)
@@ -156,6 +165,10 @@ def handle_sync(cfg: Config, is_owner: bool = False, color_group: str | None = N
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
                 lines.append(f"{pkg.color_group} [for sale]: {qty} cards ({len(cards)} unique)")
                 synced_sale = True
+            elif _is_wants_package(pkg_name):
+                clear_wants_cards(conn)
+                upsert_wants_cards(conn, cards)
+                lines.append(f"{pkg.color_group} [wants]: {qty} cards ({len(cards)} unique)")
             else:
                 clear_for_sale_color_group(conn, pkg.color_group)
                 clear_color_group(conn, pkg.color_group)
