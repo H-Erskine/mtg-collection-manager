@@ -10,6 +10,7 @@ class OwnedCard:
     collector_number: str = ""
     foil: bool = False
     cmc: float = 0.0
+    any_version: bool = False
 
 
 @dataclass

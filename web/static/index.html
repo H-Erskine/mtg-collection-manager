@@ -258,8 +258,16 @@
     </div>
     <div id="sale-view-wants" style="display:none">
       <div class="sale-section">
-        <div class="sale-section-title">Wants</div>
-        <div class="card-grid" id="wants-grid"></div>
+        <div class="sale-section-title">Wants — Specific Version</div>
+        <div class="card-grid" id="wants-specific-grid"></div>
+        <p id="wants-specific-empty" style="display:none;color:var(--muted);padding:20px 0">No specific-version wants.</p>
+      </div>
+      <div class="sale-section">
+        <div class="sale-section-title">Wants — Any Version</div>
+        <div class="card-grid" id="wants-any-grid"></div>
+        <p id="wants-any-empty" style="display:none;color:var(--muted);padding:20px 0">No any-version wants.</p>
+      </div>
+      <div>
         <p id="wants-empty" style="display:none;color:var(--muted);padding:20px 0">No wants list — create a "Wants" package on Moxfield and sync.</p>
       </div>
     </div>
@@ -913,23 +921,46 @@ function _renderForSaleView(q) {
 }
 
 function _renderWants(q) {
-  const wantsGrid = document.getElementById('wants-grid');
+  const specificGrid = document.getElementById('wants-specific-grid');
+  const specificEmpty = document.getElementById('wants-specific-empty');
+  const anyGrid = document.getElementById('wants-any-grid');
+  const anyEmpty = document.getElementById('wants-any-empty');
   const wantsEmpty = document.getElementById('wants-empty');
-  wantsGrid.innerHTML = '';
+  specificGrid.innerHTML = '';
+  anyGrid.innerHTML = '';
+  specificEmpty.style.display = 'none';
+  anyEmpty.style.display = 'none';
   wantsEmpty.style.display = 'none';
 
-  // color_group in sale JSON is title-case ("White", "Multicolour") — chip data-group values match exactly
-  const filtered = (saleData.wants || []).filter(c =>
+  const all = (saleData.wants || []).filter(c =>
     c.name.toLowerCase().includes(q) &&
     (saleColorGroup === 'all' || c.color_group === saleColorGroup)
   );
-  if (filtered.length) {
-    for (const c of filtered) {
+
+  if (!all.length && !(saleData.wants || []).length) {
+    wantsEmpty.style.display = 'block';
+    return;
+  }
+
+  const specific = all.filter(c => !c.any_version);
+  const anyVer = all.filter(c => c.any_version);
+
+  if (specific.length) {
+    for (const c of specific) {
       const badge = c.foil ? `✦ ×${c.quantity}` : `×${c.quantity}`;
-      wantsGrid.appendChild(makeCard(c.name, c.set_code, c.collector_number, badge, '', null));
+      specificGrid.appendChild(makeCard(c.name, c.set_code, c.collector_number, badge, '', null));
     }
   } else {
-    wantsEmpty.style.display = 'block';
+    specificEmpty.style.display = 'block';
+  }
+
+  if (anyVer.length) {
+    for (const c of anyVer) {
+      const badge = c.foil ? `✦ ×${c.quantity}` : `×${c.quantity}`;
+      anyGrid.appendChild(makeCard(c.name, c.set_code, c.collector_number, badge, '', null));
+    }
+  } else {
+    anyEmpty.style.display = 'block';
   }
 }
 

@@ -170,6 +170,7 @@ def _get_sale(conn) -> dict:
                 "foil": bool(r["foil"]),
                 "quantity": r["quantity"],
                 "color_group": r["color_group"],
+                "any_version": bool(r["any_version"]),
             }
             for r in wants_rows
         ],

@@ -88,6 +88,8 @@ def fetch_package_cards(
     data = resp.json()
 
     package_name: str = data.get("name", "")
+    # authorTags: {card_name: [tag, ...]} — deck-level per-card tags set by the author
+    author_tags: dict[str, list[str]] = data.get("authorTags") or {}
     boards = data.get("boards", {})
     cards: list[OwnedCard] = []
 
@@ -101,6 +103,7 @@ def fetch_package_cards(
                 continue
             printings = item.get("printingData") or []
             cmc: float = card_data.get("cmc", 0.0) or 0.0
+            any_version = "any-version" in (author_tags.get(name) or [])
             if printings:
                 # Use per-printing breakdown so different set/foil copies are stored separately
                 for p in printings:
@@ -114,6 +117,7 @@ def fetch_package_cards(
                             collector_number=p.get("cn", card_data.get("cn", "")),
                             foil=foil,
                             cmc=cmc,
+                            any_version=any_version,
                         )
                     )
             else:
@@ -128,6 +132,7 @@ def fetch_package_cards(
                         collector_number=card_data.get("cn", ""),
                         foil=foil,
                         cmc=cmc,
+                        any_version=any_version,
                     )
                 )
 

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS wants_cards (
     foil                INTEGER NOT NULL DEFAULT 0,
     quantity            INTEGER NOT NULL DEFAULT 0,
     color_group         TEXT NOT NULL DEFAULT '',
+    any_version         INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (name, set_code, collector_number, foil)
 );
 
@@ -134,6 +135,12 @@ def get_conn(db_path: Path):
                 ALTER TABLE allocated_cards_new RENAME TO allocated_cards;
                 CREATE INDEX IF NOT EXISTS idx_allocated_card_name ON allocated_cards (card_name);
             """)
+        # Migration: add any_version to wants_cards
+        try:
+            conn.execute("ALTER TABLE wants_cards ADD COLUMN any_version INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         # Migration: rebuild moxfield_tags with binder_public_id (old schema had unique_card_id only)
         cols = {row[1] for row in conn.execute("PRAGMA table_info(moxfield_tags)")}
         if "unique_card_id" in cols:
@@ -298,11 +305,12 @@ def upsert_wants_cards(conn: sqlite3.Connection, cards: list[OwnedCard]) -> int:
     """Insert or replace wants cards. Returns rows affected."""
     conn.executemany(
         """
-        INSERT INTO wants_cards (name, set_code, collector_number, foil, quantity, color_group)
-        VALUES (:name, :set_code, :collector_number, :foil, :quantity, :color_group)
+        INSERT INTO wants_cards (name, set_code, collector_number, foil, quantity, color_group, any_version)
+        VALUES (:name, :set_code, :collector_number, :foil, :quantity, :color_group, :any_version)
         ON CONFLICT (name, set_code, collector_number, foil)
         DO UPDATE SET quantity = excluded.quantity,
-                      color_group = excluded.color_group
+                      color_group = excluded.color_group,
+                      any_version = excluded.any_version
         """,
         [
             {
@@ -312,6 +320,7 @@ def upsert_wants_cards(conn: sqlite3.Connection, cards: list[OwnedCard]) -> int:
                 "foil": int(c.foil),
                 "quantity": c.quantity,
                 "color_group": c.color_group,
+                "any_version": int(c.any_version),
             }
             for c in cards
         ],
@@ -327,7 +336,7 @@ def clear_wants_cards(conn: sqlite3.Connection) -> None:
 def list_wants_cards(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """Return all wants cards ordered by name."""
     return conn.execute(
-        "SELECT name, set_code, collector_number, foil, quantity, color_group "
+        "SELECT name, set_code, collector_number, foil, quantity, color_group, any_version "
         "FROM wants_cards ORDER BY name"
     ).fetchall()
 
