@@ -8,7 +8,7 @@ from pathlib import Path
 import requests
 
 from mtg_manager.config import Config
-from mtg_manager.db import get_cards_over_limit, get_conn
+from mtg_manager.db import get_cards_over_limit, get_conn, list_wants_cards
 
 _SCRYFALL_HEADERS = {"User-Agent": "mtg-manager/1.0 (personal collection site)"}
 
@@ -41,6 +41,9 @@ def export_static(cfg: Config) -> None:
         if c["set_code"] and c["collector_number"]:
             printings.add((c["set_code"], c["collector_number"]))
     for c in sale_data["extras"]:
+        if c["set_code"] and c["collector_number"]:
+            printings.add((c["set_code"], c["collector_number"]))
+    for c in sale_data["wants"]:
         if c["set_code"] and c["collector_number"]:
             printings.add((c["set_code"], c["collector_number"]))
 
@@ -128,11 +131,12 @@ def _get_decks(conn) -> list[dict]:
 
 def _get_sale(conn) -> dict:
     sale_rows = conn.execute(
-        "SELECT name, set_code, collector_number, foil, quantity, price "
+        "SELECT name, set_code, collector_number, foil, quantity, price, color_group "
         "FROM for_sale_cards ORDER BY price DESC, name"
     ).fetchall()
 
     extra_rows = get_cards_over_limit(conn, limit=4)
+    wants_rows = list_wants_cards(conn)
 
     return {
         "for_sale": [
@@ -143,6 +147,7 @@ def _get_sale(conn) -> dict:
                 "foil": bool(r["foil"]),
                 "quantity": r["quantity"],
                 "price": r["price"],
+                "color_group": r["color_group"],
             }
             for r in sale_rows
         ],
@@ -153,8 +158,20 @@ def _get_sale(conn) -> dict:
                 "collector_number": r["collector_number"],
                 "foil": bool(r["foil"]),
                 "quantity": r["quantity"],
+                "color_group": r["color_group"],
             }
             for r in extra_rows
+        ],
+        "wants": [
+            {
+                "name": r["name"],
+                "set_code": r["set_code"],
+                "collector_number": r["collector_number"],
+                "foil": bool(r["foil"]),
+                "quantity": r["quantity"],
+                "color_group": r["color_group"],
+            }
+            for r in wants_rows
         ],
     }
 

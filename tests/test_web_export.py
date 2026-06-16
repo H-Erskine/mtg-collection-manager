@@ -7,6 +7,7 @@ from mtg_manager.config import Config, load_config
 from mtg_manager.db import (
     get_conn, insert_built_deck, upsert_cards,
     upsert_wants_cards, clear_wants_cards, list_wants_cards,
+    upsert_for_sale_cards,
 )
 from mtg_manager.models import OwnedCard
 from web.export import export_static
@@ -247,3 +248,67 @@ def test_clear_wants_cards(tmp_path):
         clear_wants_cards(conn)
         rows = list_wants_cards(conn)
     assert rows == []
+
+
+def test_sale_json_includes_wants(tmp_path):
+    cfg = _cfg(tmp_path, web_static_dir=tmp_path / "static")
+    card = OwnedCard(
+        name="Force of Will", set_code="all", collector_number="62",
+        color_group="Blue", foil=False, quantity=1,
+    )
+    with get_conn(cfg.db_path) as conn:
+        upsert_wants_cards(conn, [card])
+
+    export_static(cfg)
+
+    data = json.loads((cfg.web_static_dir / "sale.json").read_text(encoding="utf-8"))
+    assert "wants" in data
+    assert len(data["wants"]) == 1
+    w = data["wants"][0]
+    assert w["name"] == "Force of Will"
+    assert w["set_code"] == "all"
+    assert w["collector_number"] == "62"
+    assert w["foil"] is False
+    assert w["quantity"] == 1
+    assert w["color_group"] == "Blue"
+
+
+def test_sale_json_wants_empty_when_no_package(tmp_path):
+    cfg = _cfg(tmp_path, web_static_dir=tmp_path / "static")
+    export_static(cfg)
+    data = json.loads((cfg.web_static_dir / "sale.json").read_text(encoding="utf-8"))
+    assert data["wants"] == []
+
+
+def test_sale_json_for_sale_has_color_group(tmp_path):
+    cfg = _cfg(tmp_path, web_static_dir=tmp_path / "static")
+    card = OwnedCard(
+        name="Lightning Bolt", set_code="m10", collector_number="146",
+        color_group="Red", foil=False, quantity=1,
+    )
+    with get_conn(cfg.db_path) as conn:
+        upsert_for_sale_cards(conn, [card], price=2.0)
+
+    export_static(cfg)
+
+    data = json.loads((cfg.web_static_dir / "sale.json").read_text(encoding="utf-8"))
+    assert len(data["for_sale"]) == 1
+    assert data["for_sale"][0]["color_group"] == "Red"
+
+
+def test_sale_json_extras_has_color_group(tmp_path):
+    cfg = _cfg(tmp_path, web_static_dir=tmp_path / "static")
+    cards = [
+        OwnedCard(
+            name="Lightning Bolt", set_code="m10", collector_number="146",
+            color_group="Red", foil=False, quantity=8,
+        )
+    ]
+    with get_conn(cfg.db_path) as conn:
+        upsert_cards(conn, cards)
+
+    export_static(cfg)
+
+    data = json.loads((cfg.web_static_dir / "sale.json").read_text(encoding="utf-8"))
+    assert len(data["extras"]) == 1
+    assert data["extras"][0]["color_group"] == "Red"
