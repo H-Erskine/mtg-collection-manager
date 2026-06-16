@@ -246,12 +246,11 @@ async function init() {
 
     collectionCards = colData.cards;
 
-    // Assign a random vibrant color to each deck on page load
+    // Assign a random vibrant color to each deck on page load (store hue only)
     const deckColorMap = {};
     for (const deck of deckData.decks) {
       if (!deckColorMap[deck.deck_name]) {
-        const hue = Math.floor(Math.random() * 360);
-        deckColorMap[deck.deck_name] = `hsl(${hue}, 75%, 65%)`;
+        deckColorMap[deck.deck_name] = Math.floor(Math.random() * 360);
       }
     }
 
@@ -361,8 +360,8 @@ function renderCollection(cards) {
     const entries = allocatedCards[c.name.toLowerCase()];
     if (entries) {
       el.classList.add('in-deck');
-      const shadows = entries.map((e, i) => `0 0 0 ${2 + i * 3}px ${e.color}`);
-      shadows.push(`0 0 12px ${entries[entries.length - 1].color}55`);
+      const shadows = entries.map((e, i) => `0 0 0 ${2 + i * 3}px hsl(${e.color}, 75%, 65%)`);
+      shadows.push(`0 0 12px hsla(${entries[entries.length - 1].color}, 75%, 65%, 0.35)`);
       el.style.setProperty('--deck-glow', shadows.join(', '));
       el.title = 'In deck: ' + entries.map(e => `${e.deckName} (×${e.quantity})`).join(', ');
     }
