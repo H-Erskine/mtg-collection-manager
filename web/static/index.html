@@ -119,7 +119,11 @@
   /* LANDS SIDEBAR */
   .lands-sidebar { width: 220px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 14px 16px; position: sticky; top: 20px; max-height: calc(100vh - 120px); overflow-y: auto; }
   .lands-sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 12px; letter-spacing: 0.5px; text-transform: uppercase; }
-  .cycle-row { margin-bottom: 10px; }
+  .cycle-row { margin: 0 -6px 6px; padding: 4px 6px; border-radius: 4px; cursor: pointer; border-left: 2px solid transparent; transition: background 0.1s; }
+  .cycle-row:hover { background: var(--surface2); }
+  .cycle-row.cycle-active { background: var(--surface2); border-left-color: var(--accent); }
+  .cycle-row-other { cursor: default; }
+  .cycle-row-other:hover { background: none; }
   .cycle-row-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
   .cycle-name { font-size: 0.8rem; color: var(--text); }
   .cycle-stat { font-size: 0.72rem; }
@@ -272,6 +276,7 @@ let collectionMap = {};   // lower_name -> { quantity, set_code, collector_numbe
 let allocatedCards = {};  // lower_name -> [{deckName, color, quantity}]
 let activeGroup = 'all';
 let landsSidebarOpen = false;
+let activeCycle = null;
 
 const COLOUR_TILES = [
   { group: 'White',       icon: '☀️', iconColor: null,      numColor: '#e8e8d0', bg: '#2a2a1e', border: '#4a4a2e', label: 'White' },
@@ -332,7 +337,7 @@ function buildLandsSidebar() {
   sidebar.innerHTML = '<div class="lands-sidebar-title">Land Cycles</div>';
   const usedNames = new Set();
 
-  for (const cycle of LAND_CYCLES) {
+  LAND_CYCLES.forEach((cycle, idx) => {
     let unique = 0, playsets = 0;
     for (const name of cycle.cards) {
       const qty = qtyMap[name] || 0;
@@ -343,15 +348,17 @@ function buildLandsSidebar() {
     const barColor = playsets === cycle.size ? 'var(--green)' : playsets > 0 ? 'var(--gold)' : 'var(--red)';
     const statColor = playsets === cycle.size ? 'var(--green)' : playsets > 0 ? 'var(--gold)' : 'var(--red)';
     const row = document.createElement('div');
-    row.className = 'cycle-row';
+    row.className = 'cycle-row' + (activeCycle === idx ? ' cycle-active' : '');
+    row.dataset.cycleIdx = idx;
     row.innerHTML = `
       <div class="cycle-row-header">
         <span class="cycle-name">${cycle.name}</span>
         <span class="cycle-stat" style="color:${statColor}">${unique}u · ${playsets}p</span>
       </div>
       <div class="cycle-bar-bg"><div class="cycle-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`;
+    row.addEventListener('click', () => selectCycle(idx));
     sidebar.appendChild(row);
-  }
+  });
 
   let otherUnique = 0;
   for (const name of Object.keys(qtyMap)) {
@@ -359,7 +366,7 @@ function buildLandsSidebar() {
   }
   if (otherUnique > 0) {
     const row = document.createElement('div');
-    row.className = 'cycle-row';
+    row.className = 'cycle-row cycle-row-other';
     row.innerHTML = `
       <div class="cycle-row-header">
         <span class="cycle-name" style="color:var(--muted)">Other</span>
@@ -378,6 +385,65 @@ function toggleLandsSidebar() {
   landsSidebarOpen = !landsSidebarOpen;
   document.getElementById('lands-sidebar').style.display = landsSidebarOpen ? 'block' : 'none';
   document.getElementById('breakdown-toggle').textContent = landsSidebarOpen ? '📊 Hide' : '📊 Breakdown';
+}
+
+function selectCycle(idx) {
+  activeCycle = activeCycle === idx ? null : idx;
+  document.querySelectorAll('.cycle-row').forEach(r => {
+    r.classList.toggle('cycle-active', parseInt(r.dataset.cycleIdx) === activeCycle);
+  });
+  if (activeCycle === null) {
+    filterCollection();
+  } else {
+    renderCycleCards(LAND_CYCLES[activeCycle]);
+  }
+}
+
+function renderCycleCards(cycle) {
+  const grid = document.getElementById('collection-grid');
+  grid.innerHTML = '';
+  let ownedUnique = 0, totalQty = 0;
+
+  for (const name of cycle.cards) {
+    const key = name.toLowerCase();
+    const entry = collectionMap[key];
+    const qty = entry ? entry.quantity : 0;
+    const set_code = entry ? entry.set_code : null;
+    const collector_number = entry ? entry.collector_number : null;
+
+    let el;
+    if (qty > 0) {
+      ownedUnique++;
+      totalQty += qty;
+      const badgeCls = qty >= 4 ? 'green' : '';
+      el = makeCard(name, set_code, collector_number, `×${qty}`, badgeCls, null);
+      const deckEntries = allocatedCards[key];
+      if (deckEntries) {
+        el.classList.add('in-deck');
+        const shadows = [];
+        let spread = 2;
+        for (const e of deckEntries) {
+          for (let i = 0; i < e.quantity; i++) {
+            shadows.push(`0 0 0 ${spread}px hsl(${e.color}, 75%, 65%)`);
+            spread += 2;
+            shadows.push(`0 0 0 ${spread}px #1a1a2e`);
+            spread += 2;
+          }
+        }
+        shadows.pop();
+        shadows.push(`0 0 12px hsla(${deckEntries[deckEntries.length - 1].color}, 75%, 65%, 0.35)`);
+        el.style.setProperty('--deck-glow', shadows.join(', '));
+        el.title = 'In deck: ' + deckEntries.map(e => `${e.deckName} (×${e.quantity})`).join(', ');
+      }
+    } else {
+      el = makeCard(name, null, null, null, '', 'MISSING');
+    }
+    grid.appendChild(el);
+  }
+
+  const playsets = cycle.cards.filter(n => (collectionMap[n.toLowerCase()]?.quantity || 0) >= 4).length;
+  document.getElementById('col-stat').textContent =
+    `${ownedUnique}/${cycle.cards.length} owned · ${totalQty} copies · ${playsets} playsets`;
 }
 
 // ─── Data loading ───────────────────────────────────────────────────────────
@@ -550,6 +616,7 @@ function setGroup(el) {
     toggle.style.display = 'none';
     landsSidebarOpen = false;
     sidebar.style.display = 'none';
+    activeCycle = null;
   }
 
   filterCollection();
