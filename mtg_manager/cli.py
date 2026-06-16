@@ -98,7 +98,6 @@ def _parse_sale_price(package_name: str) -> float:
 
 def _auto_sync(cfg, conn) -> None:
     """Silently re-fetch all Moxfield packages. Only touches owned_cards/for_sale_cards, never box tables."""
-    synced_sale = False
     for pkg in cfg.packages:
         try:
             cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
@@ -106,26 +105,12 @@ def _auto_sync(cfg, conn) -> None:
                 clear_color_group(conn, pkg.color_group)
                 clear_for_sale_color_group(conn, pkg.color_group)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
-                synced_sale = True
             else:
                 clear_for_sale_color_group(conn, pkg.color_group)
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
         except Exception as e:
             err_console.print(f"[yellow]Warning: sync failed for {pkg.color_group}: {e}[/yellow]")
-    if synced_sale:
-        try:
-            sale_rows = list_for_sale_cards(conn)
-            price_map = fetch_cardmarket_prices(sale_rows)
-            updates = [
-                (row["name"], row["set_code"], row["collector_number"], bool(row["foil"]), price_map[(row["set_code"].lower(), row["collector_number"], int(row["foil"]))])
-                for row in sale_rows
-                if (row["set_code"].lower(), row["collector_number"], int(row["foil"])) in price_map
-            ]
-            if updates:
-                update_sale_prices(conn, updates)
-        except Exception as e:
-            err_console.print(f"[yellow]Warning: price fetch failed: {e}[/yellow]")
 
 
 def _boxed_lines(boxed_cards: list[BoxedCard]) -> list[str]:
