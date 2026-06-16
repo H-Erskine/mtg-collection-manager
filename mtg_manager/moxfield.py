@@ -28,6 +28,27 @@ _MOXFIELD_LOCK = threading.Lock()
 
 BASE_URL = "https://api2.moxfield.com/v3/decks/all"
 
+_COLOR_CODES: dict[str, str] = {
+    "W": "White",
+    "U": "Blue",
+    "B": "Black",
+    "R": "Red",
+    "G": "Green",
+}
+
+
+def _color_group_from_card(card_data: dict, fallback: str | None) -> str | None:
+    """Derive color_group from Moxfield card API data; fall back to package default."""
+    type_line: str = card_data.get("type_line") or ""
+    if "Land" in type_line:
+        return "Lands"
+    colors: list[str] = card_data.get("colors") or []
+    if not colors:
+        return "Colourless"
+    if len(colors) == 1:
+        return _COLOR_CODES.get(colors[0], fallback)
+    return "Multicolour"
+
 HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-GB,en;q=0.9",
@@ -83,7 +104,7 @@ def fetch_package_cards(
                         OwnedCard(
                             name=name,
                             quantity=p.get("quantity", 1),
-                            color_group=package.color_group,
+                            color_group=_color_group_from_card(card_data, package.color_group),
                             set_code=p.get("set", card_data.get("set", "")),
                             collector_number=p.get("cn", card_data.get("cn", "")),
                             foil=foil,
@@ -97,7 +118,7 @@ def fetch_package_cards(
                     OwnedCard(
                         name=name,
                         quantity=item.get("quantity", 1),
-                        color_group=package.color_group,
+                        color_group=_color_group_from_card(card_data, package.color_group),
                         set_code=card_data.get("set", ""),
                         collector_number=card_data.get("cn", ""),
                         foil=foil,

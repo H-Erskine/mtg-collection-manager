@@ -289,6 +289,11 @@ def clear_for_sale_color_group(conn: sqlite3.Connection, color_group: str) -> No
     conn.execute("DELETE FROM for_sale_cards WHERE color_group = ?", (color_group,))
 
 
+def clear_all_for_sale_cards(conn: sqlite3.Connection) -> None:
+    """Truncate the entire for_sale_cards table before re-syncing the sale package."""
+    conn.execute("DELETE FROM for_sale_cards")
+
+
 def upsert_wants_cards(conn: sqlite3.Connection, cards: list[OwnedCard]) -> int:
     """Insert or replace wants cards. Returns rows affected."""
     conn.executemany(

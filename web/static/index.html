@@ -96,8 +96,6 @@
   .sale-toggle { display: flex; background: var(--surface); border: 1px solid var(--surface2); border-radius: 20px; padding: 2px; gap: 2px; flex-shrink: 0; }
   .sale-toggle-btn { padding: 5px 14px; border-radius: 18px; font-size: 0.8rem; cursor: pointer; border: none; background: none; color: var(--muted); user-select: none; }
   .sale-toggle-btn.active { background: var(--accent); color: white; }
-  .sale-chip { padding: 5px 12px; border-radius: 20px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--surface2); background: var(--surface); color: var(--muted); user-select: none; }
-  .sale-chip.active { background: var(--accent); color: white; border-color: var(--accent); }
   .cardmarket-link { margin-left: auto; font-size: 0.8rem; color: var(--muted); text-decoration: none; white-space: nowrap; }
   .cardmarket-link:hover { color: var(--text); }
   .sale-disclaimer { font-size: 0.75rem; color: var(--muted); margin-bottom: 16px; font-style: italic; }
@@ -242,15 +240,7 @@
         <button class="sale-toggle-btn" onclick="setSaleView('wants', this)">Wants</button>
       </div>
       <input class="search" id="sale-search" placeholder="Search cards…" oninput="filterSale()">
-      <div class="sale-chip active" data-group="all" onclick="setSaleChip(this)">All</div>
-      <div class="sale-chip" data-group="White" onclick="setSaleChip(this)">W</div>
-      <div class="sale-chip" data-group="Blue" onclick="setSaleChip(this)">U</div>
-      <div class="sale-chip" data-group="Black" onclick="setSaleChip(this)">B</div>
-      <div class="sale-chip" data-group="Red" onclick="setSaleChip(this)">R</div>
-      <div class="sale-chip" data-group="Green" onclick="setSaleChip(this)">G</div>
-      <div class="sale-chip" data-group="Multicolour" onclick="setSaleChip(this)">Multi</div>
-      <div class="sale-chip" data-group="Lands" onclick="setSaleChip(this)">Lands</div>
-      <div class="sale-chip" data-group="Colourless" onclick="setSaleChip(this)">Colorless</div>
+      <div id="sale-color-filter" class="stats-banner"></div>
       <a class="cardmarket-link" href="https://www.cardmarket.com/en/Magic/Users/Ersky" target="_blank" rel="noopener">CardMarket ↗</a>
     </div>
     <div id="sale-view-forsale">
@@ -642,7 +632,7 @@ function renderCollection(cards) {
 }
 
 function setGroup(el) {
-  document.querySelectorAll('.stat-tile').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('#collection-stats .stat-tile').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   activeGroup = el.dataset.group;
 
@@ -795,10 +785,32 @@ let saleData = null;
 let saleView = 'for-sale';
 let saleColorGroup = 'all';
 
+function buildSaleFilterBanner() {
+  const container = document.getElementById('sale-color-filter');
+  container.innerHTML = '';
+
+  function makeSaleTile(dataGroup, icon, iconColor, bg, border, label, isActive) {
+    const tile = document.createElement('div');
+    tile.className = 'stat-tile' + (isActive ? ' active' : '');
+    tile.dataset.group = dataGroup;
+    tile.style.cssText = `background:${bg};border-color:${border}`;
+    const iconStyle = iconColor ? ` style="color:${iconColor}"` : '';
+    tile.innerHTML = `<div class="stat-tile-icon"${iconStyle}>${icon}</div><div class="stat-tile-label">${label}</div>`;
+    tile.onclick = () => setSaleTile(tile);
+    return tile;
+  }
+
+  container.appendChild(makeSaleTile('all', '✦', '#aaaaaa', '#141420', '#28283e', 'All', saleColorGroup === 'all'));
+  for (const t of COLOUR_TILES) {
+    container.appendChild(makeSaleTile(t.group, t.icon, t.iconColor, t.bg, t.border, t.label, saleColorGroup === t.group));
+  }
+}
+
 function renderSale(data) {
   saleData = data;
   document.getElementById('sale-loading').style.display = 'none';
   document.getElementById('sale-content').style.display = 'block';
+  buildSaleFilterBanner();
   filterSale();
 }
 
@@ -809,14 +821,13 @@ function setSaleView(view, btn) {
   document.getElementById('sale-view-forsale').style.display = view === 'for-sale' ? '' : 'none';
   document.getElementById('sale-view-wants').style.display = view === 'wants' ? '' : 'none';
   document.getElementById('sale-search').value = '';
-  document.querySelectorAll('.sale-chip').forEach(c => c.classList.remove('active'));
-  document.querySelector('.sale-chip[data-group="all"]').classList.add('active');
   saleColorGroup = 'all';
+  buildSaleFilterBanner();
   filterSale();
 }
 
-function setSaleChip(el) {
-  document.querySelectorAll('.sale-chip').forEach(c => c.classList.remove('active'));
+function setSaleTile(el) {
+  document.querySelectorAll('#sale-color-filter .stat-tile').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   saleColorGroup = el.dataset.group;
   filterSale();

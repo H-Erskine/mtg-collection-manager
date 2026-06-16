@@ -14,6 +14,7 @@ from .db import (
     add_moxfield_tag,
     card_count,
     categorise_missing_cards,
+    clear_all_for_sale_cards,
     clear_color_group,
     clear_for_sale_color_group,
     clear_wants_cards,
@@ -109,13 +110,12 @@ def _auto_sync(cfg, conn) -> None:
             cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
             if _is_sale_package(pkg_name):
                 clear_color_group(conn, pkg.color_group)
-                clear_for_sale_color_group(conn, pkg.color_group)
+                clear_all_for_sale_cards(conn)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
             elif _is_wants_package(pkg_name):
                 clear_wants_cards(conn)
                 upsert_wants_cards(conn, cards)
             else:
-                clear_for_sale_color_group(conn, pkg.color_group)
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
         except Exception as e:
@@ -188,7 +188,7 @@ def sync(color_group, refresh_legality):
             qty = sum(c.quantity for c in cards)
             if _is_sale_package(pkg_name):
                 clear_color_group(conn, pkg.color_group)
-                clear_for_sale_color_group(conn, pkg.color_group)
+                clear_all_for_sale_cards(conn)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
                 console.print(f"  [green]OK[/green] {pkg.color_group} [yellow][for sale][/yellow]: {qty} cards ({len(cards)} unique entries)")
                 synced_sale = True
@@ -197,7 +197,6 @@ def sync(color_group, refresh_legality):
                 upsert_wants_cards(conn, cards)
                 console.print(f"  [green]OK[/green] {pkg.color_group} [blue][wants][/blue]: {qty} cards ({len(cards)} unique entries)")
             else:
-                clear_for_sale_color_group(conn, pkg.color_group)
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
                 console.print(f"  [green]OK[/green] {pkg.color_group}: {qty} cards ({len(cards)} unique entries)")
