@@ -36,11 +36,9 @@
   .loading { text-align: center; padding: 60px; color: var(--muted); }
 
   /* COLLECTION */
-  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
-  .search { background: var(--surface); border: 1px solid var(--surface2); color: var(--text); padding: 8px 14px; border-radius: var(--radius); font-size: 0.9rem; width: 220px; }
+  .collection-header { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+  .search { background: var(--surface); border: 1px solid var(--surface2); color: var(--text); padding: 8px 14px; border-radius: var(--radius); font-size: 0.9rem; width: 180px; flex-shrink: 0; }
   .search:focus { outline: none; border-color: var(--accent); }
-  .chip { padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--surface2); background: var(--surface); color: var(--muted); user-select: none; }
-  .chip.active { background: var(--accent); color: white; border-color: var(--accent); }
   .stat { margin-left: auto; font-size: 0.85rem; color: var(--muted); }
 
   .card-grid { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -93,6 +91,17 @@
   .badge.price { background: rgba(0,0,0,0.85); color: #7ec88a; }
   .badge.extra { background: rgba(0,0,0,0.85); color: var(--gold); }
 
+  /* SALE HEADER */
+  .sale-header { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+  .sale-toggle { display: flex; background: var(--surface); border: 1px solid var(--surface2); border-radius: 20px; padding: 2px; gap: 2px; flex-shrink: 0; }
+  .sale-toggle-btn { padding: 5px 14px; border-radius: 18px; font-size: 0.8rem; cursor: pointer; border: none; background: none; color: var(--muted); user-select: none; }
+  .sale-toggle-btn.active { background: var(--accent); color: white; }
+  .sale-chip { padding: 5px 12px; border-radius: 20px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--surface2); background: var(--surface); color: var(--muted); user-select: none; }
+  .sale-chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .cardmarket-link { margin-left: auto; font-size: 0.8rem; color: var(--muted); text-decoration: none; white-space: nowrap; }
+  .cardmarket-link:hover { color: var(--text); }
+  .sale-disclaimer { font-size: 0.75rem; color: var(--muted); margin-bottom: 16px; font-style: italic; }
+
   /* Extras multi-art expand */
   .extras-arts-btn { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.8); color: var(--gold); border: 1px solid rgba(240,192,64,0.4); border-radius: 4px; font-size: 0.62rem; font-weight: 700; padding: 2px 6px; cursor: pointer; z-index: 2; line-height: 1.4; }
   .extras-arts-btn:hover { background: rgba(0,0,0,0.95); border-color: var(--gold); }
@@ -106,8 +115,10 @@
   .art-modal-close:hover { color: var(--text); }
 
   /* STATS BANNER */
-  .stats-banner { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
-  .stat-tile { border-radius: var(--radius); padding: 10px 14px; text-align: center; min-width: 68px; border: 1px solid; cursor: default; }
+  .stats-banner { display: flex; gap: 6px; flex-wrap: wrap; }
+  .stat-tile { border-radius: var(--radius); padding: 10px 14px; text-align: center; min-width: 68px; border: 1px solid; cursor: pointer; transition: filter 0.15s; }
+  .stat-tile:hover { filter: brightness(1.25); }
+  .stat-tile.active { outline: 2px solid var(--accent); outline-offset: 1px; }
   .stat-tile-icon { font-size: 1.2rem; line-height: 1; margin-bottom: 2px; }
   .stat-tile-count { font-size: 1.1rem; font-weight: 700; line-height: 1.2; }
   .stat-tile-label { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
@@ -174,19 +185,9 @@
 <div id="page-collection" class="page active">
   <div class="loading" id="collection-loading">Loading collection…</div>
   <div id="collection-content" style="display:none">
-    <div id="collection-stats" class="stats-banner"></div>
-    <div class="toolbar">
+    <div class="collection-header">
       <input class="search" id="col-search" placeholder="Search cards…" oninput="filterCollection()">
-      <div class="chip active" data-group="all" onclick="setGroup(this)">All</div>
-      <div class="chip" data-group="white" onclick="setGroup(this)">White</div>
-      <div class="chip" data-group="blue" onclick="setGroup(this)">Blue</div>
-      <div class="chip" data-group="black" onclick="setGroup(this)">Black</div>
-      <div class="chip" data-group="red" onclick="setGroup(this)">Red</div>
-      <div class="chip" data-group="green" onclick="setGroup(this)">Green</div>
-      <div class="chip" data-group="multicolour" onclick="setGroup(this)">Multi</div>
-      <div class="chip" data-group="colourless" onclick="setGroup(this)">Colorless</div>
-      <div class="chip" data-group="lands" onclick="setGroup(this)">Lands</div>
-      <div class="chip" data-group="in-deck" onclick="setGroup(this)">In Deck</div>
+      <div id="collection-stats" class="stats-banner"></div>
       <button id="breakdown-toggle" class="breakdown-btn" style="display:none" onclick="toggleLandsSidebar()">📊 Breakdown</button>
       <div class="stat" id="col-stat"></div>
     </div>
@@ -235,15 +236,42 @@
 <div id="page-sale" class="page">
   <div class="loading" id="sale-loading">Loading sale data…</div>
   <div id="sale-content" style="display:none">
-    <div class="sale-section">
-      <div class="sale-section-title">For Sale</div>
-      <div class="card-grid" id="sale-grid"></div>
-      <p id="sale-empty" style="display:none;color:var(--muted);padding:20px 0">No cards listed for sale.</p>
+    <div class="sale-header">
+      <div class="sale-toggle">
+        <button class="sale-toggle-btn active" onclick="setSaleView('for-sale', this)">For Sale</button>
+        <button class="sale-toggle-btn" onclick="setSaleView('wants', this)">Wants</button>
+      </div>
+      <input class="search" id="sale-search" placeholder="Search cards…" oninput="filterSale()">
+      <div class="sale-chip active" data-group="all" onclick="setSaleChip(this)">All</div>
+      <div class="sale-chip" data-group="White" onclick="setSaleChip(this)">W</div>
+      <div class="sale-chip" data-group="Blue" onclick="setSaleChip(this)">U</div>
+      <div class="sale-chip" data-group="Black" onclick="setSaleChip(this)">B</div>
+      <div class="sale-chip" data-group="Red" onclick="setSaleChip(this)">R</div>
+      <div class="sale-chip" data-group="Green" onclick="setSaleChip(this)">G</div>
+      <div class="sale-chip" data-group="Multicolour" onclick="setSaleChip(this)">Multi</div>
+      <div class="sale-chip" data-group="Lands" onclick="setSaleChip(this)">Lands</div>
+      <div class="sale-chip" data-group="Colourless" onclick="setSaleChip(this)">Colorless</div>
+      <a class="cardmarket-link" href="https://www.cardmarket.com/en/Magic/Users/Ersky" target="_blank" rel="noopener">CardMarket ↗</a>
     </div>
-    <div class="sale-section">
-      <div class="sale-section-title">Extras (own &gt;4 copies)</div>
-      <div class="card-grid" id="extras-grid"></div>
-      <p id="extras-empty" style="display:none;color:var(--muted);padding:20px 0">No extras.</p>
+    <div id="sale-view-forsale">
+      <p class="sale-disclaimer">Versions shown are owned copies — the specific printing for sale may vary.</p>
+      <div class="sale-section">
+        <div class="sale-section-title">For Sale</div>
+        <div class="card-grid" id="sale-grid"></div>
+        <p id="sale-empty" style="display:none;color:var(--muted);padding:20px 0">No cards listed for sale.</p>
+      </div>
+      <div class="sale-section">
+        <div class="sale-section-title">Extras (own &gt;4 copies)</div>
+        <div class="card-grid" id="extras-grid"></div>
+        <p id="extras-empty" style="display:none;color:var(--muted);padding:20px 0">No extras.</p>
+      </div>
+    </div>
+    <div id="sale-view-wants" style="display:none">
+      <div class="sale-section">
+        <div class="sale-section-title">Wants</div>
+        <div class="card-grid" id="wants-grid"></div>
+        <p id="wants-empty" style="display:none;color:var(--muted);padding:20px 0">No wants list — create a "Wants" package on Moxfield and sync.</p>
+      </div>
     </div>
   </div>
 </div>
@@ -308,20 +336,35 @@ function buildStatsBanner() {
   for (const c of collectionCards) {
     counts[c.color_group] = (counts[c.color_group] || 0) + c.quantity;
   }
+  const totalQty = Object.values(counts).reduce((s, v) => s + v, 0);
+  const inDeckQty = collectionCards.filter(c => !!allocatedCards[c.name.toLowerCase()]).reduce((s, c) => s + c.quantity, 0);
+
   const banner = document.getElementById('collection-stats');
   banner.innerHTML = '';
+
+  function makeTile(dataGroup, icon, iconColor, count, numColor, bg, border, label, isActive) {
+    const tile = document.createElement('div');
+    tile.className = 'stat-tile' + (isActive ? ' active' : '');
+    tile.dataset.group = dataGroup;
+    tile.style.cssText = `background:${bg};border-color:${border}`;
+    const iconStyle = iconColor ? ` style="color:${iconColor}"` : '';
+    tile.innerHTML = `
+      <div class="stat-tile-icon"${iconStyle}>${icon}</div>
+      <div class="stat-tile-count" style="color:${numColor}">${count}</div>
+      <div class="stat-tile-label">${label}</div>`;
+    tile.onclick = () => setGroup(tile);
+    return tile;
+  }
+
+  banner.appendChild(makeTile('all', '✦', '#aaaaaa', totalQty, 'var(--text)', '#141420', '#28283e', 'All', activeGroup === 'all'));
+
   for (const t of COLOUR_TILES) {
     const qty = counts[t.group] || 0;
-    const tile = document.createElement('div');
-    tile.className = 'stat-tile';
-    tile.style.cssText = `background:${t.bg};border-color:${t.border}`;
-    const iconStyle = t.iconColor ? ` style="color:${t.iconColor}"` : '';
-    tile.innerHTML = `
-      <div class="stat-tile-icon"${iconStyle}>${t.icon}</div>
-      <div class="stat-tile-count" style="color:${t.numColor}">${qty}</div>
-      <div class="stat-tile-label">${t.label}</div>`;
-    banner.appendChild(tile);
+    const iconStyle = t.iconColor || null;
+    banner.appendChild(makeTile(t.group.toLowerCase(), t.icon, iconStyle, qty, t.numColor, t.bg, t.border, t.label, activeGroup === t.group.toLowerCase()));
   }
+
+  banner.appendChild(makeTile('in-deck', '🃏', null, inDeckQty, '#a88be0', '#1e1428', '#3e2a48', 'In Deck', activeGroup === 'in-deck'));
 }
 
 // ─── Lands sidebar ────────────────────────────────────────────────────────────
@@ -599,7 +642,7 @@ function renderCollection(cards) {
 }
 
 function setGroup(el) {
-  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.stat-tile').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   activeGroup = el.dataset.group;
 
@@ -748,31 +791,82 @@ function checkMissing() {
 
 // ─── Sale tab ────────────────────────────────────────────────────────────────
 
+let saleData = null;
+let saleView = 'for-sale';
+let saleColorGroup = 'all';
+
 function renderSale(data) {
+  saleData = data;
   document.getElementById('sale-loading').style.display = 'none';
   document.getElementById('sale-content').style.display = 'block';
+  filterSale();
+}
 
+function setSaleView(view, btn) {
+  saleView = view;
+  document.querySelectorAll('.sale-toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('sale-view-forsale').style.display = view === 'for-sale' ? '' : 'none';
+  document.getElementById('sale-view-wants').style.display = view === 'wants' ? '' : 'none';
+  document.getElementById('sale-search').value = '';
+  document.querySelectorAll('.sale-chip').forEach(c => c.classList.remove('active'));
+  document.querySelector('.sale-chip[data-group="all"]').classList.add('active');
+  saleColorGroup = 'all';
+  filterSale();
+}
+
+function setSaleChip(el) {
+  document.querySelectorAll('.sale-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  saleColorGroup = el.dataset.group;
+  filterSale();
+}
+
+function filterSale() {
+  if (!saleData) return;
+  const q = document.getElementById('sale-search').value.toLowerCase();
+
+  if (saleView === 'for-sale') {
+    _renderForSale(q);
+  } else {
+    _renderWants(q);
+  }
+}
+
+function _renderForSale(q) {
   const saleGrid = document.getElementById('sale-grid');
+  const saleEmpty = document.getElementById('sale-empty');
   saleGrid.innerHTML = '';
-  if (data.for_sale && data.for_sale.length) {
-    for (const c of data.for_sale) {
+  saleEmpty.style.display = 'none';
+
+  const filteredSale = (saleData.for_sale || []).filter(c =>
+    c.name.toLowerCase().includes(q) &&
+    (saleColorGroup === 'all' || c.color_group === saleColorGroup)
+  );
+  if (filteredSale.length) {
+    for (const c of filteredSale) {
       const priceLabel = c.price > 0 ? `€${c.price.toFixed(2)}` : '—';
       const badge = c.foil ? `✦ ${priceLabel}` : priceLabel;
       saleGrid.appendChild(makeCard(c.name, c.set_code, c.collector_number, badge, 'price', null));
     }
   } else {
-    document.getElementById('sale-empty').style.display = 'block';
+    saleEmpty.style.display = 'block';
   }
 
   const extrasGrid = document.getElementById('extras-grid');
+  const extrasEmpty = document.getElementById('extras-empty');
   extrasGrid.innerHTML = '';
-  if (data.extras && data.extras.length) {
-    // Group by card name so each name shows one card with an expand button for other arts
-    const byName = {};
-    for (const c of data.extras) {
-      (byName[c.name] = byName[c.name] || []).push(c);
-    }
-    for (const printings of Object.values(byName)) {
+  extrasEmpty.style.display = 'none';
+
+  const byName = {};
+  for (const c of (saleData.extras || [])) {
+    if (!c.name.toLowerCase().includes(q)) continue;
+    if (saleColorGroup !== 'all' && c.color_group !== saleColorGroup) continue;
+    (byName[c.name] = byName[c.name] || []).push(c);
+  }
+  const groups = Object.values(byName);
+  if (groups.length) {
+    for (const printings of groups) {
       const name = printings[0].name;
       const totalQty = printings.reduce((s, p) => s + p.quantity, 0);
       const tradeQty = totalQty - 4;
@@ -790,7 +884,27 @@ function renderSale(data) {
       extrasGrid.appendChild(el);
     }
   } else {
-    document.getElementById('extras-empty').style.display = 'block';
+    extrasEmpty.style.display = 'block';
+  }
+}
+
+function _renderWants(q) {
+  const wantsGrid = document.getElementById('wants-grid');
+  const wantsEmpty = document.getElementById('wants-empty');
+  wantsGrid.innerHTML = '';
+  wantsEmpty.style.display = 'none';
+
+  const filtered = (saleData.wants || []).filter(c =>
+    c.name.toLowerCase().includes(q) &&
+    (saleColorGroup === 'all' || c.color_group === saleColorGroup)
+  );
+  if (filtered.length) {
+    for (const c of filtered) {
+      const badge = c.foil ? `✦ ×${c.quantity}` : `×${c.quantity}`;
+      wantsGrid.appendChild(makeCard(c.name, c.set_code, c.collector_number, badge, '', null));
+    }
+  } else {
+    wantsEmpty.style.display = 'block';
   }
 }
 
