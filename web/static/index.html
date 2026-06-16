@@ -54,7 +54,7 @@
   .overlay { position: absolute; inset: 0; border-radius: 6px; background: rgba(233,69,96,0.55); display: flex; align-items: center; justify-content: center; }
   .overlay span { background: var(--red); color: white; font-size: 0.65rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.5px; }
   .mtg-card.in-deck img,
-  .mtg-card.in-deck .card-fallback { box-shadow: 0 0 0 2px var(--gold), 0 0 10px rgba(240,192,64,0.3); }
+  .mtg-card.in-deck .card-fallback { box-shadow: var(--deck-glow); }
 
   /* DECKS */
   .box-section { margin-bottom: 32px; }
@@ -225,9 +225,10 @@
 </div>
 
 <script>
+const DECK_COLORS = ['#5b9cf6','#b57bf5','#26c6da','#f5a623','#f48fb1','#aed581','#4db6ac','#ff8a65'];
 let collectionCards = [];
 let collectionMap = {};   // lower_name -> { quantity, set_code, collector_number }
-let allocatedCards = {};  // lower_name -> [deck_name, ...]
+let allocatedCards = {};  // lower_name -> [{deckName, color, quantity}]
 let activeGroup = 'all';
 
 // ─── Data loading ───────────────────────────────────────────────────────────
@@ -246,12 +247,22 @@ async function init() {
 
     collectionCards = colData.cards;
 
-    // Build allocatedCards map: lower_name -> [deck_name, ...]
+    // Assign a unique color to each deck
+    const deckColorMap = {};
+    let colorIdx = 0;
     for (const deck of deckData.decks) {
+      if (!deckColorMap[deck.deck_name]) {
+        deckColorMap[deck.deck_name] = DECK_COLORS[colorIdx++ % DECK_COLORS.length];
+      }
+    }
+
+    // Build allocatedCards map: lower_name -> [{deckName, color, quantity}]
+    for (const deck of deckData.decks) {
+      const color = deckColorMap[deck.deck_name];
       for (const card of deck.cards) {
         const key = card.name.toLowerCase();
         if (!allocatedCards[key]) allocatedCards[key] = [];
-        allocatedCards[key].push(deck.deck_name);
+        allocatedCards[key].push({ deckName: deck.deck_name, color, quantity: card.quantity });
       }
     }
 
@@ -348,10 +359,13 @@ function renderCollection(cards) {
   cards.forEach(c => {
     const badge = c.foil ? `✦ ×${c.quantity}` : `×${c.quantity}`;
     const el = makeCard(c.name, c.set_code, c.collector_number, badge, c.foil ? 'foil' : '', null);
-    const decks = allocatedCards[c.name.toLowerCase()];
-    if (decks) {
+    const entries = allocatedCards[c.name.toLowerCase()];
+    if (entries) {
       el.classList.add('in-deck');
-      el.title = 'In deck: ' + [...new Set(decks)].join(', ');
+      const shadows = entries.map((e, i) => `0 0 0 ${2 + i * 3}px ${e.color}`);
+      shadows.push(`0 0 12px ${entries[entries.length - 1].color}55`);
+      el.style.setProperty('--deck-glow', shadows.join(', '));
+      el.title = 'In deck: ' + entries.map(e => `${e.deckName} (×${e.quantity})`).join(', ');
     }
     grid.appendChild(el);
   });
