@@ -110,7 +110,7 @@ def _sync_sale_prices(conn, sale_rows: list) -> None:
 
 
 def _auto_sync(cfg: Config, conn) -> list[str]:
-    """Re-fetch all Moxfield packages. Returns list of warning strings."""
+    """Silently re-fetch all Moxfield packages. Only touches owned_cards/for_sale_cards/wants_cards, never box tables. Returns list of warning strings."""
     warnings = []
     sale_rows: list = []
     for pkg in cfg.packages:
@@ -121,6 +121,7 @@ def _auto_sync(cfg: Config, conn) -> list[str]:
                 clear_for_sale_color_group(conn, pkg.color_group)
                 upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
             elif _is_wants_package(pkg_name):
+                # Only one "Wants" package per user — safe to clear the whole table
                 clear_wants_cards(conn)
                 upsert_wants_cards(conn, cards)
             else:
