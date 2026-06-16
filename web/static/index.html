@@ -53,6 +53,8 @@
   .badge.green { color: var(--green); }
   .overlay { position: absolute; inset: 0; border-radius: 6px; background: rgba(233,69,96,0.55); display: flex; align-items: center; justify-content: center; }
   .overlay span { background: var(--red); color: white; font-size: 0.65rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.5px; }
+  .mtg-card.in-deck img,
+  .mtg-card.in-deck .card-fallback { box-shadow: 0 0 0 2px var(--gold), 0 0 10px rgba(240,192,64,0.3); }
 
   /* DECKS */
   .box-section { margin-bottom: 32px; }
@@ -143,6 +145,8 @@
       <div class="chip" data-group="green" onclick="setGroup(this)">Green</div>
       <div class="chip" data-group="multicolour" onclick="setGroup(this)">Multi</div>
       <div class="chip" data-group="colourless" onclick="setGroup(this)">Colorless</div>
+      <div class="chip" data-group="lands" onclick="setGroup(this)">Lands</div>
+      <div class="chip" data-group="in-deck" onclick="setGroup(this)">In Deck</div>
       <div class="stat" id="col-stat"></div>
     </div>
     <div class="card-grid" id="collection-grid"></div>
@@ -223,6 +227,7 @@
 <script>
 let collectionCards = [];
 let collectionMap = {};   // lower_name -> { quantity, set_code, collector_number }
+let allocatedCards = {};  // lower_name -> [deck_name, ...]
 let activeGroup = 'all';
 
 // ─── Data loading ───────────────────────────────────────────────────────────
@@ -240,6 +245,15 @@ async function init() {
     const saleData = saleRes.ok ? await saleRes.json() : { for_sale: [], extras: [] };
 
     collectionCards = colData.cards;
+
+    // Build allocatedCards map: lower_name -> [deck_name, ...]
+    for (const deck of deckData.decks) {
+      for (const card of deck.cards) {
+        const key = card.name.toLowerCase();
+        if (!allocatedCards[key]) allocatedCards[key] = [];
+        allocatedCards[key].push(deck.deck_name);
+      }
+    }
 
     // Build name→printing map (aggregate quantity across printings)
     for (const card of collectionCards) {
@@ -333,7 +347,13 @@ function renderCollection(cards) {
   grid.innerHTML = '';
   cards.forEach(c => {
     const badge = c.foil ? `✦ ×${c.quantity}` : `×${c.quantity}`;
-    grid.appendChild(makeCard(c.name, c.set_code, c.collector_number, badge, c.foil ? 'foil' : '', null));
+    const el = makeCard(c.name, c.set_code, c.collector_number, badge, c.foil ? 'foil' : '', null);
+    const decks = allocatedCards[c.name.toLowerCase()];
+    if (decks) {
+      el.classList.add('in-deck');
+      el.title = 'In deck: ' + [...new Set(decks)].join(', ');
+    }
+    grid.appendChild(el);
   });
   document.getElementById('col-stat').textContent =
     `${cards.reduce((s, c) => s + c.quantity, 0)} cards · ${cards.length} printings`;
@@ -350,7 +370,10 @@ function filterCollection() {
   const q = document.getElementById('col-search').value.toLowerCase();
   const filtered = collectionCards.filter(c => {
     const nameOk = c.name.toLowerCase().includes(q);
-    const groupOk = activeGroup === 'all' || c.color_group.toLowerCase() === activeGroup;
+    let groupOk;
+    if (activeGroup === 'all') groupOk = true;
+    else if (activeGroup === 'in-deck') groupOk = !!allocatedCards[c.name.toLowerCase()];
+    else groupOk = c.color_group.toLowerCase() === activeGroup;
     return nameOk && groupOk;
   });
   renderCollection(filtered);
