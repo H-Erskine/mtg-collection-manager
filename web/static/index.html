@@ -360,7 +360,14 @@ function renderCollection(cards) {
     const entries = allocatedCards[c.name.toLowerCase()];
     if (entries) {
       el.classList.add('in-deck');
-      const shadows = entries.map((e, i) => `0 0 0 ${2 + i * 3}px hsl(${e.color}, 75%, 65%)`);
+      const shadows = [];
+      let spread = 2;
+      for (const e of entries) {
+        for (let i = 0; i < e.quantity; i++) {
+          shadows.push(`0 0 0 ${spread}px hsl(${e.color}, 75%, 65%)`);
+          spread += 3;
+        }
+      }
       shadows.push(`0 0 12px hsla(${entries[entries.length - 1].color}, 75%, 65%, 0.35)`);
       el.style.setProperty('--deck-glow', shadows.join(', '));
       el.title = 'In deck: ' + entries.map(e => `${e.deckName} (×${e.quantity})`).join(', ');
