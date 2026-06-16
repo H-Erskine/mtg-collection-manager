@@ -93,6 +93,18 @@
   .badge.price { background: rgba(0,0,0,0.85); color: #7ec88a; }
   .badge.extra { background: rgba(0,0,0,0.85); color: var(--gold); }
 
+  /* Extras multi-art expand */
+  .extras-arts-btn { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.8); color: var(--gold); border: 1px solid rgba(240,192,64,0.4); border-radius: 4px; font-size: 0.62rem; font-weight: 700; padding: 2px 6px; cursor: pointer; z-index: 2; line-height: 1.4; }
+  .extras-arts-btn:hover { background: rgba(0,0,0,0.95); border-color: var(--gold); }
+
+  /* Art picker modal */
+  .art-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); z-index: 200; display: flex; align-items: center; justify-content: center; }
+  .art-modal { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 20px; max-width: min(90vw, 900px); max-height: 85vh; overflow-y: auto; position: relative; }
+  .art-modal-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; gap: 16px; }
+  .art-modal-title { font-size: 0.92rem; font-weight: 700; color: var(--gold); }
+  .art-modal-close { background: none; border: none; color: var(--muted); font-size: 1.1rem; cursor: pointer; padding: 0 4px; line-height: 1; flex-shrink: 0; }
+  .art-modal-close:hover { color: var(--text); }
+
   /* STATS BANNER */
   .stats-banner { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
   .stat-tile { border-radius: var(--radius); padding: 10px 14px; text-align: center; min-width: 68px; border: 1px solid; cursor: default; }
@@ -688,13 +700,60 @@ function renderSale(data) {
   const extrasGrid = document.getElementById('extras-grid');
   extrasGrid.innerHTML = '';
   if (data.extras && data.extras.length) {
+    // Group by card name so each name shows one card with an expand button for other arts
+    const byName = {};
     for (const c of data.extras) {
-      const badge = c.foil ? `✦ ×${c.quantity}` : `×${c.quantity}`;
-      extrasGrid.appendChild(makeCard(c.name, c.set_code, c.collector_number, badge, 'extra', null));
+      (byName[c.name] = byName[c.name] || []).push(c);
+    }
+    for (const printings of Object.values(byName)) {
+      const name = printings[0].name;
+      const totalQty = printings.reduce((s, p) => s + p.quantity, 0);
+      const primary = printings[Math.floor(Math.random() * printings.length)];
+      const badge = primary.foil ? `✦ ×${totalQty}` : `×${totalQty}`;
+      const el = makeCard(name, primary.set_code, primary.collector_number, badge, 'extra', null);
+      if (printings.length > 1) {
+        const btn = document.createElement('button');
+        btn.className = 'extras-arts-btn';
+        btn.textContent = `▼ ${printings.length} arts`;
+        btn.title = `See all ${printings.length} owned arts`;
+        btn.onclick = e => { e.stopPropagation(); showArtModal(name, printings); };
+        el.appendChild(btn);
+      }
+      extrasGrid.appendChild(el);
     }
   } else {
     document.getElementById('extras-empty').style.display = 'block';
   }
+}
+
+function showArtModal(name, printings) {
+  const overlay = document.createElement('div');
+  overlay.className = 'art-modal-overlay';
+  overlay.onclick = () => overlay.remove();
+
+  const modal = document.createElement('div');
+  modal.className = 'art-modal';
+  modal.onclick = e => e.stopPropagation();
+
+  const header = document.createElement('div');
+  header.className = 'art-modal-header';
+  header.innerHTML = `<div class="art-modal-title">${name}</div>`;
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'art-modal-close';
+  closeBtn.textContent = '✕';
+  closeBtn.onclick = () => overlay.remove();
+  header.appendChild(closeBtn);
+  modal.appendChild(header);
+
+  const grid = document.createElement('div');
+  grid.className = 'card-grid';
+  for (const p of printings) {
+    const badge = p.foil ? `✦ ×${p.quantity}` : `×${p.quantity}`;
+    grid.appendChild(makeCard(p.name, p.set_code, p.collector_number, badge, 'extra', null));
+  }
+  modal.appendChild(grid);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
 }
 
 // ─── Meta tab ────────────────────────────────────────────────────────────────
