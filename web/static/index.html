@@ -827,18 +827,19 @@ function filterSale() {
   const q = document.getElementById('sale-search').value.toLowerCase();
 
   if (saleView === 'for-sale') {
-    _renderForSale(q);
+    _renderForSaleView(q);
   } else {
     _renderWants(q);
   }
 }
 
-function _renderForSale(q) {
+function _renderForSaleView(q) {
   const saleGrid = document.getElementById('sale-grid');
   const saleEmpty = document.getElementById('sale-empty');
   saleGrid.innerHTML = '';
   saleEmpty.style.display = 'none';
 
+  // color_group in sale JSON is title-case ("White", "Multicolour") — chip data-group values match exactly
   const filteredSale = (saleData.for_sale || []).filter(c =>
     c.name.toLowerCase().includes(q) &&
     (saleColorGroup === 'all' || c.color_group === saleColorGroup)
@@ -894,6 +895,7 @@ function _renderWants(q) {
   wantsGrid.innerHTML = '';
   wantsEmpty.style.display = 'none';
 
+  // color_group in sale JSON is title-case ("White", "Multicolour") — chip data-group values match exactly
   const filtered = (saleData.wants || []).filter(c =>
     c.name.toLowerCase().includes(q) &&
     (saleColorGroup === 'all' || c.color_group === saleColorGroup)
