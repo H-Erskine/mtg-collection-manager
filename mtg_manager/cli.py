@@ -189,29 +189,6 @@ def sync(color_group, refresh_legality):
                 upsert_cards(conn, cards)
                 console.print(f"  [green]OK[/green] {pkg.color_group}: {qty} cards ({len(cards)} unique entries)")
 
-        if synced_sale:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[cyan]Fetching CardMarket prices...[/cyan]"),
-                console=console,
-                transient=True,
-            ) as progress:
-                progress.add_task("prices")
-                try:
-                    sale_rows = list_for_sale_cards(conn)
-                    price_map = fetch_cardmarket_prices(sale_rows)
-                    updates = [
-                        (row["name"], row["set_code"], row["collector_number"], bool(row["foil"]),
-                         price_map[(row["set_code"].lower(), row["collector_number"], int(row["foil"]))])
-                        for row in sale_rows
-                        if (row["set_code"].lower(), row["collector_number"], int(row["foil"])) in price_map
-                    ]
-                    if updates:
-                        update_sale_prices(conn, updates)
-                    console.print(f"  [green]OK[/green] CardMarket prices: {len(updates)}/{len(sale_rows)} updated")
-                except Exception as e:
-                    err_console.print(f"[yellow]Warning: price fetch failed: {e}[/yellow]")
-
         if cfg.formats:
             names = (
                 get_all_owned_names(conn)
