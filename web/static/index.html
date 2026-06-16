@@ -737,7 +737,10 @@ function showArtModal(name, printings) {
 
   const header = document.createElement('div');
   header.className = 'art-modal-header';
-  header.innerHTML = `<div class="art-modal-title">${name}</div>`;
+  const titleEl = document.createElement('div');
+  titleEl.className = 'art-modal-title';
+  titleEl.textContent = name;
+  header.appendChild(titleEl);
   const closeBtn = document.createElement('button');
   closeBtn.className = 'art-modal-close';
   closeBtn.textContent = '✕';
