@@ -4,7 +4,10 @@ from pathlib import Path
 import pytest
 
 from mtg_manager.config import Config, load_config
-from mtg_manager.db import get_conn, insert_built_deck, upsert_cards
+from mtg_manager.db import (
+    get_conn, insert_built_deck, upsert_cards,
+    upsert_wants_cards, clear_wants_cards, list_wants_cards,
+)
 from mtg_manager.models import OwnedCard
 from web.export import export_static
 
@@ -211,3 +214,36 @@ def test_decks_ordered_by_box_then_name(tmp_path):
     data = json.loads((cfg.web_static_dir / "decks.json").read_text(encoding="utf-8"))
     names = [d["deck_name"] for d in data["decks"]]
     assert names == ["Merfolk", "Burn", "Goblins"]
+
+
+def test_wants_cards_round_trip(tmp_path):
+    db = tmp_path / "test.db"
+    card = OwnedCard(
+        name="Force of Will",
+        set_code="all",
+        collector_number="62",
+        color_group="Blue",
+        foil=False,
+        quantity=1,
+    )
+    with get_conn(db) as conn:
+        upsert_wants_cards(conn, [card])
+        rows = list_wants_cards(conn)
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Force of Will"
+    assert rows[0]["color_group"] == "Blue"
+    assert rows[0]["foil"] == 0
+    assert rows[0]["quantity"] == 1
+
+
+def test_clear_wants_cards(tmp_path):
+    db = tmp_path / "test.db"
+    card = OwnedCard(
+        name="Force of Will", set_code="all", collector_number="62",
+        color_group="Blue", foil=False, quantity=1,
+    )
+    with get_conn(db) as conn:
+        upsert_wants_cards(conn, [card])
+        clear_wants_cards(conn)
+        rows = list_wants_cards(conn)
+    assert rows == []

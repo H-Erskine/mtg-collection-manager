@@ -26,6 +26,16 @@ CREATE TABLE IF NOT EXISTS for_sale_cards (
     PRIMARY KEY (name, set_code, collector_number, foil)
 );
 
+CREATE TABLE IF NOT EXISTS wants_cards (
+    name                TEXT NOT NULL,
+    set_code            TEXT NOT NULL DEFAULT '',
+    collector_number    TEXT NOT NULL DEFAULT '',
+    foil                INTEGER NOT NULL DEFAULT 0,
+    quantity            INTEGER NOT NULL DEFAULT 0,
+    color_group         TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (name, set_code, collector_number, foil)
+);
+
 CREATE TABLE IF NOT EXISTS owned_cards (
     name                TEXT NOT NULL,
     set_code            TEXT NOT NULL DEFAULT '',
@@ -277,6 +287,44 @@ def upsert_for_sale_cards(conn: sqlite3.Connection, cards: list[OwnedCard], pric
 def clear_for_sale_color_group(conn: sqlite3.Connection, color_group: str) -> None:
     """Remove all for-sale cards for a color group before re-syncing it."""
     conn.execute("DELETE FROM for_sale_cards WHERE color_group = ?", (color_group,))
+
+
+def upsert_wants_cards(conn: sqlite3.Connection, cards: list[OwnedCard]) -> int:
+    """Insert or replace wants cards. Returns rows affected."""
+    conn.executemany(
+        """
+        INSERT INTO wants_cards (name, set_code, collector_number, foil, quantity, color_group)
+        VALUES (:name, :set_code, :collector_number, :foil, :quantity, :color_group)
+        ON CONFLICT (name, set_code, collector_number, foil)
+        DO UPDATE SET quantity = excluded.quantity,
+                      color_group = excluded.color_group
+        """,
+        [
+            {
+                "name": c.name,
+                "set_code": c.set_code,
+                "collector_number": c.collector_number,
+                "foil": int(c.foil),
+                "quantity": c.quantity,
+                "color_group": c.color_group,
+            }
+            for c in cards
+        ],
+    )
+    return conn.total_changes
+
+
+def clear_wants_cards(conn: sqlite3.Connection) -> None:
+    """Remove all wants cards (truncate before re-sync)."""
+    conn.execute("DELETE FROM wants_cards")
+
+
+def list_wants_cards(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Return all wants cards ordered by name."""
+    return conn.execute(
+        "SELECT name, set_code, collector_number, foil, quantity, color_group "
+        "FROM wants_cards ORDER BY name"
+    ).fetchall()
 
 
 def list_for_sale_cards(
