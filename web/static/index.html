@@ -775,14 +775,15 @@ function renderSale(data) {
     for (const printings of Object.values(byName)) {
       const name = printings[0].name;
       const totalQty = printings.reduce((s, p) => s + p.quantity, 0);
+      const tradeQty = totalQty - 4;
       const primary = printings[Math.floor(Math.random() * printings.length)];
-      const badge = primary.foil ? `✦ ×${totalQty}` : `×${totalQty}`;
+      const badge = primary.foil ? `✦ ×${tradeQty}` : `×${tradeQty}`;
       const el = makeCard(name, primary.set_code, primary.collector_number, badge, 'extra', null);
       if (printings.length > 1) {
         const btn = document.createElement('button');
         btn.className = 'extras-arts-btn';
-        btn.textContent = `▼ ${printings.length} arts`;
-        btn.title = `See all ${printings.length} owned arts`;
+        btn.textContent = `▼ ${printings.length} versions`;
+        btn.title = `See all ${printings.length} owned versions`;
         btn.onclick = e => { e.stopPropagation(); showArtModal(name, printings); };
         el.appendChild(btn);
       }
