@@ -19,3 +19,4 @@ jobs:
             git pull
             sudo systemctl restart mtg-bot
             sudo systemctl status mtg-bot --no-pager
+            sudo systemctl reload nginx

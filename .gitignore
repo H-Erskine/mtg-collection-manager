@@ -212,3 +212,5 @@ __marimo__/
 # Web export — generated on sync, not committed
 web/static/collection.json
 web/static/decks.json
+web/static/sale.json
+web/static/images/

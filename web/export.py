@@ -1,14 +1,20 @@
 import json
 import os
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
+
 from mtg_manager.config import Config
-from mtg_manager.db import get_conn
+from mtg_manager.db import get_cards_over_limit, get_conn
+
+_SCRYFALL_HEADERS = {"User-Agent": "mtg-manager/1.0 (personal collection site)"}
 
 
 def export_static(cfg: Config) -> None:
-    """Write collection.json and decks.json to cfg.web_static_dir. No-op if unset."""
+    """Write collection.json, decks.json, and sale.json to cfg.web_static_dir. No-op if unset."""
     if cfg.web_static_dir is None:
         return
 
@@ -17,11 +23,34 @@ def export_static(cfg: Config) -> None:
 
     with get_conn(cfg.db_path) as conn:
         updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        collection_data = {"updated_at": updated_at, "cards": _get_collection(conn)}
+        collection_cards = _get_collection(conn)
         decks_data = {"updated_at": updated_at, "decks": _get_decks(conn)}
+        sale_data = _get_sale(conn)
 
+    collection_data = {"updated_at": updated_at, "cards": collection_cards}
     _write_json(out_dir / "collection.json", collection_data)
     _write_json(out_dir / "decks.json", decks_data)
+    _write_json(out_dir / "sale.json", {"updated_at": updated_at, **sale_data})
+
+    # Collect unique printings from all data sources for image caching
+    printings: set[tuple[str, str]] = set()
+    for c in collection_cards:
+        if c["set_code"] and c["collector_number"]:
+            printings.add((c["set_code"], c["collector_number"]))
+    for c in sale_data["for_sale"]:
+        if c["set_code"] and c["collector_number"]:
+            printings.add((c["set_code"], c["collector_number"]))
+    for c in sale_data["extras"]:
+        if c["set_code"] and c["collector_number"]:
+            printings.add((c["set_code"], c["collector_number"]))
+
+    if printings:
+        t = threading.Thread(
+            target=_download_images_bg,
+            args=(out_dir, list(printings)),
+            daemon=True,
+        )
+        t.start()
 
 
 def _get_collection(conn) -> list[dict]:
@@ -95,6 +124,66 @@ def _get_decks(conn) -> list[dict]:
         })
 
     return decks
+
+
+def _get_sale(conn) -> dict:
+    sale_rows = conn.execute(
+        "SELECT name, set_code, collector_number, foil, quantity, price "
+        "FROM for_sale_cards ORDER BY price DESC, name"
+    ).fetchall()
+
+    extra_rows = get_cards_over_limit(conn, limit=4)
+
+    return {
+        "for_sale": [
+            {
+                "name": r["name"],
+                "set_code": r["set_code"],
+                "collector_number": r["collector_number"],
+                "foil": bool(r["foil"]),
+                "quantity": r["quantity"],
+                "price": r["price"],
+            }
+            for r in sale_rows
+        ],
+        "extras": [
+            {
+                "name": r["name"],
+                "set_code": r["set_code"],
+                "collector_number": r["collector_number"],
+                "foil": bool(r["foil"]),
+                "quantity": r["quantity"],
+            }
+            for r in extra_rows
+        ],
+    }
+
+
+def _download_images_bg(out_dir: Path, printings: list[tuple[str, str]]) -> None:
+    """Download Scryfall card images to out_dir/images/. Skips already-cached files."""
+    img_dir = out_dir / "images"
+    img_dir.mkdir(exist_ok=True)
+
+    for set_code, collector_number in printings:
+        set_dir = img_dir / set_code
+        set_dir.mkdir(exist_ok=True)
+        # Replace / in collector_number to avoid accidental subdirectory creation
+        safe_cn = collector_number.replace("/", "_")
+        dest = set_dir / f"{safe_cn}.jpg"
+        if dest.exists():
+            continue
+        from urllib.parse import quote as _quote
+        url = (
+            f"https://api.scryfall.com/cards/{_quote(set_code, safe='')}"
+            f"/{_quote(collector_number, safe='')}?format=image&version=normal"
+        )
+        try:
+            resp = requests.get(url, headers=_SCRYFALL_HEADERS, timeout=15)
+            if resp.status_code == 200:
+                dest.write_bytes(resp.content)
+        except Exception:
+            pass
+        time.sleep(0.11)  # Scryfall asks for ≤10 req/s
 
 
 def _write_json(path: Path, data: dict) -> None:
