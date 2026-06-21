@@ -22,6 +22,8 @@ import time
 from collections import defaultdict
 from urllib.parse import urlparse
 
+_PCT_RE = re.compile(r"(\d+\.?\d*)\s*%")
+
 import cloudscraper
 from bs4 import BeautifulSoup
 
@@ -175,6 +177,41 @@ def fetch_meta_decklists(
     html = _fetch_page(scraper, meta_url)
     soup = BeautifulSoup(html, "lxml")
 
+    # Build path -> meta_share map by scanning table rows first (most reliable),
+    # then fall back to walking up from each archetype link.
+    share_map: dict[str, float] = {}
+    for row in soup.find_all("tr"):
+        cells = row.find_all("td")
+        if len(cells) < 2:
+            continue
+        link = cells[0].find("a", href=True)
+        if not link:
+            continue
+        path = urlparse(link["href"]).path
+        if not path.startswith("/archetype/"):
+            continue
+        for cell in cells[1:3]:
+            m = _PCT_RE.search(cell.get_text())
+            if m:
+                share_map[path] = float(m.group(1))
+                break
+
+    if not share_map:
+        # Tile/card layout fallback: walk up from each archetype link looking for a %
+        for a in soup.find_all("a", href=True):
+            path = urlparse(a["href"]).path
+            if not path.startswith("/archetype/") or path in share_map:
+                continue
+            node = a.parent
+            for _ in range(6):
+                if node is None:
+                    break
+                m = _PCT_RE.search(node.get_text())
+                if m:
+                    share_map[path] = float(m.group(1))
+                    break
+                node = node.parent
+
     # Collect /archetype/ links in order, deduplicating by path (strips #fragment)
     seen: set[str] = set()
     archetype_paths: list[str] = []
@@ -201,6 +238,7 @@ def fetch_meta_decklists(
             visual_url = f"{BASE}/deck/visual/{deck_id}"
             page_html = _fetch_page(scraper, visual_url)
             dl = _parse_visual_page(page_html, deck_id, deck_name, url)
+            dl.meta_share = share_map.get(path, 0.0)
             decklists.append(dl)
         except Exception:
             continue

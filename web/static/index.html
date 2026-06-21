@@ -160,6 +160,25 @@
   .meta-deck-subtitle { font-size: 0.82rem; color: var(--muted); display: flex; align-items: center; gap: 12px; }
   .meta-deck-link { color: #6ab0f5; text-decoration: none; }
   .meta-deck-link:hover { text-decoration: underline; }
+
+  /* META FORMAT TABS + VIEW TOGGLE */
+  .meta-header-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .meta-format-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .meta-fmt-tab { padding: 6px 16px; border-radius: 20px; font-size: 0.82rem; cursor: pointer; border: 1px solid var(--surface2); background: var(--surface); color: var(--muted); transition: color 0.15s, background 0.15s; }
+  .meta-fmt-tab:hover { color: var(--text); background: var(--surface2); }
+  .meta-fmt-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .meta-view-toggle { display: flex; background: var(--surface); border: 1px solid var(--surface2); border-radius: 20px; padding: 2px; gap: 2px; margin-left: auto; }
+  .meta-view-btn { padding: 5px 14px; border-radius: 18px; font-size: 0.8rem; cursor: pointer; border: none; background: none; color: var(--muted); user-select: none; transition: background 0.15s, color 0.15s; }
+  .meta-view-btn:hover { color: var(--text); }
+  .meta-view-btn.active { background: var(--accent); color: white; }
+  .meta-layout.full-width { grid-template-columns: 1fr; }
+
+  /* MISSING STRIP */
+  .missing-strip-wrap { overflow-x: auto; padding-bottom: 12px; }
+  .missing-strip { display: flex; gap: 10px; min-width: min-content; }
+  .missing-strip-info { font-size: 0.78rem; color: var(--muted); margin-bottom: 12px; }
+  .meta-deck-badge { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.85); color: var(--gold); font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; pointer-events: none; }
+  .badge.miss-qty { color: var(--red); }
 </style>
 </head>
 <body>
@@ -206,25 +225,41 @@
 
 <!-- META -->
 <div id="page-meta" class="page">
-  <div class="meta-layout">
+  <div class="meta-header-bar" id="meta-header-bar" style="display:none">
+    <div class="meta-format-tabs" id="meta-format-tabs"></div>
+    <div class="meta-view-toggle">
+      <button class="meta-view-btn active" onclick="setMetaView('decks', this)">Decks</button>
+      <button class="meta-view-btn" onclick="setMetaView('missing', this)">Missing Cards</button>
+    </div>
+  </div>
+  <div class="meta-layout" id="meta-layout">
     <div class="meta-sidebar" id="meta-sidebar">
       <div class="loading" id="meta-loading">Loading meta…</div>
     </div>
     <div class="meta-panel" id="meta-panel">
-      <div class="placeholder-text" id="meta-placeholder">Select a deck to see its cards</div>
-      <div id="meta-deck-view" style="display:none">
-        <div class="meta-deck-header">
-          <div class="meta-deck-title" id="meta-deck-title"></div>
-          <div class="meta-deck-subtitle">
-            <span id="meta-deck-stats"></span>
-            <a class="meta-deck-link" id="meta-deck-link" href="#" target="_blank" rel="noopener">View on Goldfish ↗</a>
+      <div id="meta-deck-view-wrap">
+        <div class="placeholder-text" id="meta-placeholder">Select a deck to see its cards</div>
+        <div id="meta-deck-view" style="display:none">
+          <div class="meta-deck-header">
+            <div class="meta-deck-title" id="meta-deck-title"></div>
+            <div class="meta-deck-subtitle">
+              <span id="meta-deck-stats"></span>
+              <a class="meta-deck-link" id="meta-deck-link" href="#" target="_blank" rel="noopener">View on Goldfish ↗</a>
+            </div>
           </div>
+          <div class="section-label">Missing / Insufficient</div>
+          <div class="card-grid" id="meta-missing-grid"></div>
+          <p id="meta-missing-empty" style="display:none;color:var(--green);padding:8px 0;font-size:0.85rem">✓ You own all cards in this deck</p>
+          <div class="section-label" style="margin-top:24px">Owned</div>
+          <div class="card-grid" id="meta-owned-grid"></div>
         </div>
-        <div class="section-label">Missing / Insufficient</div>
-        <div class="card-grid" id="meta-missing-grid"></div>
-        <p id="meta-missing-empty" style="display:none;color:var(--green);padding:8px 0;font-size:0.85rem">✓ You own all cards in this deck</p>
-        <div class="section-label" style="margin-top:24px">Owned</div>
-        <div class="card-grid" id="meta-owned-grid"></div>
+      </div>
+      <div id="meta-missing-view" style="display:none">
+        <div class="missing-strip-info" id="meta-missing-info"></div>
+        <div class="missing-strip-wrap">
+          <div class="missing-strip" id="meta-missing-strip"></div>
+        </div>
+        <p id="meta-missing-all-owned" style="display:none;color:var(--green);padding:16px 0;font-size:0.9rem">✓ You own all cards across all meta decks in this format</p>
       </div>
     </div>
   </div>
@@ -1000,6 +1035,8 @@ function showArtModal(name, printings) {
 // ─── Meta tab ────────────────────────────────────────────────────────────────
 
 let metaData = null;
+let activeMetaFormat = null;
+let metaView = 'decks';
 
 async function loadMeta() {
   if (metaData) return;
@@ -1007,35 +1044,119 @@ async function loadMeta() {
     const res = await fetch('./meta.json');
     if (!res.ok) throw new Error('not found');
     metaData = await res.json();
-    renderMetaSidebar(metaData);
+    buildMetaFormatTabs(metaData);
+    document.getElementById('meta-header-bar').style.display = '';
+    if (metaData.formats.length > 0) selectMetaFormat(metaData.formats[0].format);
   } catch {
     document.getElementById('meta-loading').textContent = 'meta.json not found — run web/export_meta.py to generate it.';
   }
 }
 
-function renderMetaSidebar(data) {
+function buildMetaFormatTabs(data) {
+  const tabsEl = document.getElementById('meta-format-tabs');
+  tabsEl.innerHTML = '';
+  for (const fmt of data.formats) {
+    const tab = document.createElement('button');
+    tab.className = 'meta-fmt-tab';
+    tab.dataset.fmt = fmt.format;
+    tab.textContent = fmt.format.charAt(0).toUpperCase() + fmt.format.slice(1);
+    tab.onclick = () => selectMetaFormat(fmt.format);
+    tabsEl.appendChild(tab);
+  }
+}
+
+function selectMetaFormat(fmt) {
+  activeMetaFormat = fmt;
+  document.querySelectorAll('.meta-fmt-tab').forEach(t => t.classList.toggle('active', t.dataset.fmt === fmt));
+  renderMetaSidebar(fmt);
+  // reset deck selection
+  document.getElementById('meta-placeholder').style.display = '';
+  document.getElementById('meta-deck-view').style.display = 'none';
+  document.querySelectorAll('.meta-deck-item').forEach(el => el.classList.remove('active'));
+  if (metaView === 'missing') buildMissingCardsView(fmt);
+}
+
+function setMetaView(view, btn) {
+  metaView = view;
+  document.querySelectorAll('.meta-view-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const isDeck = view === 'decks';
+  document.getElementById('meta-deck-view-wrap').style.display = isDeck ? '' : 'none';
+  document.getElementById('meta-missing-view').style.display = isDeck ? 'none' : '';
+  document.getElementById('meta-sidebar').style.display = isDeck ? '' : 'none';
+  document.getElementById('meta-layout').classList.toggle('full-width', !isDeck);
+
+  if (!isDeck && activeMetaFormat) buildMissingCardsView(activeMetaFormat);
+}
+
+function renderMetaSidebar(fmt) {
+  const fmtData = metaData && metaData.formats.find(f => f.format === fmt);
   const sidebar = document.getElementById('meta-sidebar');
   sidebar.innerHTML = '';
+  if (!fmtData) return;
 
-  for (const fmt of data.formats) {
-    const header = document.createElement('div');
-    header.className = 'meta-format-header';
-    header.textContent = fmt.format.charAt(0).toUpperCase() + fmt.format.slice(1);
-    sidebar.appendChild(header);
+  for (const deck of fmtData.decks) {
+    const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
+    const barColor = pct === 100 ? 'var(--green)' : pct >= 75 ? 'var(--gold)' : 'var(--red)';
+    const item = document.createElement('div');
+    item.className = 'meta-deck-item';
+    item.innerHTML = `
+      <div class="meta-deck-name" title="${deck.name}">${deck.name}</div>
+      <div class="meta-deck-frac">${deck.owned_slots}/${deck.total_slots} (${pct}%)</div>
+      <div class="meta-bar-bg"><div class="meta-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`;
+    item.addEventListener('click', () => selectMetaDeck(item, fmt, deck));
+    sidebar.appendChild(item);
+  }
+}
 
-    for (const deck of fmt.decks) {
-      const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
-      const barColor = pct === 100 ? 'var(--green)' : pct >= 75 ? 'var(--gold)' : 'var(--red)';
+function buildMissingCardsView(fmt) {
+  const fmtData = metaData && metaData.formats.find(f => f.format === fmt);
+  const infoEl = document.getElementById('meta-missing-info');
+  const stripEl = document.getElementById('meta-missing-strip');
+  const allOwnedEl = document.getElementById('meta-missing-all-owned');
+  stripEl.innerHTML = '';
+  allOwnedEl.style.display = 'none';
+  if (!fmtData) return;
 
-      const item = document.createElement('div');
-      item.className = 'meta-deck-item';
-      item.innerHTML = `
-        <div class="meta-deck-name" title="${deck.name}">${deck.name}</div>
-        <div class="meta-deck-frac">${deck.owned_slots}/${deck.total_slots} (${pct}%)</div>
-        <div class="meta-bar-bg"><div class="meta-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`;
-      item.addEventListener('click', () => selectMetaDeck(item, fmt.format, deck));
-      sidebar.appendChild(item);
+  // Aggregate missing cards across all decks; weight by meta_share if available, else by position
+  const useShare = fmtData.decks.some(d => d.meta_share > 0);
+  const byCard = {};
+  fmtData.decks.forEach((deck, idx) => {
+    const weight = useShare ? (deck.meta_share || 0) : 1 / (idx + 1);
+    for (const c of deck.cards) {
+      if (c.owned >= c.quantity) continue;
+      const key = c.name.toLowerCase();
+      if (!byCard[key]) {
+        byCard[key] = { name: c.name, score: 0, deckCount: 0,
+          owned: c.owned, needed: c.quantity, set_code: c.set_code, collector_number: c.collector_number };
+      }
+      byCard[key].score += weight;
+      byCard[key].deckCount += 1;
     }
+  });
+
+  const cards = Object.values(byCard).sort((a, b) => b.score - a.score);
+
+  if (!cards.length) {
+    infoEl.textContent = '';
+    allOwnedEl.style.display = 'block';
+    return;
+  }
+
+  const fmtLabel = fmt.charAt(0).toUpperCase() + fmt.slice(1);
+  infoEl.textContent = `${cards.length} missing card${cards.length !== 1 ? 's' : ''} across ${fmtData.decks.length} ${fmtLabel} decks — sorted by meta impact`;
+
+  for (const c of cards) {
+    const qtyLabel = c.owned > 0 ? `${c.owned}/${c.needed}` : `×${c.needed}`;
+    const el = makeCard(c.name, c.set_code, c.collector_number, qtyLabel, 'miss-qty', null);
+    const deckBadge = document.createElement('div');
+    deckBadge.className = 'meta-deck-badge';
+    deckBadge.textContent = `${c.deckCount}×`;
+    deckBadge.title = `Missing in ${c.deckCount} deck${c.deckCount !== 1 ? 's' : ''}`;
+    el.appendChild(deckBadge);
+    el.title = `${c.name} — missing in ${c.deckCount} deck${c.deckCount !== 1 ? 's' : ''}`;
+    stripEl.appendChild(el);
   }
 }
 

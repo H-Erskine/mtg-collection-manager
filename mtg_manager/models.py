@@ -26,6 +26,7 @@ class Decklist:
     name: str
     url: str
     cards: list[DeckCard] = field(default_factory=list)
+    meta_share: float = 0.0
 
     @property
     def maindeck(self) -> list[DeckCard]:

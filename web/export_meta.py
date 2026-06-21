@@ -82,12 +82,17 @@ def export_meta_static(
                 decks.append({
                     "name": dl.name,
                     "url": dl.url,
+                    "meta_share": dl.meta_share,
                     "total_slots": total_slots,
                     "owned_slots": owned_slots,
                     "cards": cards,
                 })
 
-            decks.sort(key=lambda d: -(d["owned_slots"] / d["total_slots"]) if d["total_slots"] else 0)
+            # Sort by meta share descending; fall back to owned% if shares unavailable
+            if any(d["meta_share"] > 0 for d in decks):
+                decks.sort(key=lambda d: -d["meta_share"])
+            else:
+                decks.sort(key=lambda d: -(d["owned_slots"] / d["total_slots"]) if d["total_slots"] else 0)
             format_results.append({"format": fmt, "decks": decks})
             print(f"  → {len(decks)} decks fetched")
 
