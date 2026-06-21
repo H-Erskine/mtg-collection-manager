@@ -193,9 +193,9 @@ def upsert_cards(conn: sqlite3.Connection, cards: list[OwnedCard]) -> int:
 def get_owned_quantity(conn: sqlite3.Connection, card_name: str) -> int:
     """Return total copies owned for a card name (case-insensitive).
 
-    Handles double-faced cards: MTGTop8 uses only the front face name
-    (e.g. 'Ral, Monsoon Mage') while Moxfield stores the full name
-    ('Ral, Monsoon Mage // Ral, Leyline Prodigy'). We match either way.
+    Handles double-faced cards: Moxfield stores the full name
+    ('Sink into Stupor // Mephitic Draught') while scrapers may provide
+    only the front face OR only the back face. We match all three forms.
     """
     name_lower = card_name.lower()
     row = conn.execute(
@@ -203,9 +203,10 @@ def get_owned_quantity(conn: sqlite3.Connection, card_name: str) -> int:
         SELECT COALESCE(SUM(quantity), 0) AS total
         FROM owned_cards
         WHERE LOWER(name) = ?
-           OR LOWER(SUBSTR(name, 1, INSTR(name, ' // ') - 1)) = ?
+           OR (INSTR(name, ' // ') > 0 AND LOWER(SUBSTR(name, 1, INSTR(name, ' // ') - 1)) = ?)
+           OR (INSTR(name, ' // ') > 0 AND LOWER(SUBSTR(name, INSTR(name, ' // ') + 4)) = ?)
         """,
-        (name_lower, name_lower),
+        (name_lower, name_lower, name_lower),
     ).fetchone()
     return row["total"] if row else 0
 
