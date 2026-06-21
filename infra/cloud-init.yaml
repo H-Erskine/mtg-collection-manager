@@ -1,0 +1,125 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+packages:
+  - python3
+  - python3-pip
+  - python3-venv
+  - git
+  - nginx
+  - sqlite3
+
+write_files:
+  - path: /etc/nginx/sites-available/mtg
+    content: |
+      server {
+          listen 80 default_server;
+          server_name _;
+          root /home/ubuntu/mtg-manager/web/static;
+          index index.html;
+          location / {
+              try_files $uri $uri/ /index.html;
+          }
+          location ~* \.(json|jpg|svg)$ {
+              expires 1h;
+              add_header Cache-Control "public";
+          }
+      }
+
+  - path: /etc/systemd/system/mtg-bot.service
+    content: |
+      [Unit]
+      Description=MTG Manager Discord Bot
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=ubuntu
+      WorkingDirectory=/home/ubuntu/mtg-manager
+      ExecStart=/home/ubuntu/mtg-manager/.venv/bin/python -m api.bot
+      EnvironmentFile=/home/ubuntu/mtg-manager/.env
+      Restart=on-failure
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/mtg-evict.service
+    content: |
+      [Unit]
+      Description=MTG Manager cache eviction
+
+      [Service]
+      Type=oneshot
+      WorkingDirectory=/home/ubuntu/mtg-manager
+      ExecStart=/home/ubuntu/mtg-manager/.venv/bin/python -m scripts.evict_cache
+      User=ubuntu
+
+  - path: /etc/systemd/system/mtg-evict.timer
+    content: |
+      [Unit]
+      Description=Run MTG eviction daily
+
+      [Timer]
+      OnCalendar=daily
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+  - path: /etc/systemd/system/mtg-backup.service
+    content: |
+      [Unit]
+      Description=MTG Manager DB backup to Object Storage
+
+      [Service]
+      Type=oneshot
+      WorkingDirectory=/home/ubuntu/mtg-manager
+      ExecStart=/home/ubuntu/mtg-manager/scripts/backup_db.sh
+      User=ubuntu
+
+  - path: /etc/systemd/system/mtg-backup.timer
+    content: |
+      [Unit]
+      Description=Run MTG DB backup daily
+
+      [Timer]
+      OnCalendar=*-*-* 03:00:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  # Clone repo
+  - git clone https://github.com/H-Erskine/mtg-collection-manager.git /home/ubuntu/mtg-manager
+  - chown -R ubuntu:ubuntu /home/ubuntu/mtg-manager
+
+  # Python venv + dependencies
+  - sudo -u ubuntu python3 -m venv /home/ubuntu/mtg-manager/.venv
+  - sudo -u ubuntu /home/ubuntu/mtg-manager/.venv/bin/pip install --quiet -e /home/ubuntu/mtg-manager
+  - sudo -u ubuntu /home/ubuntu/mtg-manager/.venv/bin/pip install --quiet -r /home/ubuntu/mtg-manager/requirements-api.txt
+  - sudo -u ubuntu /home/ubuntu/mtg-manager/.venv/bin/pip install --quiet oci
+
+  # Data directories
+  - sudo -u ubuntu mkdir -p /home/ubuntu/.mtg_manager
+  - sudo -u ubuntu mkdir -p /home/ubuntu/mtg_data/users
+
+  # Make backup script executable
+  - chmod +x /home/ubuntu/mtg-manager/scripts/backup_db.sh
+
+  # nginx
+  - ln -sf /etc/nginx/sites-available/mtg /etc/nginx/sites-enabled/mtg
+  - rm -f /etc/nginx/sites-enabled/default
+  - systemctl enable nginx
+  - systemctl start nginx
+
+  # systemd timers (eviction + backup)
+  - systemctl daemon-reload
+  - systemctl enable mtg-evict.timer
+  - systemctl start mtg-evict.timer
+  - systemctl enable mtg-backup.timer
+  - systemctl start mtg-backup.timer
+
+  # Bot is NOT enabled here — run vm_setup.sh after adding config.toml and .env

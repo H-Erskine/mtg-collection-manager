@@ -214,3 +214,10 @@ web/static/collection.json
 web/static/decks.json
 web/static/sale.json
 web/static/images/
+
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/terraform.tfvars
