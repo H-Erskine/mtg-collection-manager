@@ -3,12 +3,17 @@
 package_update: true
 package_upgrade: true
 packages:
-  - python3
-  - python3-pip
-  - python3-venv
+  - python3.12
+  - python3.12-venv
   - git
   - nginx
   - sqlite3
+
+# deadsnakes PPA for Python 3.12 (Ubuntu 22.04 ships 3.10, tomllib requires 3.11+)
+apt:
+  sources:
+    deadsnakes:
+      source: "ppa:deadsnakes/ppa"
 
 write_files:
   - path: /etc/nginx/sites-available/mtg
@@ -116,10 +121,17 @@ runcmd:
   - systemctl start nginx
 
   # systemd timers (eviction + backup)
+  # TODO: add mtg-meta.service + mtg-meta.timer here (daily export_meta at 04:00 UTC)
+  #       currently added manually on the VM — see CLAUDE.md eviction cron section for pattern
   - systemctl daemon-reload
   - systemctl enable mtg-evict.timer
   - systemctl start mtg-evict.timer
   - systemctl enable mtg-backup.timer
   - systemctl start mtg-backup.timer
+
+  # Open ports 80 and 443 in iptables (Oracle Ubuntu images only allow 22 by default)
+  - iptables -I INPUT 5 -p tcp --dport 80 -j ACCEPT
+  - iptables -I INPUT 6 -p tcp --dport 443 -j ACCEPT
+  - netfilter-persistent save
 
   # Bot is NOT enabled here — run vm_setup.sh after adding config.toml and .env
