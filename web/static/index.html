@@ -1182,7 +1182,14 @@ function buildMissingCardsView(fmt) {
     for (const d of c.decks) {
       const entry = document.createElement('div');
       entry.className = 'missing-deck-entry';
-      entry.innerHTML = `<span class="missing-deck-entry-name">${d.name}</span><span class="missing-deck-entry-frac">${d.owned_slots}/${d.total_slots}</span>`;
+      const dn = document.createElement('span');
+      dn.className = 'missing-deck-entry-name';
+      dn.textContent = d.name;
+      const df = document.createElement('span');
+      df.className = 'missing-deck-entry-frac';
+      df.textContent = `${d.owned_slots}/${d.total_slots}`;
+      entry.appendChild(dn);
+      entry.appendChild(df);
       body.appendChild(entry);
     }
 
