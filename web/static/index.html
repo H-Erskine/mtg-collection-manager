@@ -173,12 +173,18 @@
   .meta-view-btn.active { background: var(--accent); color: white; }
   .meta-layout.full-width { grid-template-columns: 1fr; }
 
-  /* MISSING STRIP */
-  .missing-strip-wrap { overflow-x: auto; padding-bottom: 12px; }
-  .missing-strip { display: flex; gap: 10px; min-width: min-content; }
-  .missing-strip-info { font-size: 0.78rem; color: var(--muted); margin-bottom: 12px; }
-  .meta-deck-badge { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.85); color: var(--gold); font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; pointer-events: none; }
-  .badge.miss-qty { color: var(--red); }
+  /* MISSING LIST */
+  .missing-list-info { font-size: 0.78rem; color: var(--muted); margin-bottom: 12px; }
+  .missing-list { display: flex; flex-direction: column; gap: 4px; max-height: 72vh; overflow-y: auto; }
+  .missing-list-row { display: flex; align-items: flex-start; gap: 14px; padding: 8px 12px; background: var(--surface); border-radius: 6px; }
+  .missing-list-row:hover { background: var(--surface2); }
+  .missing-list-thumb { width: 48px; height: 67px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: var(--surface2); }
+  .missing-list-body { flex: 1; min-width: 0; }
+  .missing-list-name { font-size: 0.88rem; font-weight: 600; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .missing-deck-entry { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--surface2); }
+  .missing-deck-entry:last-child { border-bottom: none; }
+  .missing-deck-entry-name { font-size: 0.72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .missing-deck-entry-frac { font-size: 0.72rem; color: var(--text); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -255,10 +261,8 @@
         </div>
       </div>
       <div id="meta-missing-view" style="display:none">
-        <div class="missing-strip-info" id="meta-missing-info"></div>
-        <div class="missing-strip-wrap">
-          <div class="missing-strip" id="meta-missing-strip"></div>
-        </div>
+        <div class="missing-list-info" id="meta-missing-info"></div>
+        <div class="missing-list" id="meta-missing-list"></div>
         <p id="meta-missing-all-owned" style="display:none;color:var(--green);padding:16px 0;font-size:0.9rem">✓ You own all cards across all meta decks in this format</p>
       </div>
     </div>
@@ -1113,13 +1117,13 @@ function renderMetaSidebar(fmt) {
 function buildMissingCardsView(fmt) {
   const fmtData = metaData && metaData.formats.find(f => f.format === fmt);
   const infoEl = document.getElementById('meta-missing-info');
-  const stripEl = document.getElementById('meta-missing-strip');
+  const listEl = document.getElementById('meta-missing-list');
   const allOwnedEl = document.getElementById('meta-missing-all-owned');
-  stripEl.innerHTML = '';
+  listEl.innerHTML = '';
   allOwnedEl.style.display = 'none';
   if (!fmtData) return;
 
-  // Aggregate missing cards across all decks; weight by meta_share if available, else by position
+  // Aggregate missing cards; track which decks need each card
   const useShare = fmtData.decks.some(d => d.meta_share > 0);
   const byCard = {};
   fmtData.decks.forEach((deck, idx) => {
@@ -1128,11 +1132,11 @@ function buildMissingCardsView(fmt) {
       if (c.owned >= c.quantity) continue;
       const key = c.name.toLowerCase();
       if (!byCard[key]) {
-        byCard[key] = { name: c.name, score: 0, deckCount: 0,
-          owned: c.owned, needed: c.quantity, set_code: c.set_code, collector_number: c.collector_number };
+        byCard[key] = { name: c.name, score: 0, set_code: c.set_code,
+          collector_number: c.collector_number, decks: [] };
       }
       byCard[key].score += weight;
-      byCard[key].deckCount += 1;
+      byCard[key].decks.push({ name: deck.name, owned_slots: deck.owned_slots, total_slots: deck.total_slots });
     }
   });
 
@@ -1148,15 +1152,43 @@ function buildMissingCardsView(fmt) {
   infoEl.textContent = `${cards.length} missing card${cards.length !== 1 ? 's' : ''} across ${fmtData.decks.length} ${fmtLabel} decks — sorted by meta impact`;
 
   for (const c of cards) {
-    const qtyLabel = c.owned > 0 ? `${c.owned}/${c.needed}` : `×${c.needed}`;
-    const el = makeCard(c.name, c.set_code, c.collector_number, qtyLabel, 'miss-qty', null);
-    const deckBadge = document.createElement('div');
-    deckBadge.className = 'meta-deck-badge';
-    deckBadge.textContent = `${c.deckCount}×`;
-    deckBadge.title = `Missing in ${c.deckCount} deck${c.deckCount !== 1 ? 's' : ''}`;
-    el.appendChild(deckBadge);
-    el.title = `${c.name} — missing in ${c.deckCount} deck${c.deckCount !== 1 ? 's' : ''}`;
-    stripEl.appendChild(el);
+    const row = document.createElement('div');
+    row.className = 'missing-list-row';
+
+    const img = document.createElement('img');
+    img.className = 'missing-list-thumb';
+    img.alt = c.name;
+    img.loading = 'lazy';
+    const hasSetCn = c.set_code && c.collector_number;
+    img.src = hasSetCn ? localImgUrl(c.set_code, c.collector_number) : namedImgUrl(c.name);
+    if (hasSetCn) {
+      img.onerror = () => {
+        if (!img.dataset.triedScryfall) {
+          img.dataset.triedScryfall = '1';
+          img.src = scryfallImgUrl(c.set_code, c.collector_number);
+        } else {
+          img.removeAttribute('src');
+        }
+      };
+    }
+
+    const body = document.createElement('div');
+    body.className = 'missing-list-body';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'missing-list-name';
+    nameEl.textContent = c.name;
+    body.appendChild(nameEl);
+
+    for (const d of c.decks) {
+      const entry = document.createElement('div');
+      entry.className = 'missing-deck-entry';
+      entry.innerHTML = `<span class="missing-deck-entry-name">${d.name}</span><span class="missing-deck-entry-frac">${d.owned_slots}/${d.total_slots}</span>`;
+      body.appendChild(entry);
+    }
+
+    row.appendChild(img);
+    row.appendChild(body);
+    listEl.appendChild(row);
   }
 }
 
