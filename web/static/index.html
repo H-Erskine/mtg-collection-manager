@@ -79,6 +79,8 @@
   textarea:focus { outline: none; border-color: var(--accent); }
   .btn { display: block; width: 100%; padding: 10px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-size: 0.95rem; font-weight: 600; cursor: pointer; margin-top: 12px; }
   .btn:hover { background: #c73652; }
+  .btn-secondary { display: inline-block; padding: 6px 14px; background: var(--surface); border: 1px solid var(--surface2); color: var(--text); border-radius: var(--radius); font-size: 0.82rem; cursor: pointer; }
+  .btn-secondary:hover { background: var(--surface2); }
   .results-summary { font-size: 0.85rem; color: var(--muted); margin-bottom: 16px; }
   .results-summary .ok { color: var(--green); font-weight: 600; }
   .results-summary .miss { color: var(--red); font-weight: 600; }
@@ -325,7 +327,10 @@
     <div id="missing-results">
       <div class="placeholder-text" id="missing-placeholder">Paste a decklist and hit Check Collection</div>
       <div id="missing-output" style="display:none">
-        <div class="results-summary" id="missing-summary"></div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+          <div class="results-summary" id="missing-summary" style="margin-bottom:0"></div>
+          <button class="btn-secondary" onclick="exportBuyList()" id="export-btn" style="display:none">⬇ Export buy list</button>
+        </div>
         <div class="section-label">Missing / Insufficient</div>
         <div class="card-grid" id="missing-grid"></div>
         <div class="section-label" style="margin-top:24px">Owned</div>
@@ -786,6 +791,8 @@ function parseDeckList(text) {
   return cards;
 }
 
+let lastMissingCards = [];
+
 function checkMissing() {
   const text = document.getElementById('decklist-input').value;
   const parsed = parseDeckList(text);
@@ -807,6 +814,8 @@ function checkMissing() {
     }
   }
 
+  lastMissingCards = missing;
+  document.getElementById('export-btn').style.display = missing.length ? 'inline-block' : 'none';
   document.getElementById('missing-placeholder').style.display = 'none';
   document.getElementById('missing-output').style.display = 'block';
   document.getElementById('missing-summary').innerHTML =
@@ -824,6 +833,17 @@ function checkMissing() {
   for (const c of owned) {
     og.appendChild(makeCard(c.name, c.set_code, c.collector_number, `×${c.qty}`, 'green', null));
   }
+}
+
+function exportBuyList() {
+  const lines = lastMissingCards.map(c => `${c.qty - c.have} ${c.name}`);
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'buy-list.txt';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ─── Sale tab ────────────────────────────────────────────────────────────────
