@@ -23,32 +23,50 @@ def _normalize(name: str) -> str:
     return unicodedata.normalize("NFD", name.lower()).encode("ascii", "ignore").decode("ascii")
 
 
+def _scryfall_post(identifiers: list[dict]) -> dict:
+    """POST to /cards/collection and return the parsed JSON response."""
+    payload = json.dumps({"identifiers": identifiers}).encode()
+    req = urllib.request.Request(
+        "https://api.scryfall.com/cards/collection",
+        data=payload,
+        headers={"Content-Type": "application/json", "User-Agent": "mtg-manager/1.0"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read())
+
+
 def _fetch_scryfall_prices(card_names: list[str]) -> dict[str, float | None]:
     """Fetch EUR prices from Scryfall for a list of card names.
 
     Returns normalized_name → EUR price (None if unavailable or unpriced).
-    Uses /cards/collection with up to 75 identifiers per batch.
+    Uses /cards/collection with up to 75 identifiers per batch. If a batch
+    returns a 400, retries each card individually to identify the bad name(s).
     """
     result: dict[str, float | None] = {}
     batch_size = 75
     for i in range(0, len(card_names), batch_size):
         batch = card_names[i:i + batch_size]
-        payload = json.dumps({"identifiers": [{"name": n} for n in batch]}).encode()
-        req = urllib.request.Request(
-            "https://api.scryfall.com/cards/collection",
-            data=payload,
-            headers={"Content-Type": "application/json", "User-Agent": "mtg-manager/1.0"},
-            method="POST",
-        )
+        batch_num = i // batch_size + 1
+        identifiers = [{"name": n} for n in batch]
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read())
+            data = _scryfall_post(identifiers)
             for card in data.get("data", []):
                 norm = _normalize(card["name"])
                 eur_str = (card.get("prices") or {}).get("eur")
                 result[norm] = float(eur_str) if eur_str else None
         except Exception as e:
-            print(f"[warn] Scryfall price fetch failed (batch {i // batch_size + 1}): {e}", file=sys.stderr)
+            print(f"[warn] Scryfall batch {batch_num} failed ({e}) — retrying individually to find bad name(s)", file=sys.stderr)
+            for name in batch:
+                try:
+                    time.sleep(0.1)
+                    data = _scryfall_post([{"name": name}])
+                    for card in data.get("data", []):
+                        norm = _normalize(card["name"])
+                        eur_str = (card.get("prices") or {}).get("eur")
+                        result[norm] = float(eur_str) if eur_str else None
+                except Exception as card_err:
+                    print(f"[warn] Scryfall price failed for card: {name!r} — {card_err}", file=sys.stderr)
         if i + batch_size < len(card_names):
             time.sleep(0.1)
     return result
