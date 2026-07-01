@@ -7,7 +7,9 @@ Run directly to generate the file:
 import json
 import os
 import sys
+import time
 import unicodedata
+import urllib.request
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -19,6 +21,37 @@ from mtg_manager.goldfish import fetch_meta_decklists
 def _normalize(name: str) -> str:
     """Lowercase and strip diacritics so 'Lorien' matches 'Lórien'."""
     return unicodedata.normalize("NFD", name.lower()).encode("ascii", "ignore").decode("ascii")
+
+
+def _fetch_scryfall_prices(card_names: list[str]) -> dict[str, float | None]:
+    """Fetch EUR prices from Scryfall for a list of card names.
+
+    Returns normalized_name → EUR price (None if unavailable or unpriced).
+    Uses /cards/collection with up to 75 identifiers per batch.
+    """
+    result: dict[str, float | None] = {}
+    batch_size = 75
+    for i in range(0, len(card_names), batch_size):
+        batch = card_names[i:i + batch_size]
+        payload = json.dumps({"identifiers": [{"name": n} for n in batch]}).encode()
+        req = urllib.request.Request(
+            "https://api.scryfall.com/cards/collection",
+            data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "mtg-manager/1.0"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+            for card in data.get("data", []):
+                norm = _normalize(card["name"])
+                eur_str = (card.get("prices") or {}).get("eur")
+                result[norm] = float(eur_str) if eur_str else None
+        except Exception as e:
+            print(f"[warn] Scryfall price fetch failed (batch {i // batch_size + 1}): {e}", file=sys.stderr)
+        if i + batch_size < len(card_names):
+            time.sleep(0.1)
+    return result
 
 
 def export_meta_static(
@@ -114,6 +147,23 @@ def export_meta_static(
                 decks.sort(key=lambda d: -(d["owned_slots"] / d["total_slots"]) if d["total_slots"] else 0)
             format_results.append({"format": fmt, "decks": decks})
             print(f"  → {len(decks)} decks fetched")
+
+    # Fetch EUR prices for missing cards and embed in the JSON
+    missing_names = list({
+        c["name"]
+        for fmt in format_results
+        for deck in fmt["decks"]
+        for c in deck["cards"]
+        if c["owned"] < c["quantity"]
+    })
+    if missing_names:
+        print(f"Fetching EUR prices for {len(missing_names)} missing card(s) from Scryfall…")
+        eur_prices = _fetch_scryfall_prices(missing_names)
+        for fmt in format_results:
+            for deck in fmt["decks"]:
+                for c in deck["cards"]:
+                    if c["owned"] < c["quantity"]:
+                        c["eur_price"] = eur_prices.get(_normalize(c["name"]))
 
     data = {
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

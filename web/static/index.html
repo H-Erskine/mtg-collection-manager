@@ -175,6 +175,17 @@
   .meta-view-btn.active { background: var(--accent); color: white; }
   .meta-layout.full-width { grid-template-columns: 1fr; }
 
+  /* META SIDEBAR SECTION HEADERS */
+  .meta-section-header { font-size: 0.68rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px 4px; background: var(--bg); border-bottom: 1px solid var(--surface2); position: sticky; top: 0; z-index: 1; }
+  .meta-section-header.can-build { color: var(--green); }
+  .meta-section-header.close { color: var(--gold); }
+  .meta-section-header.other { color: var(--muted); }
+
+  /* PRICE */
+  .price-disclaimer { font-size: 0.72rem; color: var(--muted); font-style: italic; margin-bottom: 10px; padding: 6px 10px; background: var(--surface); border-radius: 4px; border-left: 2px solid var(--gold); }
+  .missing-cost-total { font-size: 0.8rem; color: var(--gold); font-weight: 600; margin-bottom: 10px; }
+  .missing-list-price { font-size: 0.72rem; color: var(--gold); margin-top: 4px; }
+
   /* MISSING LIST */
   .missing-list-info { font-size: 0.78rem; color: var(--muted); margin-bottom: 12px; }
   .missing-list { display: flex; flex-direction: column; gap: 4px; max-height: 72vh; overflow-y: auto; }
@@ -264,6 +275,8 @@
       </div>
       <div id="meta-missing-view" style="display:none">
         <div class="missing-list-info" id="meta-missing-info"></div>
+        <div class="price-disclaimer" id="meta-price-disclaimer" style="display:none">Prices are approximate EUR market prices from Scryfall at time of export — treat as a rough guide only.</div>
+        <div class="missing-cost-total" id="meta-missing-cost" style="display:none"></div>
         <div class="missing-list" id="meta-missing-list"></div>
         <p id="meta-missing-all-owned" style="display:none;color:var(--green);padding:16px 0;font-size:0.9rem">✓ You own all cards across all meta decks in this format</p>
       </div>
@@ -1114,24 +1127,45 @@ function setMetaView(view, btn) {
   if (!isDeck && activeMetaFormat) buildMissingCardsView(activeMetaFormat);
 }
 
+function _makeDeckSidebarItem(deck, fmt) {
+  const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
+  const barColor = pct === 100 ? 'var(--green)' : pct >= 80 ? 'var(--gold)' : 'var(--red)';
+  const item = document.createElement('div');
+  item.className = 'meta-deck-item';
+  item.innerHTML = `
+    <div class="meta-deck-name" title="${deck.name}">${deck.name}</div>
+    <div class="meta-deck-frac">${deck.owned_slots}/${deck.total_slots} (${pct}%)</div>
+    <div class="meta-bar-bg"><div class="meta-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`;
+  item.addEventListener('click', () => selectMetaDeck(item, fmt, deck));
+  return item;
+}
+
 function renderMetaSidebar(fmt) {
   const fmtData = metaData && metaData.formats.find(f => f.format === fmt);
   const sidebar = document.getElementById('meta-sidebar');
   sidebar.innerHTML = '';
   if (!fmtData) return;
 
+  const buildable = [], close = [], other = [];
   for (const deck of fmtData.decks) {
-    const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
-    const barColor = pct === 100 ? 'var(--green)' : pct >= 75 ? 'var(--gold)' : 'var(--red)';
-    const item = document.createElement('div');
-    item.className = 'meta-deck-item';
-    item.innerHTML = `
-      <div class="meta-deck-name" title="${deck.name}">${deck.name}</div>
-      <div class="meta-deck-frac">${deck.owned_slots}/${deck.total_slots} (${pct}%)</div>
-      <div class="meta-bar-bg"><div class="meta-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`;
-    item.addEventListener('click', () => selectMetaDeck(item, fmt, deck));
-    sidebar.appendChild(item);
+    const ratio = deck.total_slots ? deck.owned_slots / deck.total_slots : 0;
+    if (ratio >= 1) buildable.push(deck);
+    else if (ratio >= 0.8) close.push(deck);
+    else other.push(deck);
   }
+
+  function appendGroup(label, cls, decks) {
+    if (!decks.length) return;
+    const hdr = document.createElement('div');
+    hdr.className = `meta-section-header ${cls}`;
+    hdr.textContent = label;
+    sidebar.appendChild(hdr);
+    for (const deck of decks) sidebar.appendChild(_makeDeckSidebarItem(deck, fmt));
+  }
+
+  appendGroup(`✓ Can Build (${buildable.length})`, 'can-build', buildable);
+  appendGroup(`≈ Close (${close.length})`, 'close', close);
+  appendGroup(`Other (${other.length})`, 'other', other);
 }
 
 function buildMissingCardsView(fmt) {
@@ -1153,10 +1187,11 @@ function buildMissingCardsView(fmt) {
       const key = c.name.toLowerCase();
       if (!byCard[key]) {
         byCard[key] = { name: c.name, score: 0, set_code: c.set_code,
-          collector_number: c.collector_number, decks: [] };
+          collector_number: c.collector_number, decks: [], eur_price: null };
       }
       byCard[key].score += weight;
       byCard[key].decks.push({ name: deck.name, owned_slots: deck.owned_slots, total_slots: deck.total_slots });
+      if (byCard[key].eur_price == null && c.eur_price != null) byCard[key].eur_price = c.eur_price;
     }
   });
 
@@ -1170,6 +1205,18 @@ function buildMissingCardsView(fmt) {
 
   const fmtLabel = fmt.charAt(0).toUpperCase() + fmt.slice(1);
   infoEl.textContent = `${cards.length} missing card${cards.length !== 1 ? 's' : ''} across ${fmtData.decks.length} ${fmtLabel} decks — sorted by meta impact`;
+
+  const hasPrices = cards.some(c => c.eur_price != null);
+  const disclaimerEl = document.getElementById('meta-price-disclaimer');
+  const costEl = document.getElementById('meta-missing-cost');
+  disclaimerEl.style.display = hasPrices ? '' : 'none';
+  if (hasPrices) {
+    const totalCost = cards.reduce((s, c) => s + (c.eur_price || 0), 0);
+    costEl.style.display = '';
+    costEl.textContent = `Estimated missing cost: ~€${totalCost.toFixed(2)}`;
+  } else {
+    costEl.style.display = 'none';
+  }
 
   for (const c of cards) {
     const row = document.createElement('div');
@@ -1199,6 +1246,13 @@ function buildMissingCardsView(fmt) {
     nameEl.textContent = c.name;
     body.appendChild(nameEl);
 
+    if (c.eur_price != null) {
+      const priceEl = document.createElement('div');
+      priceEl.className = 'missing-list-price';
+      priceEl.textContent = `≈€${c.eur_price.toFixed(2)}`;
+      body.appendChild(priceEl);
+    }
+
     for (const d of c.decks) {
       const entry = document.createElement('div');
       entry.className = 'missing-deck-entry';
@@ -1227,20 +1281,25 @@ function selectMetaDeck(itemEl, format, deck) {
   document.getElementById('meta-deck-view').style.display = 'block';
 
   const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
-  document.getElementById('meta-deck-title').textContent = deck.name;
-  document.getElementById('meta-deck-stats').textContent =
-    `${format.charAt(0).toUpperCase() + format.slice(1)} · ${deck.owned_slots}/${deck.total_slots} owned (${pct}%)`;
-  document.getElementById('meta-deck-link').href = deck.url;
-
   const missing = deck.cards.filter(c => c.owned < c.quantity);
   const owned   = deck.cards.filter(c => c.owned >= c.quantity);
+
+  const missingCost = missing.reduce((s, c) => s + (c.eur_price || 0), 0);
+  const hasCost = missing.some(c => c.eur_price != null) && missingCost > 0;
+  const costStr = hasCost ? ` · ~€${missingCost.toFixed(2)} to complete (rough estimate)` : '';
+
+  document.getElementById('meta-deck-title').textContent = deck.name;
+  document.getElementById('meta-deck-stats').textContent =
+    `${format.charAt(0).toUpperCase() + format.slice(1)} · ${deck.owned_slots}/${deck.total_slots} owned (${pct}%)${costStr}`;
+  document.getElementById('meta-deck-link').href = deck.url;
 
   const mg = document.getElementById('meta-missing-grid');
   mg.innerHTML = '';
   document.getElementById('meta-missing-empty').style.display = missing.length ? 'none' : 'block';
   for (const c of missing) {
     const label = c.owned > 0 ? `${c.owned}/${c.quantity}` : 'MISSING';
-    mg.appendChild(makeCard(c.name, c.set_code, c.collector_number, null, '', label));
+    const priceLabel = c.eur_price != null ? `€${c.eur_price.toFixed(2)}` : null;
+    mg.appendChild(makeCard(c.name, c.set_code, c.collector_number, priceLabel, 'price', label));
   }
 
   const og = document.getElementById('meta-owned-grid');
