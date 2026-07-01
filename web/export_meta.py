@@ -7,12 +7,18 @@ Run directly to generate the file:
 import json
 import os
 import sys
+import unicodedata
 from collections import defaultdict
 from datetime import datetime, timezone
 
 from mtg_manager.config import load_config
 from mtg_manager.db import get_conn, get_owned_quantity
 from mtg_manager.goldfish import fetch_meta_decklists
+
+
+def _normalize(name: str) -> str:
+    """Lowercase and strip diacritics so 'Lorien' matches 'Lórien'."""
+    return unicodedata.normalize("NFD", name.lower()).encode("ascii", "ignore").decode("ascii")
 
 
 def export_meta_static(
@@ -29,22 +35,33 @@ def export_meta_static(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with get_conn(cfg.db_path) as conn:
-        # Build name → best printing lookup for card images
+        # Build name → best printing lookup for card images.
+        # Keys are both lowercased and diacritic-normalized so that names from
+        # MTGGoldfish (e.g. "Lorien Revealed") match DB entries ("Lórien Revealed").
         owned_rows = conn.execute(
-            "SELECT name, set_code, collector_number FROM owned_cards ORDER BY quantity DESC"
+            "SELECT name, set_code, collector_number, SUM(quantity) as total"
+            " FROM owned_cards GROUP BY name, set_code, collector_number"
+            " ORDER BY total DESC"
         ).fetchall()
         printing_map: dict[str, tuple[str, str]] = {}
+        normalized_owned: dict[str, int] = {}
         for r in owned_rows:
-            full_lower = r["name"].lower()
-            if full_lower not in printing_map:
-                printing_map[full_lower] = (r["set_code"], r["collector_number"])
+            printing = (r["set_code"], r["collector_number"])
+            for key in (r["name"].lower(), _normalize(r["name"])):
+                if key not in printing_map:
+                    printing_map[key] = printing
+            normalized_owned[_normalize(r["name"])] = (
+                normalized_owned.get(_normalize(r["name"]), 0) + r["total"]
+            )
             if " // " in r["name"]:
-                front_lower = r["name"].split(" // ")[0].strip().lower()
-                back_lower = r["name"].split(" // ")[1].strip().lower()
-                if front_lower not in printing_map:
-                    printing_map[front_lower] = (r["set_code"], r["collector_number"])
-                if back_lower not in printing_map:
-                    printing_map[back_lower] = (r["set_code"], r["collector_number"])
+                front, back = r["name"].split(" // ", 1)
+                for part in (front.strip(), back.strip()):
+                    for key in (part.lower(), _normalize(part)):
+                        if key not in printing_map:
+                            printing_map[key] = printing
+                    normalized_owned[_normalize(part)] = (
+                        normalized_owned.get(_normalize(part), 0) + r["total"]
+                    )
 
         format_results = []
         for fmt in formats:
@@ -66,8 +83,10 @@ def export_meta_static(
                 cards = []
                 for name, qty in card_totals.items():
                     owned = get_owned_quantity(conn, name)
+                    if owned == 0:
+                        owned = normalized_owned.get(_normalize(name), 0)
                     owned_slots += min(owned, qty)
-                    printing = printing_map.get(name.lower())
+                    printing = printing_map.get(name.lower()) or printing_map.get(_normalize(name))
                     cards.append({
                         "name": name,
                         "quantity": qty,
