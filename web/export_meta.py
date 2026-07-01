@@ -31,7 +31,7 @@ def _scryfall_post(identifiers: list[dict]) -> dict:
     req = urllib.request.Request(
         "https://api.scryfall.com/cards/collection",
         data=payload,
-        headers={"Content-Type": "application/json", "User-Agent": "mtg-manager/1.0"},
+        headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "mtg-manager/1.0"},
         method="POST",
     )
     try:
