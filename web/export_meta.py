@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import unicodedata
+import urllib.parse
 import urllib.request
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -42,6 +43,33 @@ def _scryfall_post(identifiers: list[dict]) -> dict:
         raise RuntimeError(f"HTTP {e.code}: {body[:300]}") from e
 
 
+def _scryfall_named_price(name: str) -> float | None:
+    """Fetch EUR price via /cards/named?fuzzy=, falling back to front face for // names.
+
+    Used for cards the collection endpoint couldn't match — typically split cards
+    or DFCs where the Goldfish name format differs from Scryfall's canonical form.
+    """
+    queries = [name]
+    if " // " in name:
+        queries.append(name.split(" // ")[0].strip())
+    for query in queries:
+        url = f"https://api.scryfall.com/cards/named?fuzzy={urllib.parse.quote(query)}"
+        req = urllib.request.Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "mtg-manager/1.0"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                card = json.loads(resp.read())
+            eur_str = (card.get("prices") or {}).get("eur")
+            if eur_str:
+                return float(eur_str)
+        except Exception:
+            pass
+        time.sleep(0.1)
+    return None
+
+
 def _fetch_scryfall_prices(card_names: list[str]) -> dict[str, float | None]:
     """Fetch EUR prices from Scryfall for a list of card names.
 
@@ -61,6 +89,17 @@ def _fetch_scryfall_prices(card_names: list[str]) -> dict[str, float | None]:
                 norm = _normalize(card["name"])
                 eur_str = (card.get("prices") or {}).get("eur")
                 result[norm] = float(eur_str) if eur_str else None
+            # Retry cards the collection endpoint couldn't match (common for // names)
+            for ident in data.get("not_found", []):
+                orig = ident.get("name", "")
+                if not orig:
+                    continue
+                print(f"[info] Collection not_found: {orig!r} — trying fuzzy named lookup", file=sys.stderr)
+                time.sleep(0.15)
+                price = _scryfall_named_price(orig)
+                result[_normalize(orig)] = price
+                if price is None:
+                    print(f"[warn] No price found for: {orig!r}", file=sys.stderr)
         except Exception as e:
             print(f"[warn] Scryfall batch {batch_num} failed: {e}", file=sys.stderr)
             print(f"[warn] Batch {batch_num} cards: {batch}", file=sys.stderr)
