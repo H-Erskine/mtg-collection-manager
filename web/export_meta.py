@@ -148,7 +148,13 @@ def export_meta_static(
             format_results.append({"format": fmt, "decks": decks})
             print(f"  → {len(decks)} decks fetched")
 
-    # Fetch EUR prices for missing cards and embed in the JSON
+    # Fetch EUR prices for missing cards (cached between runs)
+    cache_path = out_dir / "prices_cache.json"
+    try:
+        price_cache: dict[str, float | None] = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        price_cache = {}
+
     missing_names = list({
         c["name"]
         for fmt in format_results
@@ -156,14 +162,22 @@ def export_meta_static(
         for c in deck["cards"]
         if c["owned"] < c["quantity"]
     })
-    if missing_names:
-        print(f"Fetching EUR prices for {len(missing_names)} missing card(s) from Scryfall…")
-        eur_prices = _fetch_scryfall_prices(missing_names)
-        for fmt in format_results:
-            for deck in fmt["decks"]:
-                for c in deck["cards"]:
-                    if c["owned"] < c["quantity"]:
-                        c["eur_price"] = eur_prices.get(_normalize(c["name"]))
+    uncached = [n for n in missing_names if _normalize(n) not in price_cache]
+    if uncached:
+        print(f"Fetching EUR prices for {len(uncached)} new missing card(s) from Scryfall…")
+        new_prices = _fetch_scryfall_prices(uncached)
+        price_cache.update(new_prices)
+        tmp_cache = cache_path.with_suffix(".tmp")
+        tmp_cache.write_text(json.dumps(price_cache, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp_cache, cache_path)
+    elif missing_names:
+        print(f"EUR prices: all {len(missing_names)} missing card(s) already cached.")
+
+    for fmt in format_results:
+        for deck in fmt["decks"]:
+            for c in deck["cards"]:
+                if c["owned"] < c["quantity"]:
+                    c["eur_price"] = price_cache.get(_normalize(c["name"]))
 
     data = {
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
