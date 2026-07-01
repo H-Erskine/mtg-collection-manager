@@ -180,6 +180,7 @@
   .meta-section-header.can-build { color: var(--green); }
   .meta-section-header.close { color: var(--gold); }
   .meta-section-header.other { color: var(--muted); }
+  .meta-section-header.far { color: var(--red); }
 
   /* PRICE */
   .price-disclaimer { font-size: 0.72rem; color: var(--muted); font-style: italic; margin-bottom: 10px; padding: 6px 10px; background: var(--surface); border-radius: 4px; border-left: 2px solid var(--gold); }
@@ -1127,14 +1128,21 @@ function setMetaView(view, btn) {
   if (!isDeck && activeMetaFormat) buildMissingCardsView(activeMetaFormat);
 }
 
-function _makeDeckSidebarItem(deck, fmt) {
+function _deckCompletionCost(deck) {
+  return deck.cards.reduce((s, c) =>
+    c.owned < c.quantity ? s + (c.eur_price || 0) * (c.quantity - c.owned) : s, 0);
+}
+
+function _makeDeckSidebarItem(deck, fmt, completionCost) {
   const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
-  const barColor = pct === 100 ? 'var(--green)' : pct >= 80 ? 'var(--gold)' : 'var(--red)';
+  const missingCount = deck.cards.filter(c => c.owned < c.quantity).length;
+  const barColor = missingCount === 0 ? 'var(--green)' : missingCount <= 10 ? 'var(--gold)' : 'var(--red)';
+  const costStr = completionCost > 0 ? ` · ~€${completionCost.toFixed(0)}` : '';
   const item = document.createElement('div');
   item.className = 'meta-deck-item';
   item.innerHTML = `
     <div class="meta-deck-name" title="${deck.name}">${deck.name}</div>
-    <div class="meta-deck-frac">${deck.owned_slots}/${deck.total_slots} (${pct}%)</div>
+    <div class="meta-deck-frac">${deck.owned_slots}/${deck.total_slots} (${pct}%)${costStr}</div>
     <div class="meta-bar-bg"><div class="meta-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`;
   item.addEventListener('click', () => selectMetaDeck(item, fmt, deck));
   return item;
@@ -1146,26 +1154,31 @@ function renderMetaSidebar(fmt) {
   sidebar.innerHTML = '';
   if (!fmtData) return;
 
-  const buildable = [], close = [], other = [];
-  for (const deck of fmtData.decks) {
-    const ratio = deck.total_slots ? deck.owned_slots / deck.total_slots : 0;
-    if (ratio >= 1) buildable.push(deck);
-    else if (ratio >= 0.8) close.push(deck);
-    else other.push(deck);
-  }
+  // Annotate each deck with missing card count and completion cost
+  const annotated = fmtData.decks.map(deck => ({
+    deck,
+    missingCount: deck.cards.filter(c => c.owned < c.quantity).length,
+    cost: _deckCompletionCost(deck),
+  }));
 
-  function appendGroup(label, cls, decks) {
-    if (!decks.length) return;
+  const buildable = annotated.filter(d => d.missingCount === 0);
+  const close = annotated.filter(d => d.missingCount >= 1 && d.missingCount <= 10)
+    .sort((a, b) => a.cost - b.cost);
+  const far = annotated.filter(d => d.missingCount > 10)
+    .sort((a, b) => a.cost - b.cost);
+
+  function appendGroup(label, cls, items) {
+    if (!items.length) return;
     const hdr = document.createElement('div');
     hdr.className = `meta-section-header ${cls}`;
     hdr.textContent = label;
     sidebar.appendChild(hdr);
-    for (const deck of decks) sidebar.appendChild(_makeDeckSidebarItem(deck, fmt));
+    for (const { deck, cost } of items) sidebar.appendChild(_makeDeckSidebarItem(deck, fmt, cost));
   }
 
   appendGroup(`✓ Can Build (${buildable.length})`, 'can-build', buildable);
-  appendGroup(`≈ Close (${close.length})`, 'close', close);
-  appendGroup(`Other (${other.length})`, 'other', other);
+  appendGroup(`1–10 missing (${close.length})`, 'close', close);
+  appendGroup(`10+ missing (${far.length})`, 'far', far);
 }
 
 function buildMissingCardsView(fmt) {

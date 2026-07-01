@@ -228,7 +228,7 @@ if __name__ == "__main__":
         default=[], metavar="FORMAT",
         help="Format to fetch (repeatable, default: modern standard)",
     )
-    parser.add_argument("--count", "-n", type=int, default=30, help="Decks per format")
+    parser.add_argument("--count", "-n", type=int, default=50, help="Decks per format")
     args = parser.parse_args()
 
     cfg = load_config()
