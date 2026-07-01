@@ -1187,11 +1187,13 @@ function buildMissingCardsView(fmt) {
       const key = c.name.toLowerCase();
       if (!byCard[key]) {
         byCard[key] = { name: c.name, score: 0, set_code: c.set_code,
-          collector_number: c.collector_number, decks: [], eur_price: null };
+          collector_number: c.collector_number, decks: [], eur_price: null, needed: 0 };
       }
       byCard[key].score += weight;
       byCard[key].decks.push({ name: deck.name, owned_slots: deck.owned_slots, total_slots: deck.total_slots });
       if (byCard[key].eur_price == null && c.eur_price != null) byCard[key].eur_price = c.eur_price;
+      // Track max copies needed across all decks (buying this many covers the worst case)
+      byCard[key].needed = Math.max(byCard[key].needed, c.quantity - c.owned);
     }
   });
 
@@ -1211,7 +1213,7 @@ function buildMissingCardsView(fmt) {
   const costEl = document.getElementById('meta-missing-cost');
   disclaimerEl.style.display = hasPrices ? '' : 'none';
   if (hasPrices) {
-    const totalCost = cards.reduce((s, c) => s + (c.eur_price || 0), 0);
+    const totalCost = cards.reduce((s, c) => s + (c.eur_price || 0) * c.needed, 0);
     costEl.style.display = '';
     costEl.textContent = `Estimated missing cost: ~€${totalCost.toFixed(2)}`;
   } else {
@@ -1249,7 +1251,10 @@ function buildMissingCardsView(fmt) {
     if (c.eur_price != null) {
       const priceEl = document.createElement('div');
       priceEl.className = 'missing-list-price';
-      priceEl.textContent = `≈€${c.eur_price.toFixed(2)}`;
+      const totalPrice = c.eur_price * c.needed;
+      priceEl.textContent = c.needed > 1
+        ? `≈€${totalPrice.toFixed(2)} (${c.needed}×€${c.eur_price.toFixed(2)})`
+        : `≈€${c.eur_price.toFixed(2)}`;
       body.appendChild(priceEl);
     }
 
@@ -1284,7 +1289,7 @@ function selectMetaDeck(itemEl, format, deck) {
   const missing = deck.cards.filter(c => c.owned < c.quantity);
   const owned   = deck.cards.filter(c => c.owned >= c.quantity);
 
-  const missingCost = missing.reduce((s, c) => s + (c.eur_price || 0), 0);
+  const missingCost = missing.reduce((s, c) => s + (c.eur_price || 0) * (c.quantity - c.owned), 0);
   const hasCost = missing.some(c => c.eur_price != null) && missingCost > 0;
   const costStr = hasCost ? ` · ~€${missingCost.toFixed(2)} to complete (rough estimate)` : '';
 
@@ -1298,7 +1303,10 @@ function selectMetaDeck(itemEl, format, deck) {
   document.getElementById('meta-missing-empty').style.display = missing.length ? 'none' : 'block';
   for (const c of missing) {
     const label = c.owned > 0 ? `${c.owned}/${c.quantity}` : 'MISSING';
-    const priceLabel = c.eur_price != null ? `€${c.eur_price.toFixed(2)}` : null;
+    const need = c.quantity - c.owned;
+    const priceLabel = c.eur_price != null
+      ? (need > 1 ? `€${(c.eur_price * need).toFixed(2)}` : `€${c.eur_price.toFixed(2)}`)
+      : null;
     mg.appendChild(makeCard(c.name, c.set_code, c.collector_number, priceLabel, 'price', label));
   }
 
