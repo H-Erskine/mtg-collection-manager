@@ -205,11 +205,11 @@
 
 <nav>
   <div class="nav-brand">⚔ MTG Collection</div>
-  <div class="tab active" onclick="showTab('collection', this)">Collection</div>
-  <div class="tab" onclick="showTab('decks', this)">Decks</div>
-  <div class="tab" onclick="showTab('missing', this)">Missing</div>
-  <div class="tab" onclick="showTab('meta', this)">Meta</div>
-  <div class="tab" onclick="showTab('sale', this)">For Sale</div>
+  <div class="tab active" data-tab="collection" onclick="navigateTab('collection', this)">Collection</div>
+  <div class="tab" data-tab="decks" onclick="navigateTab('decks', this)">Decks</div>
+  <div class="tab" data-tab="missing" onclick="navigateTab('missing', this)">Missing</div>
+  <div class="tab" data-tab="meta" onclick="navigateTab('meta', this)">Meta</div>
+  <div class="tab" data-tab="sale" onclick="navigateTab('sale', this)">For Sale</div>
   <div class="nav-meta" id="last-synced">Loading…</div>
 </nav>
 
@@ -1332,15 +1332,34 @@ function selectMetaDeck(itemEl, format, deck) {
 
 // ─── Tab switching ────────────────────────────────────────────────────────────
 
+const PATH_TO_TAB = { '/': 'collection', '/decks': 'decks', '/missing': 'missing', '/meta': 'meta', '/sale': 'sale' };
+const TAB_TO_PATH = { collection: '/', decks: '/decks', missing: '/missing', meta: '/meta', sale: '/sale' };
+
+function tabFromPath(pathname) {
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  return PATH_TO_TAB[path] || 'collection';
+}
+
 function showTab(name, tabEl) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
-  tabEl.classList.add('active');
+  if (tabEl) tabEl.classList.add('active');
+  else document.querySelector(`.tab[data-tab="${name}"]`)?.classList.add('active');
   if (name === 'meta') loadMeta();
 }
 
+function navigateTab(name, tabEl) {
+  history.pushState(null, '', TAB_TO_PATH[name]);
+  showTab(name, tabEl);
+}
+
+window.addEventListener('popstate', () => {
+  showTab(tabFromPath(location.pathname));
+});
+
 init();
+showTab(tabFromPath(location.pathname));
 </script>
 </body>
 </html>
