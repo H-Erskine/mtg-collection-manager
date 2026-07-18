@@ -1,8 +1,12 @@
-"""Fetch top N meta decklists from MTGGoldfish and write meta.json.
+"""Build meta.json from the meta decklists saved by scripts/refresh_meta.py.
+
+Decklists themselves are refreshed nightly from MTGGoldfish (see
+scripts/refresh_meta.py); this export only compares those saved lists
+against the current collection, so it's cheap enough to run on every sync.
 
 Run directly to generate the file:
     python -m web.export_meta
-    python -m web.export_meta --format modern --format standard --count 30
+    python -m web.export_meta --format modern --format standard
 """
 import json
 import os
@@ -15,8 +19,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from mtg_manager.config import load_config
-from mtg_manager.db import get_conn, get_owned_quantity
-from mtg_manager.goldfish import fetch_meta_decklists
+from mtg_manager.db import get_conn, get_meta_decks, get_owned_quantity
 
 
 def _normalize(name: str) -> str:
@@ -123,9 +126,13 @@ def _fetch_scryfall_prices(card_names: list[str]) -> dict[str, float | None]:
 def export_meta_static(
     cfg,
     formats: list[str],
-    count: int = 30,
 ) -> None:
-    """Fetch meta decklists and write meta.json to cfg.web_static_dir."""
+    """Compare saved meta decklists against the current collection and write meta.json.
+
+    Reads decklists from the meta_decks/meta_deck_cards tables (kept fresh by
+    scripts/refresh_meta.py) rather than fetching from MTGGoldfish, so this is
+    safe to call on every sync.
+    """
     if cfg.web_static_dir is None:
         print("web_static_dir not set in config — skipping meta export.", file=sys.stderr)
         return
@@ -164,11 +171,9 @@ def export_meta_static(
 
         format_results = []
         for fmt in formats:
-            print(f"Fetching {fmt} meta ({count} decks)…")
-            try:
-                decklists = fetch_meta_decklists(fmt, limit=count, delay=cfg.mtgtop8_delay)
-            except Exception as e:
-                print(f"[warn] Failed to fetch {fmt} meta: {e}", file=sys.stderr)
+            decklists = get_meta_decks(conn, fmt)
+            if not decklists:
+                print(f"[warn] No saved meta decklists for '{fmt}' — run scripts.refresh_meta first.", file=sys.stderr)
                 continue
 
             decks = []
@@ -261,14 +266,13 @@ def export_meta_static(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Fetch meta decklists and write meta.json")
+    parser = argparse.ArgumentParser(description="Build meta.json from saved meta decklists")
     parser.add_argument(
         "--format", "-f", dest="formats", action="append",
         default=[], metavar="FORMAT",
-        help="Format to fetch (repeatable, default: modern standard)",
+        help="Format to export (repeatable, default: config [formats].tracked)",
     )
-    parser.add_argument("--count", "-n", type=int, default=50, help="Decks per format")
     args = parser.parse_args()
 
     cfg = load_config()
-    export_meta_static(cfg, formats=args.formats or ["modern", "standard"], count=args.count)
+    export_meta_static(cfg, formats=args.formats or cfg.formats or ["modern", "standard"])

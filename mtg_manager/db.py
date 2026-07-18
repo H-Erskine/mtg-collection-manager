@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from .models import BoxedCard, MissingCard, OwnedCard
+from .models import BoxedCard, DeckCard, Decklist, MissingCard, OwnedCard
 
 
 SCHEMA = """
@@ -80,6 +80,25 @@ CREATE TABLE IF NOT EXISTS moxfield_tags (
     binder_public_id TEXT NOT NULL,
     tag              TEXT NOT NULL,
     PRIMARY KEY (card_id, binder_public_id, tag)
+);
+
+CREATE TABLE IF NOT EXISTS meta_decks (
+    format       TEXT NOT NULL,
+    deck_id      TEXT NOT NULL,
+    deck_name    TEXT NOT NULL,
+    deck_url     TEXT NOT NULL,
+    meta_share   REAL NOT NULL DEFAULT 0,
+    fetched_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (format, deck_id)
+);
+
+CREATE TABLE IF NOT EXISTS meta_deck_cards (
+    format       TEXT NOT NULL,
+    deck_id      TEXT NOT NULL,
+    card_name    TEXT NOT NULL,
+    quantity     INTEGER NOT NULL DEFAULT 1,
+    is_sideboard INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (format, deck_id, card_name, is_sideboard)
 );
 """
 
@@ -875,3 +894,68 @@ def categorise_missing_cards(
                 total_variants=total_variants,
             ))
     return missing, boxed, available
+
+
+# ---------------------------------------------------------------------------
+# Meta decklists (fetched nightly from MTGGoldfish, compared live at read time)
+# ---------------------------------------------------------------------------
+
+def replace_meta_decks(conn: sqlite3.Connection, format_name: str, decklists: list[Decklist]) -> None:
+    """Replace all saved decklists for a format with a freshly fetched set."""
+    conn.execute("DELETE FROM meta_deck_cards WHERE format = ?", (format_name,))
+    conn.execute("DELETE FROM meta_decks WHERE format = ?", (format_name,))
+    conn.executemany(
+        """
+        INSERT INTO meta_decks (format, deck_id, deck_name, deck_url, meta_share)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [(format_name, dl.deck_id, dl.name, dl.url, dl.meta_share) for dl in decklists],
+    )
+    conn.executemany(
+        """
+        INSERT INTO meta_deck_cards (format, deck_id, card_name, quantity, is_sideboard)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (format_name, dl.deck_id, c.name, c.quantity, int(c.is_sideboard))
+            for dl in decklists
+            for c in dl.cards
+        ],
+    )
+
+
+def get_meta_decks(conn: sqlite3.Connection, format_name: str) -> list[Decklist]:
+    """Return saved decklists for a format, ordered by meta_share descending."""
+    deck_rows = conn.execute(
+        "SELECT deck_id, deck_name, deck_url, meta_share FROM meta_decks "
+        "WHERE format = ? ORDER BY meta_share DESC",
+        (format_name,),
+    ).fetchall()
+
+    decklists = []
+    for row in deck_rows:
+        card_rows = conn.execute(
+            "SELECT card_name, quantity, is_sideboard FROM meta_deck_cards "
+            "WHERE format = ? AND deck_id = ?",
+            (format_name, row["deck_id"]),
+        ).fetchall()
+        decklists.append(Decklist(
+            deck_id=row["deck_id"],
+            name=row["deck_name"],
+            url=row["deck_url"],
+            meta_share=row["meta_share"],
+            cards=[
+                DeckCard(name=c["card_name"], quantity=c["quantity"], is_sideboard=bool(c["is_sideboard"]))
+                for c in card_rows
+            ],
+        ))
+    return decklists
+
+
+def get_meta_decks_updated_at(conn: sqlite3.Connection, format_name: str) -> str | None:
+    """Return the fetched_at timestamp of the saved decklists for a format, or None if empty."""
+    row = conn.execute(
+        "SELECT MAX(fetched_at) AS fetched_at FROM meta_decks WHERE format = ?",
+        (format_name,),
+    ).fetchone()
+    return row["fetched_at"] if row else None

@@ -210,6 +210,13 @@ def handle_sync(cfg: Config, is_owner: bool = False, color_group: str | None = N
     except Exception as e:
         lines.append(f"Web export failed: {e}")
 
+    if cfg.formats:
+        try:
+            from web.export_meta import export_meta_static
+            export_meta_static(cfg, cfg.formats)
+        except Exception as e:
+            lines.append(f"Meta web export failed: {e}")
+
     return "\n".join(lines)
 
 
@@ -1218,20 +1225,24 @@ def handle_stats(cfg: Config, is_owner: bool = False) -> str:
 # ---------------------------------------------------------------------------
 
 def handle_meta(format_name: str, count: int, cfg: Config, is_owner: bool = False) -> tuple[str, list]:
-    """Returns (text, deck_results) where deck_results is [(dl, dm, total, owned), ...]."""
-    from mtg_manager.goldfish import fetch_meta_decklists
+    """Returns (text, deck_results) where deck_results is [(dl, dm, total, owned), ...].
 
-    try:
-        decklists = fetch_meta_decklists(format_name, limit=count, delay=cfg.mtgtop8_delay)
-    except Exception as e:
-        return f"Failed to fetch meta: {e}", []
-
-    if not decklists:
-        return f"No meta decks found for '{format_name}'.", []
+    Reads decklists saved by scripts/refresh_meta.py (nightly MTGGoldfish pull) rather
+    than fetching live, so the owned/missing comparison below is the only "live" part.
+    """
+    from mtg_manager.db import get_meta_decks
 
     with get_conn(cfg.db_path) as conn:
         if is_owner:
             _auto_sync(cfg, conn)
+
+        decklists = get_meta_decks(conn, format_name)[:count]
+        if not decklists:
+            return (
+                f"No saved meta decks for '{format_name}' yet — "
+                "the nightly refresh may not have run for this format.",
+                [],
+            )
 
         deck_results = []
         for dl in decklists:

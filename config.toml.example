@@ -35,7 +35,12 @@ pick_list_sort = "colour"
 tracked = ["modern", "standard"]
 
 # [web]
-# Path where collection.json and decks.json are written after each sync.
+# Path where collection.json, decks.json, and meta.json are written after each sync.
 # Serve this directory with nginx to host the collection website.
 # Omit this section to disable web export.
 # static_dir = "/var/www/mtg"
+
+# Meta decklists (for meta.json / the /meta command) are refreshed nightly by
+# `python -m scripts.refresh_meta` (uses [formats].tracked above) rather than
+# fetched live — 'mtg sync' / '/sync' just recompares the saved lists against
+# the current collection and rewrites meta.json.
