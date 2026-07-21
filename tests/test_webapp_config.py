@@ -1,6 +1,7 @@
 import contextlib
 import json
 from base64 import b64encode
+from unittest.mock import patch
 
 import itsdangerous
 from fastapi import FastAPI, Request
@@ -152,3 +153,35 @@ def test_set_formats(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert get_response.json()["formats"] == ["modern", "legacy"]
+
+
+def test_sync_calls_handle_sync_and_marks_synced(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ensure_user("google:alice@example.com")
+
+    with patch.object(config_mod, "handle_sync", return_value="Synced 3 cards.") as mock_sync:
+        with client as c:
+            with c.session_transaction() as session:
+                session["user_id"] = "google:alice@example.com"
+            response = c.post("/api/config/sync")
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Synced 3 cards."
+    mock_sync.assert_called_once()
+
+
+def test_sync_throttled_returns_429(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ensure_user("google:alice@example.com")
+
+    from api.users import mark_synced
+    mark_synced("google:alice@example.com")
+
+    with patch.object(config_mod, "handle_sync") as mock_sync:
+        with client as c:
+            with c.session_transaction() as session:
+                session["user_id"] = "google:alice@example.com"
+            response = c.post("/api/config/sync")
+
+    assert response.status_code == 429
+    mock_sync.assert_not_called()
