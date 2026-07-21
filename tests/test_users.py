@@ -164,3 +164,23 @@ def test_get_user_config_db_path_uses_users_dir(tmp_path):
     cfg = users_mod.get_user_config("discord:999")
     assert cfg is not None
     assert "999" in str(cfg.db_path)
+
+
+def test_get_user_config_db_path_is_openable_on_disk():
+    users_mod.ensure_user("discord:12345")
+    cfg = users_mod.get_user_config("discord:12345")
+    assert cfg is not None
+    conn = sqlite3.connect(cfg.db_path)
+    conn.execute("CREATE TABLE IF NOT EXISTS t (x INTEGER)")
+    conn.close()
+    assert cfg.db_path.exists()
+
+
+def test_get_user_config_db_path_openable_for_google_user():
+    users_mod.ensure_user("google:alice@example.com")
+    cfg = users_mod.get_user_config("google:alice@example.com")
+    assert cfg is not None
+    conn = sqlite3.connect(cfg.db_path)
+    conn.execute("CREATE TABLE IF NOT EXISTS t (x INTEGER)")
+    conn.close()
+    assert cfg.db_path.exists()

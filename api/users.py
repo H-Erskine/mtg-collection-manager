@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS user_packages (
 VALID_SORT_OPTIONS = ("colour", "alphabetical", "set", "cmc")
 
 
+def _safe_filename(user_id: str) -> str:
+    """Sanitize a prefixed user_id (e.g. 'discord:123' or 'google:a@b.com') for use as a filename component. Windows disallows ':' in paths."""
+    return user_id.replace(":", "_")
+
+
 def _migrate_legacy_discord_id(conn: sqlite3.Connection) -> None:
     """One-time rename of discord_id -> user_id for pre-existing registries."""
     tables = {r[0] for r in conn.execute(
@@ -156,7 +161,7 @@ def get_user_config(user_id: str) -> Config | None:
         moxfield_delay=1.0,
         mtgtop8_delay=1.5,
         mtgtop8_cache_ttl=24,
-        db_path=_USERS_DIR / f"{user_id}.sqlite",
+        db_path=_USERS_DIR / f"{_safe_filename(user_id)}.sqlite",
         pick_list_sort=user["pick_list_sort"],
         formats=formats,
     )
