@@ -19,7 +19,7 @@ from pathlib import Path
 # Allow running as `python -m scripts.evict_cache` from the project root
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from api.users import list_users_for_eviction, _USERS_DIR
+from api.users import list_users_for_eviction, _USERS_DIR, _safe_filename
 from mtg_manager.db import get_conn
 
 logging.basicConfig(
@@ -39,7 +39,7 @@ def evict(threshold_days: int = 7, dry_run: bool = False) -> None:
     logger.info("Found %d user(s) inactive for >%d days.", len(stale_ids), threshold_days)
 
     for discord_id in stale_ids:
-        db_path = _USERS_DIR / f"{discord_id}.sqlite"
+        db_path = _USERS_DIR / f"{_safe_filename(discord_id)}.sqlite"
         if not db_path.exists():
             logger.info("  %s — no DB file, skipping.", discord_id)
             continue
