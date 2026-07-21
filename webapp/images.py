@@ -1,5 +1,6 @@
 """Shared, lazily-populated disk cache for Scryfall card images."""
 
+import os
 import re
 from pathlib import Path
 from urllib.parse import quote
@@ -35,7 +36,7 @@ async def get_card_image(set_code: str, collector_number: str):
         f"/{quote(collector_number, safe='')}?format=image&version=normal"
     )
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": "mtg-manager/1.0 (personal collection site)"})
     except httpx.HTTPError:
         raise HTTPException(status_code=404, detail="Card image not found")
@@ -44,7 +45,9 @@ async def get_card_image(set_code: str, collector_number: str):
         raise HTTPException(status_code=404, detail="Card image not found")
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_bytes(resp.content)
+    tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+    tmp_path.write_bytes(resp.content)
+    os.replace(tmp_path, cache_path)
 
     return Response(
         content=resp.content,

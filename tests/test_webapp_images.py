@@ -84,3 +84,48 @@ def test_collector_number_with_slash_is_sanitized_for_filename(app_client, tmp_p
 
     assert response.status_code == 200
     assert (tmp_path / "image_cache" / "lea" / "12a.jpg").exists()
+
+
+def test_scryfall_redirect_is_followed_to_real_image(app_client, tmp_path):
+    """Scryfall's /cards/{set}/{cn}?format=image endpoint responds with a 302
+    redirect to cards.scryfall.io, not the image bytes directly. This simulates
+    the real two-hop behavior (rather than mocking a direct 200) so a regression
+    to follow_redirects=False cannot pass silently."""
+    fake_bytes = b"real-image-bytes"
+
+    def handler(request):
+        if "cards.scryfall.io" in str(request.url):
+            return httpx.Response(200, content=fake_bytes)
+        return httpx.Response(
+            302,
+            headers={"location": "https://cards.scryfall.io/normal/front/m/1/m10-146.jpg"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    real_async_client = images_mod.httpx.AsyncClient
+
+    def client_factory(*args, **kwargs):
+        kwargs["transport"] = transport
+        return real_async_client(*args, **kwargs)
+
+    with patch.object(images_mod.httpx, "AsyncClient", side_effect=client_factory):
+        response = app_client.get("/images/m10/146")
+
+    assert response.status_code == 200
+    assert response.content == fake_bytes
+    cached_path = tmp_path / "image_cache" / "m10" / "146.jpg"
+    assert cached_path.exists()
+    assert cached_path.read_bytes() == fake_bytes
+
+
+def test_cache_write_leaves_no_tmp_file_behind(app_client, tmp_path):
+    fake_bytes = b"fake-jpeg-bytes"
+    with patch.object(
+        images_mod.httpx.AsyncClient, "get", new=AsyncMock(return_value=_fake_scryfall_response(fake_bytes))
+    ):
+        response = app_client.get("/images/m10/146")
+
+    assert response.status_code == 200
+    cache_dir = tmp_path / "image_cache" / "m10"
+    assert (cache_dir / "146.jpg").exists()
+    assert not (cache_dir / "146.jpg.tmp").exists()
