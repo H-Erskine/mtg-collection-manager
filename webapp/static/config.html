@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTG Collection — Config</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --accent: #e94560;
+    --text: #eaeaea;
+    --muted: #888;
+    --green: #4caf50;
+    --red: #e94560;
+    --gold: #f0c040;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  nav { background: var(--surface); border-bottom: 2px solid var(--surface2); padding: 0 24px; display: flex; align-items: center; gap: 0; }
+  .nav-brand { font-weight: 700; font-size: 1.1rem; color: var(--gold); padding: 16px 24px 16px 0; border-right: 1px solid var(--surface2); margin-right: 8px; }
+  .nav-link { padding: 16px 20px; color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+  .nav-link:hover { color: var(--text); }
+  .nav-meta { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
+  .nav-logout { color: var(--text); text-decoration: underline; cursor: pointer; margin-left: 8px; }
+  .nav-logout:hover { color: var(--accent); }
+
+  .page { padding: 24px; max-width: 800px; margin: 0 auto; }
+  section { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+  h2 { font-size: 1rem; color: var(--gold); margin-bottom: 14px; }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+  input, select { background: var(--bg); border: 1px solid var(--surface2); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 0.9rem; margin-bottom: 10px; width: 100%; }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .btn { padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+  .btn:hover { background: #c73652; }
+  .btn-secondary { padding: 6px 12px; background: var(--surface2); color: var(--text); border: none; border-radius: var(--radius); font-size: 0.82rem; cursor: pointer; }
+  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--surface2); }
+  .row:last-child { border-bottom: none; }
+  .msg { font-size: 0.85rem; margin-top: 8px; }
+  .msg.ok { color: var(--green); }
+  .msg.err { color: var(--red); }
+  .inline-form { display: flex; gap: 8px; align-items: flex-end; }
+  .inline-form input { margin-bottom: 0; }
+  .checkbox-row { display: flex; align-items: center; gap: 6px; }
+  .checkbox-row input { width: auto; margin-bottom: 0; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">⚔ MTG Collection</div>
+  <a class="nav-link" href="/app">Collection</a>
+  <a class="nav-link" href="/config">Config</a>
+  <div class="nav-meta" id="nav-identity">Loading…</div>
+</nav>
+
+<div class="page">
+  <section>
+    <h2>Moxfield Packages</h2>
+    <div id="packages-list"></div>
+    <div class="inline-form" style="margin-top:12px">
+      <div style="flex:1"><label>Color group</label><input id="pkg-color" placeholder="e.g. Red"></div>
+      <div style="flex:1"><label>Public ID</label><input id="pkg-id" placeholder="Moxfield deck slug"></div>
+      <button class="btn" onclick="addPackage()">Add</button>
+    </div>
+    <div id="pkg-msg" class="msg"></div>
+  </section>
+
+  <section>
+    <h2>Tracked Formats</h2>
+    <label>Comma-separated (e.g. modern,legacy)</label>
+    <input id="formats-input">
+    <button class="btn" onclick="saveFormats()">Save</button>
+    <div id="formats-msg" class="msg"></div>
+  </section>
+
+  <section>
+    <h2>Pick List Sort</h2>
+    <select id="sort-select">
+      <option value="colour">Colour</option>
+      <option value="alphabetical">Alphabetical</option>
+      <option value="set">Set</option>
+      <option value="cmc">CMC</option>
+    </select>
+    <button class="btn" onclick="saveSort()">Save</button>
+    <div id="sort-msg" class="msg"></div>
+  </section>
+
+  <section>
+    <h2>Sync</h2>
+    <button class="btn" onclick="syncNow()">Sync now</button>
+    <div id="sync-msg" class="msg"></div>
+  </section>
+
+  <section id="admin-section" style="display:none">
+    <h2>Whitelist (Admin)</h2>
+    <div id="whitelist-list"></div>
+    <div class="inline-form" style="margin-top:12px">
+      <div style="flex:1"><label>Email</label><input id="wl-email" placeholder="someone@example.com"></div>
+      <div class="checkbox-row"><input type="checkbox" id="wl-admin"><label style="margin:0">Admin</label></div>
+      <button class="btn" onclick="addWhitelist()">Add</button>
+    </div>
+    <div id="wl-msg" class="msg"></div>
+  </section>
+</div>
+
+<script>
+async function loadConfig() {
+  const res = await fetch('/api/config');
+  if (!res.ok) { location.href = '/login'; return; }
+  const data = await res.json();
+
+  renderPackages(data.packages);
+  document.getElementById('formats-input').value = data.formats.join(',');
+  document.getElementById('sort-select').value = data.pick_list_sort;
+
+  if (data.is_admin) {
+    document.getElementById('admin-section').style.display = 'block';
+    loadWhitelist();
+  }
+}
+
+function renderPackages(packages) {
+  const list = document.getElementById('packages-list');
+  list.innerHTML = '';
+  if (!packages.length) {
+    list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No packages yet.</p>';
+    return;
+  }
+  for (const p of packages) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<span>${p.color_group} → <code>${p.public_id}</code></span>`;
+    const btn = document.createElement('button');
+    btn.className = 'btn-secondary';
+    btn.textContent = 'Remove';
+    btn.onclick = () => removePackage(p.color_group);
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+
+async function addPackage() {
+  const color_group = document.getElementById('pkg-color').value.trim();
+  const public_id = document.getElementById('pkg-id').value.trim();
+  if (!color_group || !public_id) return;
+  const res = await fetch('/api/config/packages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ color_group, public_id }),
+  });
+  const msg = document.getElementById('pkg-msg');
+  msg.textContent = res.ok ? 'Added.' : 'Failed to add package.';
+  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+  if (res.ok) {
+    document.getElementById('pkg-color').value = '';
+    document.getElementById('pkg-id').value = '';
+    loadConfig();
+  }
+}
+
+async function removePackage(color_group) {
+  await fetch(`/api/config/packages/${encodeURIComponent(color_group)}`, { method: 'DELETE' });
+  loadConfig();
+}
+
+async function saveFormats() {
+  const formats = document.getElementById('formats-input').value.split(',').map(s => s.trim()).filter(Boolean);
+  const res = await fetch('/api/config/formats', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ formats }),
+  });
+  const msg = document.getElementById('formats-msg');
+  msg.textContent = res.ok ? 'Saved.' : 'Failed to save.';
+  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+}
+
+async function saveSort() {
+  const sort_mode = document.getElementById('sort-select').value;
+  const res = await fetch('/api/config/sort', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sort_mode }),
+  });
+  const msg = document.getElementById('sort-msg');
+  msg.textContent = res.ok ? 'Saved.' : 'Failed to save.';
+  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+}
+
+async function syncNow() {
+  const msg = document.getElementById('sync-msg');
+  msg.textContent = 'Syncing…';
+  msg.className = 'msg';
+  const res = await fetch('/api/config/sync', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 429) {
+    msg.textContent = data.detail || 'Sync throttled.';
+    msg.className = 'msg err';
+  } else if (res.ok) {
+    msg.textContent = data.message || 'Sync complete.';
+    msg.className = 'msg ok';
+  } else {
+    msg.textContent = 'Sync failed.';
+    msg.className = 'msg err';
+  }
+}
+
+async function loadWhitelist() {
+  const res = await fetch('/api/admin/whitelist');
+  if (!res.ok) return;
+  const data = await res.json();
+  const list = document.getElementById('whitelist-list');
+  list.innerHTML = '';
+  for (const row of data.whitelist) {
+    const el = document.createElement('div');
+    el.className = 'row';
+    el.innerHTML = `<span>${row.email}${row.is_admin ? ' (admin)' : ''}</span>`;
+    list.appendChild(el);
+  }
+}
+
+async function addWhitelist() {
+  const email = document.getElementById('wl-email').value.trim();
+  const is_admin = document.getElementById('wl-admin').checked;
+  if (!email) return;
+  const res = await fetch('/api/admin/whitelist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, is_admin }),
+  });
+  const msg = document.getElementById('wl-msg');
+  msg.textContent = res.ok ? 'Added.' : 'Failed to add.';
+  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+  if (res.ok) {
+    document.getElementById('wl-email').value = '';
+    document.getElementById('wl-admin').checked = false;
+    loadWhitelist();
+  }
+}
+
+async function loadWhoami() {
+  try {
+    const res = await fetch('/api/whoami');
+    const data = await res.json();
+    const el = document.getElementById('nav-identity');
+    el.innerHTML = '';
+    el.append(data.email + ' · ');
+    const logout = document.createElement('span');
+    logout.className = 'nav-logout';
+    logout.textContent = 'Logout';
+    logout.onclick = () => fetch('/logout', { method: 'POST' }).then(() => { location.href = '/login'; });
+    el.appendChild(logout);
+  } catch {}
+}
+
+loadConfig();
+loadWhoami();
+</script>
+</body>
+</html>

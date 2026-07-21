@@ -14,6 +14,7 @@ load_dotenv()
 from api.users import get_user_config, seed_owner_whitelist
 from mtg_manager.config import Config
 from webapp.auth import router as auth_router
+from webapp.config import router as config_router
 from webapp.data import get_collection, get_decks
 from webapp.deps import NotAuthenticated, require_user
 from webapp.images import router as images_router
@@ -25,6 +26,7 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(images_router)
+app.include_router(config_router)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -58,6 +60,11 @@ async def api_whoami(request: Request, cfg: Config = Depends(require_user)):
 @app.get("/app")
 async def app_page(cfg: Config = Depends(require_user)):
     return FileResponse(_STATIC_DIR / "app.html")
+
+
+@app.get("/config")
+async def config_page(cfg: Config = Depends(require_user)):
+    return FileResponse(_STATIC_DIR / "config.html")
 
 
 @app.get("/")
