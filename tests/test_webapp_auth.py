@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from authlib.integrations.starlette_client import OAuthError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.middleware.sessions import SessionMiddleware
@@ -52,6 +53,16 @@ def test_callback_registers_whitelisted_email(app_client):
     assert response.status_code in (302, 307)
     assert response.headers["location"] == "/app"
     assert is_registered("google:alice@example.com")
+
+
+def test_callback_redirects_to_login_on_oauth_error(app_client):
+    with patch.object(
+        auth_mod.oauth.google, "authorize_access_token",
+        new=AsyncMock(side_effect=OAuthError(error="mismatching_state")),
+    ):
+        response = app_client.get("/auth/callback", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "/login"
 
 
 def test_logout_clears_session(app_client):

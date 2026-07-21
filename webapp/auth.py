@@ -2,7 +2,7 @@
 
 import os
 
-from authlib.integrations.starlette_client import OAuth
+from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, Request
 from starlette.responses import HTMLResponse, RedirectResponse
 
@@ -28,7 +28,10 @@ async def login(request: Request):
 
 @router.get("/auth/callback", name="auth_callback")
 async def auth_callback(request: Request):
-    token = await oauth.google.authorize_access_token(request)
+    try:
+        token = await oauth.google.authorize_access_token(request)
+    except OAuthError:
+        return RedirectResponse(url="/login", status_code=302)
     userinfo = token.get("userinfo") or {}
     email = (userinfo.get("email") or "").lower()
 
