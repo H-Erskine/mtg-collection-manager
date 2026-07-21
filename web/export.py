@@ -23,8 +23,8 @@ def export_static(cfg: Config) -> None:
 
     with get_conn(cfg.db_path) as conn:
         updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        collection_cards = _get_collection(conn)
-        decks_data = {"updated_at": updated_at, "decks": _get_decks(conn)}
+        collection_cards = get_collection_data(conn)
+        decks_data = {"updated_at": updated_at, "decks": get_decks_data(conn)}
         sale_data = _get_sale(conn)
 
     collection_data = {"updated_at": updated_at, "cards": collection_cards}
@@ -56,7 +56,7 @@ def export_static(cfg: Config) -> None:
         t.start()
 
 
-def _get_collection(conn) -> list[dict]:
+def get_collection_data(conn) -> list[dict]:
     rows = conn.execute(
         "SELECT name, set_code, collector_number, foil, quantity, color_group "
         "FROM owned_cards ORDER BY color_group, name"
@@ -74,7 +74,7 @@ def _get_collection(conn) -> list[dict]:
     ]
 
 
-def _get_decks(conn) -> list[dict]:
+def get_decks_data(conn) -> list[dict]:
     # Build printing lookup: lower_name -> (set_code, collector_number)
     # Ordered by quantity DESC so the highest-qty printing wins.
     owned_rows = conn.execute(
