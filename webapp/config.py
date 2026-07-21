@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from api.handlers import handle_sync
 from api.users import (
     add_package,
+    add_whitelisted_email,
     is_whitelist_admin,
     list_packages,
     mark_synced,
@@ -15,7 +16,7 @@ from api.users import (
     set_sort,
 )
 from mtg_manager.config import Config
-from webapp.deps import require_user
+from webapp.deps import require_admin, require_user
 
 router = APIRouter()
 
@@ -33,6 +34,11 @@ class SortIn(BaseModel):
 
 class FormatsIn(BaseModel):
     formats: list[str]
+
+
+class WhitelistIn(BaseModel):
+    email: str
+    is_admin: bool = False
 
 
 def _is_admin(user_id: str) -> bool:
@@ -97,3 +103,25 @@ def sync_now(request: Request, cfg: Config = Depends(require_user)):
     message = handle_sync(cfg, is_owner=False)
     mark_synced(user_id)
     return {"message": message}
+
+
+@router.get("/api/admin/whitelist")
+async def list_whitelist(cfg: Config = Depends(require_admin)):
+    from api.users import _registry_conn  # reuse existing connection helper
+
+    with _registry_conn() as conn:
+        rows = conn.execute(
+            "SELECT email, is_admin, added_at FROM whitelisted_emails ORDER BY added_at"
+        ).fetchall()
+    return {
+        "whitelist": [
+            {"email": r["email"], "is_admin": bool(r["is_admin"]), "added_at": r["added_at"]}
+            for r in rows
+        ]
+    }
+
+
+@router.post("/api/admin/whitelist")
+async def add_to_whitelist(body: WhitelistIn, cfg: Config = Depends(require_admin)):
+    add_whitelisted_email(body.email, is_admin=body.is_admin)
+    return {"ok": True}
