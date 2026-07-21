@@ -58,6 +58,18 @@ def test_unknown_printing_returns_404_and_caches_nothing(app_client, tmp_path):
     assert not (tmp_path / "image_cache" / "zzz" / "999.jpg").exists()
 
 
+def test_network_error_returns_404_and_caches_nothing(app_client, tmp_path):
+    with patch.object(
+        images_mod.httpx.AsyncClient,
+        "get",
+        new=AsyncMock(side_effect=httpx.ConnectError("connection failed")),
+    ):
+        response = app_client.get("/images/m10/146")
+
+    assert response.status_code == 404
+    assert not (tmp_path / "image_cache" / "m10" / "146.jpg").exists()
+
+
 def test_path_traversal_rejected(app_client):
     response = app_client.get("/images/..%2f..%2fetc/passwd")
     assert response.status_code in (400, 404)

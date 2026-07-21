@@ -34,8 +34,11 @@ async def get_card_image(set_code: str, collector_number: str):
         f"https://api.scryfall.com/cards/{quote(set_code, safe='')}"
         f"/{quote(collector_number, safe='')}?format=image&version=normal"
     )
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, headers={"User-Agent": "mtg-manager/1.0 (personal collection site)"})
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers={"User-Agent": "mtg-manager/1.0 (personal collection site)"})
+    except httpx.HTTPError:
+        raise HTTPException(status_code=404, detail="Card image not found")
 
     if resp.status_code != 200:
         raise HTTPException(status_code=404, detail="Card image not found")
