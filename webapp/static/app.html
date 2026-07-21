@@ -315,7 +315,7 @@ function doLogout() {
 // ─── Image helpers ───────────────────────────────────────────────────────────
 
 function scryfallImgUrl(set_code, collector_number) {
-  return `https://api.scryfall.com/cards/${set_code}/${collector_number}?format=image&version=normal`;
+  return `/images/${encodeURIComponent(set_code)}/${encodeURIComponent(collector_number)}`;
 }
 
 function namedImgUrl(name) {

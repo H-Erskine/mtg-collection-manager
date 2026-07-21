@@ -16,6 +16,7 @@ from mtg_manager.config import Config
 from webapp.auth import router as auth_router
 from webapp.data import get_collection, get_decks
 from webapp.deps import NotAuthenticated, require_user
+from webapp.images import router as images_router
 
 app = FastAPI()
 app.add_middleware(
@@ -23,6 +24,7 @@ app.add_middleware(
     secret_key=os.environ.get("SESSION_SECRET_KEY", "dev-only-insecure-key"),
 )
 app.include_router(auth_router)
+app.include_router(images_router)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
