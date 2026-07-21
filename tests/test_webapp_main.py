@@ -122,3 +122,26 @@ def test_root_redirects_to_app_when_authenticated(tmp_path, monkeypatch):
 
     assert response.status_code in (302, 307)
     assert response.headers["location"] == "/app"
+
+
+def test_app_redirects_when_not_logged_in(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    response = client.get("/app", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "/login"
+
+
+def test_app_serves_page_when_logged_in(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    from api.users import ensure_user
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/app")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "MTG Collection" in response.text

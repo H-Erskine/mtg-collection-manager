@@ -1,9 +1,11 @@
 """FastAPI app entry point: uvicorn webapp.main:app"""
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Request
+from fastapi.responses import FileResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse
 
@@ -21,6 +23,8 @@ app.add_middleware(
     secret_key=os.environ.get("SESSION_SECRET_KEY", "dev-only-insecure-key"),
 )
 app.include_router(auth_router)
+
+_STATIC_DIR = Path(__file__).parent / "static"
 
 
 @app.exception_handler(NotAuthenticated)
@@ -47,6 +51,11 @@ async def api_decks(cfg: Config = Depends(require_user)):
 async def api_whoami(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     return {"email": user_id.split(":", 1)[1]}
+
+
+@app.get("/app")
+async def app_page(cfg: Config = Depends(require_user)):
+    return FileResponse(_STATIC_DIR / "app.html")
 
 
 @app.get("/")
