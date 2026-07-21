@@ -1,0 +1,7 @@
+# Additional dependencies for the web app (Google OAuth + FastAPI)
+# Install alongside the main package: pip install -e . && pip install -r requirements-web.txt
+fastapi>=0.110.0
+uvicorn>=0.29.0
+authlib>=1.3.0
+itsdangerous>=2.1.2
+python-dotenv>=1.0.0
