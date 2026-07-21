@@ -184,3 +184,42 @@ def test_get_user_config_db_path_openable_for_google_user():
     conn.execute("CREATE TABLE IF NOT EXISTS t (x INTEGER)")
     conn.close()
     assert cfg.db_path.exists()
+
+
+def test_email_not_whitelisted_by_default():
+    assert not users_mod.is_whitelisted("nobody@example.com")
+
+
+def test_add_whitelisted_email():
+    users_mod.add_whitelisted_email("alice@example.com")
+    assert users_mod.is_whitelisted("alice@example.com")
+    assert not users_mod.is_whitelist_admin("alice@example.com")
+
+
+def test_add_whitelisted_email_case_insensitive():
+    users_mod.add_whitelisted_email("Alice@Example.com")
+    assert users_mod.is_whitelisted("alice@example.com")
+
+
+def test_add_whitelisted_email_as_admin():
+    users_mod.add_whitelisted_email("boss@example.com", is_admin=True)
+    assert users_mod.is_whitelist_admin("boss@example.com")
+
+
+def test_add_whitelisted_email_upserts_admin_flag():
+    users_mod.add_whitelisted_email("carol@example.com", is_admin=False)
+    users_mod.add_whitelisted_email("carol@example.com", is_admin=True)
+    assert users_mod.is_whitelist_admin("carol@example.com")
+
+
+def test_seed_owner_whitelist_noop_when_unset(monkeypatch):
+    monkeypatch.delenv("OWNER_GOOGLE_EMAIL", raising=False)
+    users_mod.seed_owner_whitelist()
+    assert not users_mod.is_whitelisted("owner@example.com")
+
+
+def test_seed_owner_whitelist_adds_admin(monkeypatch):
+    monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "owner@example.com")
+    users_mod.seed_owner_whitelist()
+    assert users_mod.is_whitelisted("owner@example.com")
+    assert users_mod.is_whitelist_admin("owner@example.com")

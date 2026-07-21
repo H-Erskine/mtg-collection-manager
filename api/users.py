@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS user_packages (
     public_id   TEXT NOT NULL,
     PRIMARY KEY (user_id, color_group)
 );
+CREATE TABLE IF NOT EXISTS whitelisted_emails (
+    email    TEXT PRIMARY KEY,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 VALID_SORT_OPTIONS = ("colour", "alphabetical", "set", "cmc")
@@ -268,3 +273,37 @@ def list_users_for_eviction(threshold_days: int = 7) -> list[str]:
             (f"-{threshold_days}",),
         ).fetchall()
         return [r["user_id"] for r in rows]
+
+
+def is_whitelisted(email: str) -> bool:
+    with _registry_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM whitelisted_emails WHERE email = ?", (email.lower(),)
+        ).fetchone()
+        return row is not None
+
+
+def add_whitelisted_email(email: str, is_admin: bool = False) -> None:
+    with _registry_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO whitelisted_emails (email, is_admin) VALUES (?, ?)
+            ON CONFLICT (email) DO UPDATE SET is_admin = excluded.is_admin
+            """,
+            (email.lower().strip(), int(is_admin)),
+        )
+
+
+def is_whitelist_admin(email: str) -> bool:
+    with _registry_conn() as conn:
+        row = conn.execute(
+            "SELECT is_admin FROM whitelisted_emails WHERE email = ?", (email.lower(),)
+        ).fetchone()
+        return bool(row and row["is_admin"])
+
+
+def seed_owner_whitelist() -> None:
+    """Ensure OWNER_GOOGLE_EMAIL (if set) is whitelisted as admin. Safe to call repeatedly."""
+    owner_email = os.environ.get("OWNER_GOOGLE_EMAIL")
+    if owner_email:
+        add_whitelisted_email(owner_email, is_admin=True)
