@@ -154,7 +154,7 @@ async def _resolve_user(interaction: discord.Interaction, require_packages: bool
 
     When require_packages=True, also errors if the user has no packages set up.
     """
-    discord_id = str(interaction.user.id)
+    discord_id = f"discord:{interaction.user.id}"
     owner = users.is_owner(discord_id)
 
     cfg = await asyncio.get_event_loop().run_in_executor(
@@ -193,7 +193,7 @@ _OWNER_MSG = "You're the bot operator — edit `~/.mtg_manager/config.toml` dire
 @tree.command(name="setup", description="Register your account to use the MTG Manager bot")
 async def cmd_setup(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    discord_id = str(interaction.user.id)
+    discord_id = f"discord:{interaction.user.id}"
 
     if users.is_owner(discord_id):
         await _send_embed(interaction, _OWNER_MSG, title="Bot Operator", color=COLOR_INFO)
@@ -220,7 +220,7 @@ async def cmd_setup(interaction: discord.Interaction):
 )
 async def cmd_addpackage(interaction: discord.Interaction, color_group: str, public_id: str):
     await interaction.response.defer(ephemeral=True)
-    discord_id = str(interaction.user.id)
+    discord_id = f"discord:{interaction.user.id}"
 
     if users.is_owner(discord_id):
         await _send_embed(interaction, _OWNER_MSG, title="Bot Operator", color=COLOR_INFO)
@@ -247,7 +247,7 @@ async def cmd_addpackage(interaction: discord.Interaction, color_group: str, pub
 @app_commands.describe(color_group="The color_group label to remove")
 async def cmd_removepackage(interaction: discord.Interaction, color_group: str):
     await interaction.response.defer(ephemeral=True)
-    discord_id = str(interaction.user.id)
+    discord_id = f"discord:{interaction.user.id}"
 
     if users.is_owner(discord_id):
         await _send_embed(interaction, _OWNER_MSG, title="Bot Operator", color=COLOR_INFO)
@@ -277,7 +277,7 @@ async def cmd_removepackage(interaction: discord.Interaction, color_group: str):
 @tree.command(name="listpackages", description="Show your registered Moxfield packages")
 async def cmd_listpackages(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    discord_id = str(interaction.user.id)
+    discord_id = f"discord:{interaction.user.id}"
 
     if users.is_owner(discord_id):
         await _send_embed(interaction, _OWNER_MSG, title="Bot Operator", color=COLOR_INFO)
@@ -299,7 +299,7 @@ async def cmd_listpackages(interaction: discord.Interaction):
 @app_commands.describe(mode="One of: colour, alphabetical, set, cmc")
 async def cmd_setsort(interaction: discord.Interaction, mode: str):
     await interaction.response.defer(ephemeral=True)
-    discord_id = str(interaction.user.id)
+    discord_id = f"discord:{interaction.user.id}"
 
     if users.is_owner(discord_id):
         await _send_embed(interaction, _OWNER_MSG, title="Bot Operator", color=COLOR_INFO)
@@ -322,7 +322,7 @@ async def cmd_setsort(interaction: discord.Interaction, mode: str):
 @app_commands.describe(formats="Comma-separated formats, e.g. modern,legacy,pioneer")
 async def cmd_setformats(interaction: discord.Interaction, formats: str):
     await interaction.response.defer(ephemeral=True)
-    discord_id = str(interaction.user.id)
+    discord_id = f"discord:{interaction.user.id}"
 
     if users.is_owner(discord_id):
         await _send_embed(interaction, _OWNER_MSG, title="Bot Operator", color=COLOR_INFO)
@@ -361,7 +361,7 @@ async def cmd_help(interaction: discord.Interaction):
 @app_commands.describe(color_group="Only sync a specific color group (e.g. White)")
 async def cmd_sync(interaction: discord.Interaction, color_group: str = None):
     await interaction.response.defer(ephemeral=True)
-    discord_id = str(interaction.user.id)
+    discord_id = f"discord:{interaction.user.id}"
     cfg, owner = await _resolve_user(interaction, require_packages=True)
     if cfg is None:
         return

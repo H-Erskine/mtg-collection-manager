@@ -1,12 +1,17 @@
 """
 Multi-user registry for the Discord bot.
 
-Stores Discord identity → Moxfield packages + preferences in a small
+Stores user identity → Moxfield packages + preferences in a small
 registry SQLite at ~/mtg_data/registry.sqlite.
-Each user's collection lives in ~/mtg_data/users/{discord_id}.sqlite.
+Each user's collection lives in ~/mtg_data/users/{user_id}.sqlite.
 
-The bot owner (OWNER_DISCORD_ID env var) is short-circuited to the
-existing ~/.mtg_manager/config.toml so their CLI and bot share one DB.
+Users are keyed by a prefixed user_id (e.g. "discord:12345" or
+"google:person@example.com") so multiple auth providers can share the
+same registry without colliding.
+
+The bot owner (OWNER_DISCORD_ID / OWNER_GOOGLE_EMAIL env vars) is
+short-circuited to the existing ~/.mtg_manager/config.toml so their
+CLI and bot share one DB.
 """
 
 import os
@@ -21,7 +26,7 @@ _USERS_DIR = Path("~/mtg_data/users").expanduser()
 
 REGISTRY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    discord_id     TEXT PRIMARY KEY,
+    user_id        TEXT PRIMARY KEY,
     pick_list_sort TEXT NOT NULL DEFAULT 'colour',
     formats        TEXT NOT NULL DEFAULT '',
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
@@ -29,14 +34,39 @@ CREATE TABLE IF NOT EXISTS users (
     last_synced_at TEXT
 );
 CREATE TABLE IF NOT EXISTS user_packages (
-    discord_id  TEXT NOT NULL REFERENCES users(discord_id) ON DELETE CASCADE,
+    user_id     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     color_group TEXT NOT NULL,
     public_id   TEXT NOT NULL,
-    PRIMARY KEY (discord_id, color_group)
+    PRIMARY KEY (user_id, color_group)
 );
 """
 
 VALID_SORT_OPTIONS = ("colour", "alphabetical", "set", "cmc")
+
+
+def _migrate_legacy_discord_id(conn: sqlite3.Connection) -> None:
+    """One-time rename of discord_id -> user_id for pre-existing registries."""
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+
+    if "users" in tables:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "discord_id" in cols and "user_id" not in cols:
+            conn.execute("ALTER TABLE users RENAME COLUMN discord_id TO user_id")
+            conn.execute(
+                "UPDATE users SET user_id = 'discord:' || user_id "
+                "WHERE user_id NOT LIKE '%:%'"
+            )
+
+    if "user_packages" in tables:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(user_packages)").fetchall()}
+        if "discord_id" in cols and "user_id" not in cols:
+            conn.execute("ALTER TABLE user_packages RENAME COLUMN discord_id TO user_id")
+            conn.execute(
+                "UPDATE user_packages SET user_id = 'discord:' || user_id "
+                "WHERE user_id NOT LIKE '%:%'"
+            )
 
 
 @contextmanager
@@ -46,6 +76,7 @@ def _registry_conn():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:
+        _migrate_legacy_discord_id(conn)
         conn.executescript(REGISTRY_SCHEMA)
         yield conn
         conn.commit()
@@ -56,35 +87,40 @@ def _registry_conn():
         conn.close()
 
 
-def is_owner(discord_id: str) -> bool:
-    owner_id = os.environ.get("OWNER_DISCORD_ID")
-    return owner_id is not None and discord_id == owner_id
+def is_owner(user_id: str) -> bool:
+    owner_discord_id = os.environ.get("OWNER_DISCORD_ID")
+    if owner_discord_id is not None and user_id == f"discord:{owner_discord_id}":
+        return True
+    owner_google_email = os.environ.get("OWNER_GOOGLE_EMAIL")
+    if owner_google_email is not None and user_id == f"google:{owner_google_email}":
+        return True
+    return False
 
 
-def is_registered(discord_id: str) -> bool:
+def is_registered(user_id: str) -> bool:
     with _registry_conn() as conn:
         row = conn.execute(
-            "SELECT 1 FROM users WHERE discord_id = ?", (discord_id,)
+            "SELECT 1 FROM users WHERE user_id = ?", (user_id,)
         ).fetchone()
         return row is not None
 
 
-def ensure_user(discord_id: str) -> None:
+def ensure_user(user_id: str) -> None:
     """Create a registry row for the user if one doesn't exist."""
     with _registry_conn() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO users (discord_id) VALUES (?)",
-            (discord_id,),
+            "INSERT OR IGNORE INTO users (user_id) VALUES (?)",
+            (user_id,),
         )
 
 
-def get_user_config(discord_id: str) -> Config | None:
+def get_user_config(user_id: str) -> Config | None:
     """Return a Config for this user.
 
     Owner is routed to ~/.mtg_manager/config.toml (same DB as CLI).
     Others are built from registry rows.
     """
-    if is_owner(discord_id):
+    if is_owner(user_id):
         try:
             return load_config()
         except FileNotFoundError:
@@ -92,15 +128,15 @@ def get_user_config(discord_id: str) -> Config | None:
 
     with _registry_conn() as conn:
         user = conn.execute(
-            "SELECT * FROM users WHERE discord_id = ?", (discord_id,)
+            "SELECT * FROM users WHERE user_id = ?", (user_id,)
         ).fetchone()
         if not user:
             return None
 
         pkg_rows = conn.execute(
             "SELECT color_group, public_id FROM user_packages "
-            "WHERE discord_id = ? ORDER BY color_group",
-            (discord_id,),
+            "WHERE user_id = ? ORDER BY color_group",
+            (user_id,),
         ).fetchall()
 
     packages = [
@@ -120,86 +156,86 @@ def get_user_config(discord_id: str) -> Config | None:
         moxfield_delay=1.0,
         mtgtop8_delay=1.5,
         mtgtop8_cache_ttl=24,
-        db_path=_USERS_DIR / f"{discord_id}.sqlite",
+        db_path=_USERS_DIR / f"{user_id}.sqlite",
         pick_list_sort=user["pick_list_sort"],
         formats=formats,
     )
 
 
-def add_package(discord_id: str, color_group: str, public_id: str) -> None:
+def add_package(user_id: str, color_group: str, public_id: str) -> None:
     """Add or update a Moxfield package for the user."""
     with _registry_conn() as conn:
         conn.execute(
             """
-            INSERT INTO user_packages (discord_id, color_group, public_id)
+            INSERT INTO user_packages (user_id, color_group, public_id)
             VALUES (?, ?, ?)
-            ON CONFLICT (discord_id, color_group)
+            ON CONFLICT (user_id, color_group)
             DO UPDATE SET public_id = excluded.public_id
             """,
-            (discord_id, color_group.strip(), public_id.strip()),
+            (user_id, color_group.strip(), public_id.strip()),
         )
 
 
-def remove_package(discord_id: str, color_group: str) -> bool:
+def remove_package(user_id: str, color_group: str) -> bool:
     """Remove a package by color_group. Returns True if a row was deleted."""
     with _registry_conn() as conn:
         conn.execute(
-            "DELETE FROM user_packages WHERE discord_id = ? AND LOWER(color_group) = LOWER(?)",
-            (discord_id, color_group.strip()),
+            "DELETE FROM user_packages WHERE user_id = ? AND LOWER(color_group) = LOWER(?)",
+            (user_id, color_group.strip()),
         )
         return conn.total_changes > 0
 
 
-def list_packages(discord_id: str) -> list[tuple[str, str]]:
+def list_packages(user_id: str) -> list[tuple[str, str]]:
     """Return [(color_group, public_id), ...] sorted by color_group."""
     with _registry_conn() as conn:
         rows = conn.execute(
             "SELECT color_group, public_id FROM user_packages "
-            "WHERE discord_id = ? ORDER BY color_group",
-            (discord_id,),
+            "WHERE user_id = ? ORDER BY color_group",
+            (user_id,),
         ).fetchall()
         return [(r["color_group"], r["public_id"]) for r in rows]
 
 
-def set_sort(discord_id: str, sort_mode: str) -> None:
+def set_sort(user_id: str, sort_mode: str) -> None:
     if sort_mode not in VALID_SORT_OPTIONS:
         raise ValueError(
             f"Invalid sort mode '{sort_mode}'. Must be one of: {', '.join(VALID_SORT_OPTIONS)}"
         )
     with _registry_conn() as conn:
         conn.execute(
-            "UPDATE users SET pick_list_sort = ? WHERE discord_id = ?",
-            (sort_mode, discord_id),
+            "UPDATE users SET pick_list_sort = ? WHERE user_id = ?",
+            (sort_mode, user_id),
         )
 
 
-def set_formats(discord_id: str, formats: list[str]) -> None:
+def set_formats(user_id: str, formats: list[str]) -> None:
     value = ",".join(f.strip().lower() for f in formats if f.strip())
     with _registry_conn() as conn:
         conn.execute(
-            "UPDATE users SET formats = ? WHERE discord_id = ?",
-            (value, discord_id),
+            "UPDATE users SET formats = ? WHERE user_id = ?",
+            (value, user_id),
         )
 
 
-def mark_seen(discord_id: str) -> None:
+def mark_seen(user_id: str) -> None:
     with _registry_conn() as conn:
         conn.execute(
-            "UPDATE users SET last_seen_at = datetime('now') WHERE discord_id = ?",
-            (discord_id,),
+            "UPDATE users SET last_seen_at = datetime('now') WHERE user_id = ?",
+            (user_id,),
         )
 
 
-def mark_synced(discord_id: str) -> None:
+def mark_synced(user_id: str) -> None:
     with _registry_conn() as conn:
         conn.execute(
             "UPDATE users SET last_synced_at = datetime('now'), "
-            "last_seen_at = datetime('now') WHERE discord_id = ?",
-            (discord_id,),
+            "last_seen_at = datetime('now') WHERE user_id = ?",
+            (user_id,),
         )
 
 
-def minutes_since_last_sync(discord_id: str) -> float | None:
+def minutes_since_last_sync(user_id: str) -> float | None:
     """Return minutes since last sync, or None if never synced."""
     with _registry_conn() as conn:
         row = conn.execute(
@@ -209,9 +245,9 @@ def minutes_since_last_sync(discord_id: str) -> float | None:
                     WHEN last_synced_at IS NULL THEN NULL
                     ELSE (julianday('now') - julianday(last_synced_at)) * 24 * 60
                 END AS minutes_ago
-            FROM users WHERE discord_id = ?
+            FROM users WHERE user_id = ?
             """,
-            (discord_id,),
+            (user_id,),
         ).fetchone()
         if not row:
             return None
@@ -219,11 +255,11 @@ def minutes_since_last_sync(discord_id: str) -> float | None:
 
 
 def list_users_for_eviction(threshold_days: int = 7) -> list[str]:
-    """Return discord_ids whose last_seen_at is older than threshold_days."""
+    """Return user_ids whose last_seen_at is older than threshold_days."""
     with _registry_conn() as conn:
         rows = conn.execute(
-            "SELECT discord_id FROM users "
+            "SELECT user_id FROM users "
             "WHERE last_seen_at < datetime('now', ? || ' days')",
             (f"-{threshold_days}",),
         ).fetchall()
-        return [r["discord_id"] for r in rows]
+        return [r["user_id"] for r in rows]
