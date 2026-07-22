@@ -369,3 +369,78 @@ def test_remove_whitelisted_user_case_insensitive_owner_guard(monkeypatch):
 def test_remove_whitelisted_user_is_safe_for_unregistered_email():
     """Removing an email that was never whitelisted/registered should not raise."""
     users_mod.remove_whitelisted_user("nobody@example.com")
+
+
+def test_log_failed_login_and_list():
+    users_mod.log_failed_login("Stranger@Example.com", "not_whitelisted")
+    rows = users_mod.list_failed_logins()
+    assert len(rows) == 1
+    assert rows[0]["email"] == "stranger@example.com"
+    assert rows[0]["reason"] == "not_whitelisted"
+
+
+def test_list_failed_logins_respects_limit():
+    for i in range(5):
+        users_mod.log_failed_login(f"user{i}@example.com", "not_whitelisted")
+    rows = users_mod.list_failed_logins(limit=2)
+    assert len(rows) == 2
+
+
+def test_log_request_and_list():
+    users_mod.ensure_user("google:alice@example.com")
+    users_mod.log_request("google:alice@example.com", "GET", "/api/config", 200)
+    rows = users_mod.list_request_log()
+    assert len(rows) == 1
+    assert rows[0]["method"] == "GET"
+    assert rows[0]["path"] == "/api/config"
+    assert rows[0]["status"] == 200
+    assert rows[0]["user_id"] == "google:alice@example.com"
+
+
+def test_log_request_allows_null_user_id():
+    users_mod.log_request(None, "GET", "/login", 302)
+    rows = users_mod.list_request_log()
+    assert rows[0]["user_id"] is None
+
+
+def test_list_request_log_respects_limit():
+    for i in range(5):
+        users_mod.log_request(None, "GET", f"/path{i}", 200)
+    rows = users_mod.list_request_log(limit=2)
+    assert len(rows) == 2
+
+
+def test_list_users_includes_admin_flag():
+    users_mod.ensure_user("google:boss@example.com")
+    users_mod.add_whitelisted_email("boss@example.com", is_admin=True)
+    users_mod.ensure_user("google:alice@example.com")
+
+    rows = {r["user_id"]: r for r in users_mod.list_users()}
+    assert rows["google:boss@example.com"]["is_admin"] is True
+    assert rows["google:alice@example.com"]["is_admin"] is False
+
+
+def test_prune_logs_deletes_rows_older_than_cutoff():
+    from api.users import _REGISTRY_PATH
+
+    users_mod.log_failed_login("old@example.com", "not_whitelisted")
+    users_mod.log_request(None, "GET", "/old", 200)
+
+    conn = sqlite3.connect(_REGISTRY_PATH)
+    conn.execute("UPDATE failed_logins SET created_at = datetime('now', '-40 days')")
+    conn.execute("UPDATE request_log SET created_at = datetime('now', '-40 days')")
+    conn.commit()
+    conn.close()
+
+    users_mod.log_failed_login("recent@example.com", "not_whitelisted")
+    users_mod.log_request(None, "GET", "/recent", 200)
+
+    users_mod.prune_logs(days=30)
+
+    failed_emails = [r["email"] for r in users_mod.list_failed_logins()]
+    assert "old@example.com" not in failed_emails
+    assert "recent@example.com" in failed_emails
+
+    paths = [r["path"] for r in users_mod.list_request_log()]
+    assert "/old" not in paths
+    assert "/recent" in paths

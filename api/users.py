@@ -44,6 +44,22 @@ CREATE TABLE IF NOT EXISTS whitelisted_emails (
     is_admin INTEGER NOT NULL DEFAULT 0,
     added_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS failed_logins (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    email      TEXT NOT NULL,
+    reason     TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS request_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    TEXT,
+    method     TEXT NOT NULL,
+    path       TEXT NOT NULL,
+    status     INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_request_log_created_at ON request_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_failed_logins_created_at ON failed_logins(created_at);
 """
 
 VALID_SORT_OPTIONS = ("colour", "alphabetical", "set", "cmc")
@@ -375,3 +391,86 @@ def list_profiles() -> list[dict]:
         {"user_id": r["user_id"], "display_name": r["display_name"], "icon": r["icon"]}
         for r in rows
     ]
+
+
+def log_failed_login(email: str, reason: str) -> None:
+    with _registry_conn() as conn:
+        conn.execute(
+            "INSERT INTO failed_logins (email, reason) VALUES (?, ?)",
+            (email.lower().strip(), reason),
+        )
+
+
+def log_request(user_id: str | None, method: str, path: str, status: int) -> None:
+    with _registry_conn() as conn:
+        conn.execute(
+            "INSERT INTO request_log (user_id, method, path, status) VALUES (?, ?, ?, ?)",
+            (user_id, method, path, status),
+        )
+
+
+def list_users() -> list[dict]:
+    with _registry_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT u.user_id, u.last_seen_at, u.last_synced_at,
+                   COALESCE(w.is_admin, 0) AS is_admin
+            FROM users u
+            LEFT JOIN whitelisted_emails w
+                ON u.user_id = 'google:' || w.email
+            ORDER BY u.user_id
+            """
+        ).fetchall()
+    return [
+        {
+            "user_id": r["user_id"],
+            "last_seen_at": r["last_seen_at"],
+            "last_synced_at": r["last_synced_at"],
+            "is_admin": bool(r["is_admin"]),
+        }
+        for r in rows
+    ]
+
+
+def list_failed_logins(limit: int = 200) -> list[dict]:
+    with _registry_conn() as conn:
+        rows = conn.execute(
+            "SELECT email, reason, created_at FROM failed_logins "
+            "ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {"email": r["email"], "reason": r["reason"], "created_at": r["created_at"]}
+        for r in rows
+    ]
+
+
+def list_request_log(limit: int = 200) -> list[dict]:
+    with _registry_conn() as conn:
+        rows = conn.execute(
+            "SELECT user_id, method, path, status, created_at FROM request_log "
+            "ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "user_id": r["user_id"],
+            "method": r["method"],
+            "path": r["path"],
+            "status": r["status"],
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def prune_logs(days: int = 30) -> None:
+    with _registry_conn() as conn:
+        conn.execute(
+            "DELETE FROM request_log WHERE created_at < datetime('now', ? || ' days')",
+            (f"-{days}",),
+        )
+        conn.execute(
+            "DELETE FROM failed_logins WHERE created_at < datetime('now', ? || ' days')",
+            (f"-{days}",),
+        )
