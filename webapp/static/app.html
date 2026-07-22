@@ -194,6 +194,12 @@ function showTab(name, tabEl) {
   tabEl.classList.add('active');
 }
 
+function selectTabFromHash() {
+  const name = location.hash.replace('#', '');
+  const tabEl = document.querySelector(`.tab[data-tab="${name}"]`);
+  if (tabEl) showTab(name, tabEl);
+}
+
 // ─── Stats banner ────────────────────────────────────────────────────────────
 
 function buildStatsBanner() {
@@ -276,6 +282,7 @@ async function init() {
     buildStatsBanner();
     renderCollection(collectionCards);
     renderDecks(deckData.decks);
+    selectTabFromHash();
   } catch {
     document.getElementById('load-error').style.display = 'block';
     document.getElementById('collection-loading').style.display = 'none';
