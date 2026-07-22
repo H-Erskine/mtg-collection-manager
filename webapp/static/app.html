@@ -70,6 +70,15 @@
   .stat-tile-count { font-size: 1.1rem; font-weight: 700; line-height: 1.2; }
   .stat-tile-label { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
 
+  /* PEOPLE SIDEBAR */
+  #people-sidebar { width: 180px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 14px; }
+  .people-title { font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .person-tile { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; font-size: 0.85rem; }
+  .person-tile:hover { background: var(--surface2); }
+  .person-tile.active { background: var(--surface2); outline: 1px solid var(--accent); }
+  .person-icon { font-size: 1.1rem; }
+  .owner-badge { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.85); font-size: 0.9rem; border-radius: 4px; padding: 1px 4px; }
+
   /* DECKS */
   .box-section { margin-bottom: 32px; }
   .box-title { font-size: 1rem; font-weight: 700; color: var(--gold); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--surface2); }
@@ -130,6 +139,10 @@
       <div class="stat" id="col-stat"></div>
     </div>
     <div id="collection-body">
+      <div id="people-sidebar">
+        <div class="people-title">View</div>
+        <div id="people-list"></div>
+      </div>
       <div id="collection-grid-wrap">
         <div class="card-grid" id="collection-grid"></div>
       </div>
@@ -173,6 +186,8 @@ let collectionCards = [];
 let collectionMap = {};   // lower_name -> { quantity, set_code, collector_number }
 let allocatedCards = {};  // lower_name -> [{deckName, color, quantity}]
 let activeGroup = 'all';
+let viewScope = 'me';          // 'me' | 'all' | a specific owner_user_id
+let combinedData = null;       // lazily fetched /api/collection/all payload
 
 const COLOUR_TILES = [
   { group: 'White',       icon: '☀️', iconColor: null,      numColor: '#e8e8d0', bg: '#2a2a1e', border: '#4a4a2e', label: 'White' },
@@ -283,6 +298,7 @@ async function init() {
     renderCollection(collectionCards);
     renderDecks(deckData.decks);
     selectTabFromHash();
+    renderPeopleSidebar();
   } catch {
     document.getElementById('load-error').style.display = 'block';
     document.getElementById('collection-loading').style.display = 'none';
@@ -421,6 +437,51 @@ function filterCollection() {
     return nameOk && groupOk;
   });
   renderCollection(filtered);
+}
+
+// ─── People sidebar ──────────────────────────────────────────────────────────
+
+function renderPeopleSidebar() {
+  const list = document.getElementById('people-list');
+  list.innerHTML = '';
+
+  function makeTile(scope, icon, label) {
+    const tile = document.createElement('div');
+    tile.className = 'person-tile' + (viewScope === scope ? ' active' : '');
+    tile.innerHTML = `<span class="person-icon">${icon}</span><span>${label}</span>`;
+    tile.onclick = () => setViewScope(scope);
+    return tile;
+  }
+
+  list.appendChild(makeTile('me', '👤', 'Just Me'));
+  list.appendChild(makeTile('all', '✦', 'All'));
+
+  if (combinedData) {
+    for (const p of combinedData.people) {
+      const label = p.display_name || p.user_id;
+      const icon = p.icon || '🂠';
+      list.appendChild(makeTile(p.user_id, icon, label));
+    }
+  }
+}
+
+async function setViewScope(scope) {
+  viewScope = scope;
+
+  if (scope !== 'me' && !combinedData) {
+    const res = await fetch('/api/collection/all');
+    if (res.ok) combinedData = await res.json();
+  }
+
+  renderPeopleSidebar();
+
+  if (scope === 'me') {
+    renderCollection(collectionCards);
+  } else if (scope === 'all') {
+    renderCollection(combinedData ? combinedData.cards : []);
+  } else {
+    renderCollection(combinedData ? combinedData.cards.filter(c => c.owner_user_id === scope) : []);
+  }
 }
 
 // ─── Decks tab ───────────────────────────────────────────────────────────────

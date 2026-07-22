@@ -61,6 +61,16 @@
 
 <div class="page">
   <section>
+    <h2>Profile</h2>
+    <label>Display name</label>
+    <input id="profile-name" placeholder="e.g. Alice">
+    <label>Icon</label>
+    <input id="profile-icon" placeholder="e.g. 🐉" maxlength="4">
+    <button class="btn" onclick="saveProfile()">Save</button>
+    <div id="profile-msg" class="msg"></div>
+  </section>
+
+  <section>
     <h2>Moxfield Packages</h2>
     <div id="packages-list"></div>
     <div class="inline-form" style="margin-top:12px">
@@ -118,6 +128,8 @@ async function loadConfig() {
   renderPackages(data.packages);
   document.getElementById('formats-input').value = data.formats.join(',');
   document.getElementById('sort-select').value = data.pick_list_sort;
+  document.getElementById('profile-name').value = data.display_name || '';
+  document.getElementById('profile-icon').value = data.icon || '';
 
   if (data.is_admin) {
     document.getElementById('admin-section').style.display = 'block';
@@ -177,6 +189,19 @@ async function saveFormats() {
     body: JSON.stringify({ formats }),
   });
   const msg = document.getElementById('formats-msg');
+  msg.textContent = res.ok ? 'Saved.' : 'Failed to save.';
+  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+}
+
+async function saveProfile() {
+  const display_name = document.getElementById('profile-name').value.trim();
+  const icon = document.getElementById('profile-icon').value.trim();
+  const res = await fetch('/api/config/profile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display_name, icon }),
+  });
+  const msg = document.getElementById('profile-msg');
   msg.textContent = res.ok ? 'Saved.' : 'Failed to save.';
   msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
 }
