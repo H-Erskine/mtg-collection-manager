@@ -153,7 +153,12 @@ function renderUsers(users) {
   tbody.innerHTML = '';
   for (const u of users) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${u.user_id}</td><td>${u.is_admin ? '✓' : ''}</td><td>${u.last_seen_at || ''}</td><td>${u.last_synced_at || ''}</td>`;
+    const cells = [u.user_id, u.is_admin ? '✓' : '', u.last_seen_at || '', u.last_synced_at || ''];
+    for (const value of cells) {
+      const td = document.createElement('td');
+      td.textContent = String(value);
+      tr.appendChild(td);
+    }
     tbody.appendChild(tr);
   }
 }
@@ -163,7 +168,12 @@ function renderFailedLogins(rows) {
   tbody.innerHTML = '';
   for (const r of rows) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${r.created_at}</td><td>${r.email}</td><td>${r.reason}</td>`;
+    const cells = [r.created_at, r.email, r.reason];
+    for (const value of cells) {
+      const td = document.createElement('td');
+      td.textContent = String(value);
+      tr.appendChild(td);
+    }
     tbody.appendChild(tr);
   }
 }
@@ -183,7 +193,12 @@ function renderActivity() {
     : allActivity;
   for (const r of rows) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${r.created_at}</td><td>${r.user_id || 'anonymous'}</td><td>${friendlyLabel(r.method, r.path)}</td><td>${r.status}</td>`;
+    const cells = [r.created_at, r.user_id || 'anonymous', friendlyLabel(r.method, r.path), r.status];
+    for (const value of cells) {
+      const td = document.createElement('td');
+      td.textContent = String(value);
+      tr.appendChild(td);
+    }
     tbody.appendChild(tr);
   }
 }
