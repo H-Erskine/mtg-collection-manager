@@ -290,3 +290,39 @@ def test_get_user_config_google_owner_returns_none_without_registry_row(monkeypa
     """Google owner still needs ensure_user() to have run (via login) before config exists — same as any user."""
     monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "owner@example.com")
     assert users_mod.get_user_config("google:owner@example.com") is None
+
+
+def test_set_and_get_profile_via_list_profiles():
+    users_mod.ensure_user("google:alice@example.com")
+    users_mod.set_profile("google:alice@example.com", "Alice", "🐉")
+
+    profiles = users_mod.list_profiles()
+    alice = next(p for p in profiles if p["user_id"] == "google:alice@example.com")
+    assert alice["display_name"] == "Alice"
+    assert alice["icon"] == "🐉"
+
+
+def test_list_profiles_defaults_to_empty_strings_when_unset():
+    users_mod.ensure_user("google:bob@example.com")
+    profiles = users_mod.list_profiles()
+    bob = next(p for p in profiles if p["user_id"] == "google:bob@example.com")
+    assert bob["display_name"] == ""
+    assert bob["icon"] == ""
+
+
+def test_list_profiles_includes_all_registered_users():
+    users_mod.ensure_user("google:alice@example.com")
+    users_mod.ensure_user("discord:12345")
+    profiles = users_mod.list_profiles()
+    ids = {p["user_id"] for p in profiles}
+    assert "google:alice@example.com" in ids
+    assert "discord:12345" in ids
+
+
+def test_profile_migration_safe_on_fresh_registry(tmp_path, monkeypatch):
+    """A brand-new registry (no users table yet) must not fail the display_name/icon migration guard."""
+    import api.users as u
+    monkeypatch.setattr(u, "_REGISTRY_PATH", tmp_path / "fresh_registry.sqlite")
+    monkeypatch.setattr(u, "_USERS_DIR", tmp_path / "fresh_users")
+    u.ensure_user("google:fresh@example.com")  # must not raise
+    assert u.is_registered("google:fresh@example.com")

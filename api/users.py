@@ -79,6 +79,20 @@ def _migrate_legacy_discord_id(conn: sqlite3.Connection) -> None:
             )
 
 
+def _migrate_profile_columns(conn: sqlite3.Connection) -> None:
+    """One-time addition of display_name/icon columns for pre-existing registries."""
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "users" not in tables:
+        return
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "display_name" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
+    if "icon" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
+
+
 @contextmanager
 def _registry_conn():
     _REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +102,7 @@ def _registry_conn():
     try:
         _migrate_legacy_discord_id(conn)
         conn.executescript(REGISTRY_SCHEMA)
+        _migrate_profile_columns(conn)
         yield conn
         conn.commit()
     except Exception:
@@ -321,3 +336,22 @@ def seed_owner_whitelist() -> None:
     owner_email = os.environ.get("OWNER_GOOGLE_EMAIL")
     if owner_email:
         add_whitelisted_email(owner_email, is_admin=True)
+
+
+def set_profile(user_id: str, display_name: str, icon: str) -> None:
+    with _registry_conn() as conn:
+        conn.execute(
+            "UPDATE users SET display_name = ?, icon = ? WHERE user_id = ?",
+            (display_name.strip(), icon.strip(), user_id),
+        )
+
+
+def list_profiles() -> list[dict]:
+    with _registry_conn() as conn:
+        rows = conn.execute(
+            "SELECT user_id, display_name, icon FROM users ORDER BY user_id"
+        ).fetchall()
+    return [
+        {"user_id": r["user_id"], "display_name": r["display_name"], "icon": r["icon"]}
+        for r in rows
+    ]
