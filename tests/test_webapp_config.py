@@ -291,3 +291,50 @@ def test_admin_can_list_and_add_whitelist(tmp_path, monkeypatch):
     emails = [row["email"] for row in list_response.json()["whitelist"]]
     assert "friend@example.com" in emails
     assert "boss@example.com" in emails
+
+
+def test_admin_can_remove_whitelisted_user(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import add_whitelisted_email
+    ensure_user("google:boss@example.com")
+    add_whitelisted_email("boss@example.com", is_admin=True)
+    ensure_user("google:friend@example.com")
+    add_whitelisted_email("friend@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:boss@example.com"
+        remove_response = c.delete("/api/admin/whitelist/friend@example.com")
+        list_response = c.get("/api/admin/whitelist")
+
+    assert remove_response.status_code == 200
+    emails = [row["email"] for row in list_response.json()["whitelist"]]
+    assert "friend@example.com" not in emails
+    assert "boss@example.com" in emails
+
+
+def test_admin_cannot_remove_owner(tmp_path, monkeypatch):
+    monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "boss@example.com")
+    client = _client(tmp_path, monkeypatch)
+    from api.users import add_whitelisted_email
+    ensure_user("google:boss@example.com")
+    add_whitelisted_email("boss@example.com", is_admin=True)
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:boss@example.com"
+        response = c.delete("/api/admin/whitelist/boss@example.com")
+
+    assert response.status_code == 400
+
+
+def test_non_admin_cannot_remove_whitelisted_user(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ensure_user("google:alice@example.com")  # not an admin
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.delete("/api/admin/whitelist/someone@example.com")
+
+    assert response.status_code == 403

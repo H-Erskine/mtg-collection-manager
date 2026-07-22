@@ -14,6 +14,7 @@ from api.users import (
     mark_synced,
     minutes_since_last_sync,
     remove_package,
+    remove_whitelisted_user,
     set_formats,
     set_profile,
     set_sort,
@@ -151,4 +152,13 @@ async def list_whitelist(cfg: Config = Depends(require_admin)):
 @router.post("/api/admin/whitelist")
 async def add_to_whitelist(body: WhitelistIn, cfg: Config = Depends(require_admin)):
     add_whitelisted_email(body.email, is_admin=body.is_admin)
+    return {"ok": True}
+
+
+@router.delete("/api/admin/whitelist/{email}")
+async def remove_from_whitelist(email: str, cfg: Config = Depends(require_admin)):
+    try:
+        remove_whitelisted_user(email)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True}

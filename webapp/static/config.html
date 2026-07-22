@@ -270,8 +270,26 @@ async function loadWhitelist() {
   for (const row of data.whitelist) {
     const el = document.createElement('div');
     el.className = 'row';
-    el.innerHTML = `<span>${row.email}${row.is_admin ? ' (admin)' : ''}</span>`;
+    const label = document.createElement('span');
+    label.textContent = row.email + (row.is_admin ? ' (admin)' : '');
+    el.appendChild(label);
+    const btn = document.createElement('button');
+    btn.className = 'btn-secondary';
+    btn.textContent = 'Remove';
+    btn.onclick = () => removeWhitelistedUser(row.email);
+    el.appendChild(btn);
     list.appendChild(el);
+  }
+}
+
+async function removeWhitelistedUser(email) {
+  if (!confirm(`Permanently delete ${email}'s account and collection? This cannot be undone.`)) return;
+  const res = await fetch(`/api/admin/whitelist/${encodeURIComponent(email)}`, { method: 'DELETE' });
+  if (res.ok) {
+    loadWhitelist();
+  } else {
+    const data = await res.json().catch(() => ({}));
+    alert(data.detail || 'Failed to remove user.');
   }
 }
 
