@@ -17,7 +17,7 @@ from webapp.admin import router as admin_router
 from webapp.auth import router as auth_router
 from webapp.config import router as config_router
 from webapp.data import get_all_collections, get_collection, get_decks
-from webapp.deps import NotAuthenticated, require_user
+from webapp.deps import NotAuthenticated, require_admin, require_user
 from webapp.images import router as images_router
 
 app = FastAPI()
@@ -85,6 +85,11 @@ async def app_page(cfg: Config = Depends(require_user)):
 @app.get("/config")
 async def config_page(cfg: Config = Depends(require_user)):
     return FileResponse(_STATIC_DIR / "config.html")
+
+
+@app.get("/admin")
+async def admin_page(cfg: Config = Depends(require_admin)):
+    return FileResponse(_STATIC_DIR / "admin.html")
 
 
 @app.get("/")

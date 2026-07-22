@@ -60,6 +60,7 @@
   <a class="nav-link" href="/app#decks">Decks</a>
   <a class="nav-link" href="/app#missing">Missing</a>
   <a class="nav-link" href="/config">Config</a>
+  <a class="nav-link" id="admin-nav-link" href="/admin" style="display:none">Admin</a>
   <div class="nav-meta" id="nav-identity">Loading…</div>
 </nav>
 
@@ -112,16 +113,6 @@
     <div id="sync-msg" class="msg"></div>
   </section>
 
-  <section id="admin-section" style="display:none">
-    <h2>Whitelist (Admin)</h2>
-    <div id="whitelist-list"></div>
-    <div class="inline-form" style="margin-top:12px">
-      <div style="flex:1"><label>Email</label><input id="wl-email" placeholder="someone@example.com"></div>
-      <div class="checkbox-row"><input type="checkbox" id="wl-admin"><label style="margin:0">Admin</label></div>
-      <button class="btn" onclick="addWhitelist()">Add</button>
-    </div>
-    <div id="wl-msg" class="msg"></div>
-  </section>
 </div>
 
 <script>
@@ -157,8 +148,7 @@ async function loadConfig() {
   renderIconPalette(data.icon || '');
 
   if (data.is_admin) {
-    document.getElementById('admin-section').style.display = 'block';
-    loadWhitelist();
+    document.getElementById('admin-nav-link').style.display = '';
   }
 }
 
@@ -258,57 +248,6 @@ async function syncNow() {
   } else {
     msg.textContent = data.detail || 'Sync failed.';
     msg.className = 'msg err';
-  }
-}
-
-async function loadWhitelist() {
-  const res = await fetch('/api/admin/whitelist');
-  if (!res.ok) return;
-  const data = await res.json();
-  const list = document.getElementById('whitelist-list');
-  list.innerHTML = '';
-  for (const row of data.whitelist) {
-    const el = document.createElement('div');
-    el.className = 'row';
-    const label = document.createElement('span');
-    label.textContent = row.email + (row.is_admin ? ' (admin)' : '');
-    el.appendChild(label);
-    const btn = document.createElement('button');
-    btn.className = 'btn-secondary';
-    btn.textContent = 'Remove';
-    btn.onclick = () => removeWhitelistedUser(row.email);
-    el.appendChild(btn);
-    list.appendChild(el);
-  }
-}
-
-async function removeWhitelistedUser(email) {
-  if (!confirm(`Permanently delete ${email}'s account and collection? This cannot be undone.`)) return;
-  const res = await fetch(`/api/admin/whitelist/${encodeURIComponent(email)}`, { method: 'DELETE' });
-  if (res.ok) {
-    loadWhitelist();
-  } else {
-    const data = await res.json().catch(() => ({}));
-    alert(data.detail || 'Failed to remove user.');
-  }
-}
-
-async function addWhitelist() {
-  const email = document.getElementById('wl-email').value.trim();
-  const is_admin = document.getElementById('wl-admin').checked;
-  if (!email) return;
-  const res = await fetch('/api/admin/whitelist', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, is_admin }),
-  });
-  const msg = document.getElementById('wl-msg');
-  msg.textContent = res.ok ? 'Added.' : 'Failed to add.';
-  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
-  if (res.ok) {
-    document.getElementById('wl-email').value = '';
-    document.getElementById('wl-admin').checked = false;
-    loadWhitelist();
   }
 }
 
