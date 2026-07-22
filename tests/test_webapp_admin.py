@@ -60,6 +60,13 @@ def test_admin_routes_require_admin(tmp_path, monkeypatch):
         assert c.get("/api/admin/failed-logins").status_code == 403
         assert c.get("/api/admin/activity").status_code == 403
         assert c.get("/api/admin/whitelist").status_code == 403
+        assert (
+            c.post(
+                "/api/admin/whitelist",
+                json={"email": "someone@example.com", "is_admin": False},
+            ).status_code
+            == 403
+        )
 
 
 def test_admin_can_list_users(tmp_path, monkeypatch):
