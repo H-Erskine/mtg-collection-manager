@@ -35,8 +35,8 @@ app.include_router(admin_router)
 async def _log_requests(request: Request, call_next):
     response = await call_next(request)
     if not request.url.path.startswith("/images/"):
-        user_id = request.session.get("user_id")
         try:
+            user_id = request.session.get("user_id")
             log_request(user_id, request.method, request.url.path, response.status_code)
         except Exception:
             pass
