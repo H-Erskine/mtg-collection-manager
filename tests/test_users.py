@@ -223,3 +223,70 @@ def test_seed_owner_whitelist_adds_admin(monkeypatch):
     users_mod.seed_owner_whitelist()
     assert users_mod.is_whitelisted("owner@example.com")
     assert users_mod.is_whitelist_admin("owner@example.com")
+
+
+def test_get_user_config_discord_owner_unchanged(tmp_path, monkeypatch):
+    """Discord owner shortcut must stay exactly as before: no registry row needed."""
+    monkeypatch.setenv("OWNER_DISCORD_ID", "999")
+    toml = tmp_path / "config.toml"
+    toml.write_text(
+        "[moxfield]\npackages = []\nrequest_delay_seconds = 1.0\n"
+        "[mtgtop8]\nrequest_delay_seconds = 1.5\ncache_ttl_hours = 24\n"
+        f"[database]\npath = '{(tmp_path / 'owner.db').as_posix()}'\n"
+    )
+    monkeypatch.setattr(
+        "mtg_manager.config.DEFAULT_CONFIG", toml
+    )
+
+    # No registry row exists for this user at all — the Discord owner path must not need one.
+    cfg = users_mod.get_user_config("discord:999")
+    assert cfg is not None
+    assert cfg.db_path == tmp_path / "owner.db"
+
+
+def test_get_user_config_google_owner_uses_registry_packages(tmp_path, monkeypatch):
+    """Google owner must read packages/formats/sort from the registry, not config.toml."""
+    monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "owner@example.com")
+    toml = tmp_path / "config.toml"
+    real_db = tmp_path / "real_collection.db"
+    toml.write_text(
+        "[moxfield]\n"
+        "packages = [{color_group = 'Red', public_id = 'toml-real-package'}]\n"
+        "request_delay_seconds = 1.0\n"
+        "[mtgtop8]\nrequest_delay_seconds = 1.5\ncache_ttl_hours = 24\n"
+        f"[database]\npath = '{real_db.as_posix()}'\n"
+    )
+    monkeypatch.setattr("mtg_manager.config.DEFAULT_CONFIG", toml)
+
+    users_mod.ensure_user("google:owner@example.com")
+    users_mod.add_package("google:owner@example.com", "Blue", "registry-package")
+
+    cfg = users_mod.get_user_config("google:owner@example.com")
+    assert cfg is not None
+    assert len(cfg.packages) == 1
+    assert cfg.packages[0].color_group == "Blue"
+    assert cfg.packages[0].public_id == "registry-package"
+
+
+def test_get_user_config_google_owner_db_path_points_at_real_collection(tmp_path, monkeypatch):
+    """The whole point of this fix: sync must write to the REAL collection.db, not a fresh per-user file."""
+    monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "owner@example.com")
+    toml = tmp_path / "config.toml"
+    real_db = tmp_path / "real_collection.db"
+    toml.write_text(
+        "[moxfield]\npackages = []\nrequest_delay_seconds = 1.0\n"
+        "[mtgtop8]\nrequest_delay_seconds = 1.5\ncache_ttl_hours = 24\n"
+        f"[database]\npath = '{real_db.as_posix()}'\n"
+    )
+    monkeypatch.setattr("mtg_manager.config.DEFAULT_CONFIG", toml)
+
+    users_mod.ensure_user("google:owner@example.com")
+    cfg = users_mod.get_user_config("google:owner@example.com")
+    assert cfg is not None
+    assert cfg.db_path == real_db
+
+
+def test_get_user_config_google_owner_returns_none_without_registry_row(monkeypatch):
+    """Google owner still needs ensure_user() to have run (via login) before config exists — same as any user."""
+    monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "owner@example.com")
+    assert users_mod.get_user_config("google:owner@example.com") is None

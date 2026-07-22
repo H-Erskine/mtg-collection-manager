@@ -127,10 +127,16 @@ def ensure_user(user_id: str) -> None:
 def get_user_config(user_id: str) -> Config | None:
     """Return a Config for this user.
 
-    Owner is routed to ~/.mtg_manager/config.toml (same DB as CLI).
-    Others are built from registry rows.
+    The Discord owner identity is routed to ~/.mtg_manager/config.toml directly
+    (same DB as CLI) and needs no registry row — this is unchanged from before.
+    The Google owner identity is registry-backed like any other user (so
+    packages/formats/sort are editable via the web self-service config page),
+    except its db_path is overridden to the real collection.db from config.toml
+    so sync never creates a separate, empty per-user database for the owner.
+    Everyone else is built entirely from registry rows.
     """
-    if is_owner(user_id):
+    owner_discord_id = os.environ.get("OWNER_DISCORD_ID")
+    if owner_discord_id is not None and user_id == f"discord:{owner_discord_id}":
         try:
             return load_config()
         except FileNotFoundError:
@@ -160,13 +166,21 @@ def get_user_config(user_id: str) -> Config | None:
     )
 
     _USERS_DIR.mkdir(parents=True, exist_ok=True)
+    db_path = _USERS_DIR / f"{_safe_filename(user_id)}.sqlite"
+
+    if is_owner(user_id):
+        # Google owner: keep writing to the real, existing collection.db.
+        try:
+            db_path = load_config().db_path
+        except FileNotFoundError:
+            pass
 
     return Config(
         packages=packages,
         moxfield_delay=1.0,
         mtgtop8_delay=1.5,
         mtgtop8_cache_ttl=24,
-        db_path=_USERS_DIR / f"{_safe_filename(user_id)}.sqlite",
+        db_path=db_path,
         pick_list_sort=user["pick_list_sort"],
         formats=formats,
     )
