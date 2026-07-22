@@ -46,7 +46,7 @@ Response:
   "updated_at": "...",
   "people": [
     {"user_id": "google:alice@example.com", "display_name": "Alice", "icon": "🐉"},
-    {"user_id": "google:harry.erskine1@gmail.com", "display_name": "Harry", "icon": "⚔"}
+    {"user_id": "google:owner@example.com", "display_name": "Owner", "icon": "⚔"}
   ],
   "cards": [
     {"name": "...", "set_code": "...", "collector_number": "...", "foil": false, "quantity": 4,
