@@ -395,6 +395,12 @@ function renderCollection(cards) {
   cards.forEach(c => {
     const badge = c.foil ? `✦ ×${c.quantity}` : `×${c.quantity}`;
     const el = makeCard(c.name, c.set_code, c.collector_number, badge, c.foil ? 'foil' : '', null);
+    if (c.owner_icon) {
+      const ownerBadge = document.createElement('div');
+      ownerBadge.className = 'owner-badge';
+      ownerBadge.textContent = c.owner_icon;
+      el.appendChild(ownerBadge);
+    }
     const entries = allocatedCards[c.name.toLowerCase()];
     if (entries) {
       el.classList.add('in-deck');
@@ -426,9 +432,16 @@ function setGroup(el) {
   filterCollection();
 }
 
+function currentBaseCards() {
+  if (viewScope === 'me') return collectionCards;
+  if (!combinedData) return [];
+  if (viewScope === 'all') return combinedData.cards;
+  return combinedData.cards.filter(c => c.owner_user_id === viewScope);
+}
+
 function filterCollection() {
   const q = document.getElementById('col-search').value.toLowerCase();
-  const filtered = collectionCards.filter(c => {
+  const filtered = currentBaseCards().filter(c => {
     const nameOk = c.name.toLowerCase().includes(q);
     let groupOk;
     if (activeGroup === 'all') groupOk = true;
@@ -448,7 +461,12 @@ function renderPeopleSidebar() {
   function makeTile(scope, icon, label) {
     const tile = document.createElement('div');
     tile.className = 'person-tile' + (viewScope === scope ? ' active' : '');
-    tile.innerHTML = `<span class="person-icon">${icon}</span><span>${label}</span>`;
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'person-icon';
+    iconSpan.textContent = icon;
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    tile.append(iconSpan, labelSpan);
     tile.onclick = () => setViewScope(scope);
     return tile;
   }
