@@ -70,8 +70,19 @@
   .stat-tile-count { font-size: 1.1rem; font-weight: 700; line-height: 1.2; }
   .stat-tile-label { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
 
+  /* SALE */
+  .sale-section { margin-bottom: 36px; }
+  .sale-section-title { font-size: 0.75rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--surface2); }
+  .sale-header { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+  .sale-toggle { display: flex; background: var(--surface); border: 1px solid var(--surface2); border-radius: 20px; padding: 2px; gap: 2px; flex-shrink: 0; }
+  .sale-toggle-btn { padding: 5px 14px; border-radius: 18px; font-size: 0.8rem; cursor: pointer; border: none; background: none; color: var(--muted); user-select: none; }
+  .sale-toggle-btn.active { background: var(--accent); color: white; }
+  .sale-disclaimer { font-size: 0.75rem; color: var(--muted); margin-bottom: 16px; font-style: italic; }
+  #sale-body { display: flex; gap: 16px; align-items: flex-start; }
+  #sale-grid-wrap { flex: 1; min-width: 0; }
+
   /* PEOPLE SIDEBAR */
-  #people-sidebar { width: 180px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 14px; }
+  #people-sidebar, #sale-people-sidebar { width: 180px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 14px; }
   .people-title { font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
   .person-tile { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; font-size: 0.85rem; }
   .person-tile:hover { background: var(--surface2); }
@@ -120,6 +131,7 @@
   <div class="tab active" data-tab="collection" onclick="showTab('collection', this)">Collection</div>
   <div class="tab" data-tab="decks" onclick="showTab('decks', this)">Decks</div>
   <div class="tab" data-tab="missing" onclick="showTab('missing', this)">Missing</div>
+  <div class="tab" data-tab="sale" onclick="showTab('sale', this)">For Sale</div>
   <a class="tab" href="/config" style="text-decoration:none">Config</a>
   <div class="nav-meta" id="nav-identity">Loading…</div>
 </nav>
@@ -181,6 +193,54 @@
   </div>
 </div>
 
+<!-- FOR SALE -->
+<div id="page-sale" class="page">
+  <div class="loading" id="sale-loading">Loading sale data…</div>
+  <div id="sale-content" style="display:none">
+    <div class="sale-header">
+      <div class="sale-toggle">
+        <button class="sale-toggle-btn active" onclick="setSaleView('for-sale', this)">For Sale</button>
+        <button class="sale-toggle-btn" onclick="setSaleView('wants', this)">Wants</button>
+      </div>
+      <input class="search" id="sale-search" placeholder="Search cards…" oninput="filterSale()">
+      <div id="sale-color-filter" class="stats-banner"></div>
+    </div>
+    <div id="sale-body">
+      <div id="sale-people-sidebar">
+        <div class="people-title">View</div>
+        <div id="sale-people-list"></div>
+      </div>
+      <div id="sale-grid-wrap">
+        <div id="sale-view-forsale">
+          <p class="sale-disclaimer">Versions shown are owned copies — the specific printing for sale may vary.</p>
+          <div class="sale-section">
+            <div class="sale-section-title">For Sale</div>
+            <div class="card-grid" id="sale-forsale-grid"></div>
+            <p id="sale-forsale-empty" style="display:none;color:var(--muted);padding:20px 0">No cards listed for sale.</p>
+          </div>
+          <div class="sale-section">
+            <div class="sale-section-title">Extras (own &gt;4 copies)</div>
+            <div class="card-grid" id="sale-extras-grid"></div>
+            <p id="sale-extras-empty" style="display:none;color:var(--muted);padding:20px 0">No extras.</p>
+          </div>
+        </div>
+        <div id="sale-view-wants" style="display:none">
+          <div class="sale-section">
+            <div class="sale-section-title">Wants — Specific Version</div>
+            <div class="card-grid" id="wants-specific-grid"></div>
+            <p id="wants-specific-empty" style="display:none;color:var(--muted);padding:20px 0">No specific-version wants.</p>
+          </div>
+          <div class="sale-section">
+            <div class="sale-section-title">Wants — Any Version</div>
+            <div class="card-grid" id="wants-any-grid"></div>
+            <p id="wants-any-empty" style="display:none;color:var(--muted);padding:20px 0">No any-version wants.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 let collectionCards = [];
 let collectionMap = {};   // lower_name -> { quantity, set_code, collector_number }
@@ -188,6 +248,14 @@ let allocatedCards = {};  // lower_name -> [{deckName, color, quantity}]
 let activeGroup = 'all';
 let viewScope = 'me';          // 'me' | 'all' | a specific owner_user_id
 let combinedData = null;       // lazily fetched /api/collection/all payload
+
+let saleForSale = [];
+let saleExtras = [];
+let saleWants = [];
+let saleViewScope = 'me';      // 'me' | 'all' | a specific owner_user_id
+let saleActiveGroup = 'all';
+let saleView = 'for-sale';     // 'for-sale' | 'wants'
+let combinedSaleData = null;   // lazily fetched /api/sale/all payload
 
 const COLOUR_TILES = [
   { group: 'White',       icon: '☀️', iconColor: null,      numColor: '#e8e8d0', bg: '#2a2a1e', border: '#4a4a2e', label: 'White' },
@@ -256,13 +324,15 @@ function buildStatsBanner() {
 
 async function init() {
   try {
-    const [colRes, deckRes] = await Promise.all([
+    const [colRes, deckRes, saleRes] = await Promise.all([
       fetch('/api/collection'),
       fetch('/api/decks'),
+      fetch('/api/sale'),
     ]);
     if (!colRes.ok || !deckRes.ok) throw new Error('data missing');
     const colData = await colRes.json();
     const deckData = await deckRes.json();
+    const saleData = saleRes.ok ? await saleRes.json() : { for_sale: [], extras: [], wants: [] };
 
     collectionCards = colData.cards;
 
@@ -297,12 +367,23 @@ async function init() {
     buildStatsBanner();
     renderCollection(collectionCards);
     renderDecks(deckData.decks);
+
+    saleForSale = saleData.for_sale || [];
+    saleExtras = saleData.extras || [];
+    saleWants = saleData.wants || [];
+    document.getElementById('sale-loading').style.display = 'none';
+    document.getElementById('sale-content').style.display = 'block';
+    buildSaleFilterBanner();
+    renderSalePeopleSidebar();
+    filterSale();
+
     selectTabFromHash();
     renderPeopleSidebar();
   } catch {
     document.getElementById('load-error').style.display = 'block';
     document.getElementById('collection-loading').style.display = 'none';
     document.getElementById('decks-loading').style.display = 'none';
+    document.getElementById('sale-loading').style.display = 'none';
   }
 
   loadWhoami();
@@ -556,6 +637,163 @@ function renderDecks(decks) {
 
 function toggleDeck(header) {
   header.closest('.deck-item').classList.toggle('open');
+}
+
+// ─── For Sale tab ────────────────────────────────────────────────────────────
+
+function currentSaleForSale() {
+  if (saleViewScope === 'me') return saleForSale;
+  if (!combinedSaleData) return [];
+  if (saleViewScope === 'all') return combinedSaleData.for_sale;
+  return combinedSaleData.for_sale.filter(c => c.owner_user_id === saleViewScope);
+}
+
+function currentSaleExtras() {
+  if (saleViewScope === 'me') return saleExtras;
+  if (!combinedSaleData) return [];
+  if (saleViewScope === 'all') return combinedSaleData.extras;
+  return combinedSaleData.extras.filter(c => c.owner_user_id === saleViewScope);
+}
+
+function currentSaleWants() {
+  if (saleViewScope === 'me') return saleWants;
+  if (!combinedSaleData) return [];
+  if (saleViewScope === 'all') return combinedSaleData.wants;
+  return combinedSaleData.wants.filter(c => c.owner_user_id === saleViewScope);
+}
+
+function buildSaleFilterBanner() {
+  const container = document.getElementById('sale-color-filter');
+  container.innerHTML = '';
+
+  const cards = saleView === 'wants'
+    ? currentSaleWants()
+    : [...currentSaleForSale(), ...currentSaleExtras()];
+
+  const counts = {};
+  for (const c of cards) counts[c.color_group] = (counts[c.color_group] || 0) + c.quantity;
+  const totalQty = Object.values(counts).reduce((s, v) => s + v, 0);
+
+  function makeTile(dataGroup, icon, iconColor, count, numColor, bg, border, label, isActive) {
+    const tile = document.createElement('div');
+    tile.className = 'stat-tile' + (isActive ? ' active' : '');
+    tile.dataset.group = dataGroup;
+    tile.style.cssText = `background:${bg};border-color:${border}`;
+    const iconStyle = iconColor ? ` style="color:${iconColor}"` : '';
+    tile.innerHTML = `
+      <div class="stat-tile-icon"${iconStyle}>${icon}</div>
+      <div class="stat-tile-count" style="color:${numColor}">${count}</div>
+      <div class="stat-tile-label">${label}</div>`;
+    tile.onclick = () => setSaleGroup(tile);
+    return tile;
+  }
+
+  container.appendChild(makeTile('all', '✦', '#aaaaaa', totalQty, 'var(--text)', '#141420', '#28283e', 'All', saleActiveGroup === 'all'));
+  for (const t of COLOUR_TILES) {
+    const qty = counts[t.group] || 0;
+    container.appendChild(makeTile(t.group.toLowerCase(), t.icon, t.iconColor, qty, t.numColor, t.bg, t.border, t.label, saleActiveGroup === t.group.toLowerCase()));
+  }
+}
+
+function setSaleGroup(el) {
+  document.querySelectorAll('#sale-color-filter .stat-tile').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  saleActiveGroup = el.dataset.group;
+  filterSale();
+}
+
+function setSaleView(view, btnEl) {
+  saleView = view;
+  document.querySelectorAll('.sale-toggle-btn').forEach(b => b.classList.remove('active'));
+  btnEl.classList.add('active');
+  document.getElementById('sale-view-forsale').style.display = view === 'for-sale' ? 'block' : 'none';
+  document.getElementById('sale-view-wants').style.display = view === 'wants' ? 'block' : 'none';
+  saleActiveGroup = 'all';
+  buildSaleFilterBanner();
+  filterSale();
+}
+
+function renderSalePeopleSidebar() {
+  const list = document.getElementById('sale-people-list');
+  list.innerHTML = '';
+
+  function makeTile(scope, icon, label) {
+    const tile = document.createElement('div');
+    tile.className = 'person-tile' + (saleViewScope === scope ? ' active' : '');
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'person-icon';
+    iconSpan.textContent = icon;
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    tile.append(iconSpan, labelSpan);
+    tile.onclick = () => setSaleViewScope(scope);
+    return tile;
+  }
+
+  list.appendChild(makeTile('me', '👤', 'Just Me'));
+  list.appendChild(makeTile('all', '✦', 'All'));
+
+  if (combinedSaleData) {
+    for (const p of combinedSaleData.people) {
+      const label = p.display_name || p.user_id;
+      const icon = p.icon || '🂠';
+      list.appendChild(makeTile(p.user_id, icon, label));
+    }
+  }
+}
+
+async function setSaleViewScope(scope) {
+  saleViewScope = scope;
+
+  if (scope !== 'me' && !combinedSaleData) {
+    const res = await fetch('/api/sale/all');
+    if (res.ok) combinedSaleData = await res.json();
+  }
+
+  renderSalePeopleSidebar();
+  saleActiveGroup = 'all';
+  buildSaleFilterBanner();
+  filterSale();
+}
+
+function makeSaleCard(c) {
+  const badge = c.price != null ? `£${c.price}` : `×${c.quantity}`;
+  const el = makeCard(c.name, c.set_code, c.collector_number, badge, c.foil ? 'foil' : '', null);
+  if (c.owner_icon) {
+    const ownerBadge = document.createElement('div');
+    ownerBadge.className = 'owner-badge';
+    ownerBadge.textContent = c.owner_icon;
+    el.appendChild(ownerBadge);
+  }
+  return el;
+}
+
+function renderSaleGrid(gridId, emptyId, cards) {
+  const grid = document.getElementById(gridId);
+  const empty = document.getElementById(emptyId);
+  grid.innerHTML = '';
+  if (!cards.length) {
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  for (const c of cards) grid.appendChild(makeSaleCard(c));
+}
+
+function filterSale() {
+  const q = document.getElementById('sale-search').value.toLowerCase();
+  const groupOk = (c) => saleActiveGroup === 'all' || c.color_group.toLowerCase() === saleActiveGroup;
+  const nameOk = (c) => c.name.toLowerCase().includes(q);
+  const match = (c) => nameOk(c) && groupOk(c);
+
+  if (saleView === 'wants') {
+    const wants = currentSaleWants().filter(match);
+    renderSaleGrid('wants-specific-grid', 'wants-specific-empty', wants.filter(c => !c.any_version));
+    renderSaleGrid('wants-any-grid', 'wants-any-empty', wants.filter(c => c.any_version));
+  } else {
+    renderSaleGrid('sale-forsale-grid', 'sale-forsale-empty', currentSaleForSale().filter(match));
+    renderSaleGrid('sale-extras-grid', 'sale-extras-empty', currentSaleExtras().filter(match));
+  }
 }
 
 // ─── Missing tab ─────────────────────────────────────────────────────────────

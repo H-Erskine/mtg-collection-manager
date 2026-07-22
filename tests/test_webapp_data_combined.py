@@ -1,8 +1,8 @@
-from mtg_manager.db import get_conn, upsert_cards
+from mtg_manager.db import get_conn, upsert_cards, upsert_for_sale_cards
 from mtg_manager.models import OwnedCard
 
 import api.users as users_mod
-from webapp.data import get_all_collections
+from webapp.data import get_all_collections, get_all_sale
 
 
 def test_get_all_collections_combines_multiple_users(tmp_path, monkeypatch):
@@ -50,3 +50,52 @@ def test_get_all_collections_skips_users_with_no_config(tmp_path, monkeypatch):
     data = get_all_collections()  # alice has no owned cards yet, should just return empty for her
     assert any(p["user_id"] == "google:alice@example.com" for p in data["people"])
     assert data["cards"] == []
+
+
+def test_get_all_sale_combines_multiple_users(tmp_path, monkeypatch):
+    monkeypatch.setattr(users_mod, "_REGISTRY_PATH", tmp_path / "registry.sqlite")
+    monkeypatch.setattr(users_mod, "_USERS_DIR", tmp_path / "users")
+
+    users_mod.ensure_user("google:alice@example.com")
+    users_mod.set_profile("google:alice@example.com", "Alice", "🐉")
+    users_mod.ensure_user("google:bob@example.com")
+    users_mod.set_profile("google:bob@example.com", "Bob", "🦊")
+
+    alice_cfg = users_mod.get_user_config("google:alice@example.com")
+    with get_conn(alice_cfg.db_path) as conn:
+        upsert_for_sale_cards(conn, [OwnedCard(
+            name="Lightning Bolt", set_code="m10", collector_number="146",
+            color_group="red", foil=False, quantity=1,
+        )], price=2.0)
+
+    bob_cfg = users_mod.get_user_config("google:bob@example.com")
+    with get_conn(bob_cfg.db_path) as conn:
+        upsert_for_sale_cards(conn, [OwnedCard(
+            name="Counterspell", set_code="mh2", collector_number="269",
+            color_group="blue", foil=False, quantity=1,
+        )], price=1.0)
+
+    data = get_all_sale()
+
+    people_ids = {p["user_id"] for p in data["people"]}
+    assert people_ids == {"google:alice@example.com", "google:bob@example.com"}
+
+    for_sale_by_name = {c["name"]: c for c in data["for_sale"]}
+    assert for_sale_by_name["Lightning Bolt"]["owner_user_id"] == "google:alice@example.com"
+    assert for_sale_by_name["Lightning Bolt"]["owner_display_name"] == "Alice"
+    assert for_sale_by_name["Counterspell"]["owner_user_id"] == "google:bob@example.com"
+    assert for_sale_by_name["Counterspell"]["owner_display_name"] == "Bob"
+    assert data["extras"] == []
+    assert data["wants"] == []
+
+
+def test_get_all_sale_skips_users_with_no_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(users_mod, "_REGISTRY_PATH", tmp_path / "registry.sqlite")
+    monkeypatch.setattr(users_mod, "_USERS_DIR", tmp_path / "users")
+    users_mod.ensure_user("google:alice@example.com")
+
+    data = get_all_sale()
+    assert any(p["user_id"] == "google:alice@example.com" for p in data["people"])
+    assert data["for_sale"] == []
+    assert data["extras"] == []
+    assert data["wants"] == []

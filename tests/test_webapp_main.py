@@ -80,6 +80,55 @@ def test_api_decks_returns_data_when_logged_in(tmp_path, monkeypatch):
     assert response.json()["decks"] == []
 
 
+def test_api_sale_requires_auth(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    response = client.get("/api/sale", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "/login"
+
+
+def test_api_sale_returns_data_when_logged_in(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    from api.users import ensure_user
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/api/sale")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["for_sale"] == []
+    assert data["extras"] == []
+    assert data["wants"] == []
+
+
+def test_api_sale_all_requires_auth(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    response = client.get("/api/sale/all", follow_redirects=False)
+    assert response.status_code in (302, 307)
+
+
+def test_api_sale_all_returns_combined_data(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/api/sale/all")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "people" in data
+    assert "for_sale" in data
+    assert "extras" in data
+    assert "wants" in data
+
+
 def test_api_collection_all_requires_auth(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     response = client.get("/api/collection/all", follow_redirects=False)

@@ -25,7 +25,7 @@ def export_static(cfg: Config) -> None:
         updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         collection_cards = get_collection_data(conn)
         decks_data = {"updated_at": updated_at, "decks": get_decks_data(conn)}
-        sale_data = _get_sale(conn)
+        sale_data = get_sale_data(conn)
 
     collection_data = {"updated_at": updated_at, "cards": collection_cards}
     _write_json(out_dir / "collection.json", collection_data)
@@ -129,7 +129,7 @@ def get_decks_data(conn) -> list[dict]:
     return decks
 
 
-def _get_sale(conn) -> dict:
+def get_sale_data(conn) -> dict:
     sale_rows = conn.execute(
         "SELECT name, set_code, collector_number, foil, quantity, price, color_group "
         "FROM for_sale_cards ORDER BY price DESC, name"
