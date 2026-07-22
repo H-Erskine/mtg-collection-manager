@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from api.users import get_user_config, list_profiles
 from mtg_manager.config import Config
 from mtg_manager.db import get_conn
 from web.export import get_collection_data, get_decks_data
@@ -22,4 +23,36 @@ def get_decks(cfg: Config) -> dict:
     return {
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "decks": decks,
+    }
+
+
+def get_all_collections() -> dict:
+    """Combined multi-person collection view: every registered user's cards,
+    tagged with their owner identity. A user whose config can't be resolved
+    (or whose DB can't be read) is skipped rather than failing the whole request.
+    """
+    people = list_profiles()
+    cards: list[dict] = []
+
+    for person in people:
+        cfg = get_user_config(person["user_id"])
+        if cfg is None:
+            continue
+        try:
+            with get_conn(cfg.db_path) as conn:
+                person_cards = get_collection_data(conn)
+        except Exception:
+            continue
+        for card in person_cards:
+            cards.append({
+                **card,
+                "owner_user_id": person["user_id"],
+                "owner_display_name": person["display_name"],
+                "owner_icon": person["icon"],
+            })
+
+    return {
+        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "people": people,
+        "cards": cards,
     }

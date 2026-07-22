@@ -80,6 +80,28 @@ def test_api_decks_returns_data_when_logged_in(tmp_path, monkeypatch):
     assert response.json()["decks"] == []
 
 
+def test_api_collection_all_requires_auth(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    response = client.get("/api/collection/all", follow_redirects=False)
+    assert response.status_code in (302, 307)
+
+
+def test_api_collection_all_returns_combined_data(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/api/collection/all")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "people" in data
+    assert "cards" in data
+
+
 def test_whoami_redirects_when_not_logged_in(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     response = client.get("/api/whoami", follow_redirects=False)

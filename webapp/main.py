@@ -15,7 +15,7 @@ from api.users import get_user_config, seed_owner_whitelist
 from mtg_manager.config import Config
 from webapp.auth import router as auth_router
 from webapp.config import router as config_router
-from webapp.data import get_collection, get_decks
+from webapp.data import get_all_collections, get_collection, get_decks
 from webapp.deps import NotAuthenticated, require_user
 from webapp.images import router as images_router
 
@@ -49,6 +49,11 @@ async def api_collection(cfg: Config = Depends(require_user)):
 @app.get("/api/decks")
 async def api_decks(cfg: Config = Depends(require_user)):
     return get_decks(cfg)
+
+
+@app.get("/api/collection/all")
+async def api_collection_all(cfg: Config = Depends(require_user)):
+    return get_all_collections()
 
 
 @app.get("/api/whoami")
