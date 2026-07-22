@@ -46,6 +46,10 @@
   .inline-form input { margin-bottom: 0; }
   .checkbox-row { display: flex; align-items: center; gap: 6px; }
   .checkbox-row input { width: auto; margin-bottom: 0; }
+  .icon-palette { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .icon-option { font-size: 1.3rem; padding: 6px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--surface2); cursor: pointer; }
+  .icon-option:hover { background: var(--surface2); }
+  .icon-option.selected { border-color: var(--accent); background: var(--surface2); }
 </style>
 </head>
 <body>
@@ -65,7 +69,8 @@
     <label>Display name</label>
     <input id="profile-name" placeholder="e.g. Alice">
     <label>Icon</label>
-    <input id="profile-icon" placeholder="e.g. 🐉" maxlength="4">
+    <div id="profile-icon-palette" class="icon-palette"></div>
+    <input type="hidden" id="profile-icon">
     <button class="btn" onclick="saveProfile()">Save</button>
     <div id="profile-msg" class="msg"></div>
   </section>
@@ -120,6 +125,25 @@
 </div>
 
 <script>
+const ICON_OPTIONS = ['⚔', '🐉', '🔥', '💧', '🌿', '☀️', '💀', '🌈', '🃏', '🎲', '🦄', '🧙', '👑', '⭐'];
+
+function renderIconPalette(selected) {
+  const palette = document.getElementById('profile-icon-palette');
+  palette.innerHTML = '';
+  for (const icon of ICON_OPTIONS) {
+    const btn = document.createElement('div');
+    btn.className = 'icon-option' + (icon === selected ? ' selected' : '');
+    btn.textContent = icon;
+    btn.onclick = () => selectIcon(icon);
+    palette.appendChild(btn);
+  }
+}
+
+function selectIcon(icon) {
+  document.getElementById('profile-icon').value = icon;
+  renderIconPalette(icon);
+}
+
 async function loadConfig() {
   const res = await fetch('/api/config');
   if (!res.ok) { location.href = '/login'; return; }
@@ -130,6 +154,7 @@ async function loadConfig() {
   document.getElementById('sort-select').value = data.pick_list_sort;
   document.getElementById('profile-name').value = data.display_name || '';
   document.getElementById('profile-icon').value = data.icon || '';
+  renderIconPalette(data.icon || '');
 
   if (data.is_admin) {
     document.getElementById('admin-section').style.display = 'block';
