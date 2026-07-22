@@ -13,6 +13,7 @@ load_dotenv()
 
 from api.users import get_user_config, log_request, seed_owner_whitelist
 from mtg_manager.config import Config
+from webapp.admin import router as admin_router
 from webapp.auth import router as auth_router
 from webapp.config import router as config_router
 from webapp.data import get_all_collections, get_collection, get_decks
@@ -27,6 +28,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(images_router)
 app.include_router(config_router)
+app.include_router(admin_router)
 
 
 @app.middleware("http")
