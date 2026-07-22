@@ -10,10 +10,12 @@ from api.users import (
     is_owner,
     is_whitelist_admin,
     list_packages,
+    list_profiles,
     mark_synced,
     minutes_since_last_sync,
     remove_package,
     set_formats,
+    set_profile,
     set_sort,
 )
 from mtg_manager.config import Config
@@ -42,6 +44,11 @@ class WhitelistIn(BaseModel):
     is_admin: bool = False
 
 
+class ProfileIn(BaseModel):
+    display_name: str
+    icon: str
+
+
 def _is_admin(user_id: str) -> bool:
     return user_id.startswith("google:") and is_whitelist_admin(user_id.split(":", 1)[1])
 
@@ -50,12 +57,15 @@ def _is_admin(user_id: str) -> bool:
 async def get_config(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     pkgs = list_packages(user_id)
+    profile = next((p for p in list_profiles() if p["user_id"] == user_id), {"display_name": "", "icon": ""})
     return {
         "packages": [{"color_group": cg, "public_id": pid} for cg, pid in pkgs],
         "formats": cfg.formats,
         "pick_list_sort": cfg.pick_list_sort,
         "minutes_since_last_sync": minutes_since_last_sync(user_id),
         "is_admin": _is_admin(user_id),
+        "display_name": profile["display_name"],
+        "icon": profile["icon"],
     }
 
 
@@ -87,6 +97,13 @@ async def set_config_sort(request: Request, body: SortIn, cfg: Config = Depends(
 async def set_config_formats(request: Request, body: FormatsIn, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     set_formats(user_id, body.formats)
+    return {"ok": True}
+
+
+@router.post("/api/config/profile")
+async def set_config_profile(request: Request, body: ProfileIn, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    set_profile(user_id, body.display_name, body.icon)
     return {"ok": True}
 
 

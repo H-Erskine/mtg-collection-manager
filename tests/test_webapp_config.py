@@ -155,6 +155,22 @@ def test_set_formats(tmp_path, monkeypatch):
     assert get_response.json()["formats"] == ["modern", "legacy"]
 
 
+def test_set_profile(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.post("/api/config/profile", json={"display_name": "Alice", "icon": "🐉"})
+        get_response = c.get("/api/config")
+
+    assert response.status_code == 200
+    data = get_response.json()
+    assert data["display_name"] == "Alice"
+    assert data["icon"] == "🐉"
+
+
 def test_sync_calls_handle_sync_and_marks_synced(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:alice@example.com")
