@@ -76,3 +76,30 @@ def test_logout_clears_session(app_client):
     response = app_client.post("/logout", follow_redirects=False)
     assert response.status_code in (302, 307)
     assert response.headers["location"] == "/login"
+
+
+def test_callback_rejects_non_whitelisted_email_logs_failed_login(app_client):
+    fake_token = {"userinfo": {"email": "stranger@example.com"}}
+    with patch.object(
+        auth_mod.oauth.google, "authorize_access_token", new=AsyncMock(return_value=fake_token)
+    ):
+        app_client.get("/auth/callback", follow_redirects=False)
+
+    from api.users import list_failed_logins
+    rows = list_failed_logins()
+    assert len(rows) == 1
+    assert rows[0]["email"] == "stranger@example.com"
+    assert rows[0]["reason"] == "not_whitelisted"
+
+
+def test_callback_oauth_error_logs_failed_login(app_client):
+    with patch.object(
+        auth_mod.oauth.google, "authorize_access_token",
+        new=AsyncMock(side_effect=OAuthError(error="mismatching_state")),
+    ):
+        app_client.get("/auth/callback", follow_redirects=False)
+
+    from api.users import list_failed_logins
+    rows = list_failed_logins()
+    assert len(rows) == 1
+    assert rows[0]["reason"] == "oauth_error"

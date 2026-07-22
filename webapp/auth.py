@@ -6,7 +6,7 @@ from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, Request
 from starlette.responses import HTMLResponse, RedirectResponse
 
-from api.users import ensure_user, is_whitelisted
+from api.users import ensure_user, is_whitelisted, log_failed_login
 
 router = APIRouter()
 
@@ -31,11 +31,13 @@ async def auth_callback(request: Request):
     try:
         token = await oauth.google.authorize_access_token(request)
     except OAuthError:
+        log_failed_login("", "oauth_error")
         return RedirectResponse(url="/login", status_code=302)
     userinfo = token.get("userinfo") or {}
     email = (userinfo.get("email") or "").lower()
 
     if not email or not is_whitelisted(email):
+        log_failed_login(email, "not_whitelisted")
         return HTMLResponse(
             "<h1>Not authorized</h1><p>This email is not on the whitelist. "
             "Contact the owner.</p>",
