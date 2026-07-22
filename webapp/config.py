@@ -7,6 +7,7 @@ from api.handlers import handle_sync
 from api.users import (
     add_package,
     add_whitelisted_email,
+    is_owner,
     is_whitelist_admin,
     list_packages,
     mark_synced,
@@ -92,15 +93,18 @@ async def set_config_formats(request: Request, body: FormatsIn, cfg: Config = De
 @router.post("/api/config/sync")
 def sync_now(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
-    mins = minutes_since_last_sync(user_id)
-    if mins is not None and mins < SYNC_THROTTLE_MINUTES:
-        remaining = int(SYNC_THROTTLE_MINUTES - mins)
-        raise HTTPException(
-            status_code=429,
-            detail=f"Already synced {int(mins)} min ago. Try again in {remaining} min.",
-        )
+    owner = is_owner(user_id)
 
-    message = handle_sync(cfg, is_owner=False)
+    if not owner:
+        mins = minutes_since_last_sync(user_id)
+        if mins is not None and mins < SYNC_THROTTLE_MINUTES:
+            remaining = int(SYNC_THROTTLE_MINUTES - mins)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Already synced {int(mins)} min ago. Try again in {remaining} min.",
+            )
+
+    message = handle_sync(cfg, is_owner=owner)
     mark_synced(user_id)
     return {"message": message}
 
