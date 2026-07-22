@@ -58,3 +58,24 @@ def test_evict_finds_prefixed_user_db_file_instead_of_skipping(tmp_path, monkeyp
 
     assert "no DB file, skipping" not in caplog.text
     assert "DRY RUN" in caplog.text
+
+
+def test_evict_prunes_logs(tmp_path, monkeypatch):
+    import api.users as u
+    monkeypatch.setattr(u, "_REGISTRY_PATH", tmp_path / "registry.sqlite")
+    monkeypatch.setattr(u, "_USERS_DIR", tmp_path)
+
+    import scripts.evict_cache as ec
+    monkeypatch.setattr(ec, "_USERS_DIR", tmp_path)
+    monkeypatch.setattr(ec, "list_users_for_eviction", lambda threshold_days=7: [])
+
+    u.log_failed_login("old@example.com", "not_whitelisted")
+    import sqlite3
+    conn = sqlite3.connect(u._REGISTRY_PATH)
+    conn.execute("UPDATE failed_logins SET created_at = datetime('now', '-40 days')")
+    conn.commit()
+    conn.close()
+
+    ec.evict(threshold_days=7)
+
+    assert u.list_failed_logins() == []

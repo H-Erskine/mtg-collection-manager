@@ -19,7 +19,7 @@ from pathlib import Path
 # Allow running as `python -m scripts.evict_cache` from the project root
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from api.users import list_users_for_eviction, _USERS_DIR, _safe_filename
+from api.users import list_users_for_eviction, prune_logs, _USERS_DIR, _safe_filename
 from mtg_manager.db import get_conn
 
 logging.basicConfig(
@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 
 
 def evict(threshold_days: int = 7, dry_run: bool = False) -> None:
+    if dry_run:
+        logger.info("DRY RUN — would prune failed_logins/request_log rows older than 30 days.")
+    else:
+        prune_logs(days=30)
+        logger.info("Pruned failed_logins/request_log rows older than 30 days.")
+
     stale_ids = list_users_for_eviction(threshold_days)
 
     if not stale_ids:
