@@ -167,3 +167,44 @@ def test_app_serves_page_when_logged_in(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "MTG Collection" in response.text
+
+
+def test_activity_is_logged_for_authenticated_requests(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user, list_request_log
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        c.get("/api/whoami")
+
+    rows = list_request_log()
+    matching = [r for r in rows if r["path"] == "/api/whoami"]
+    assert len(matching) == 1
+    assert matching[0]["method"] == "GET"
+    assert matching[0]["status"] == 200
+    assert matching[0]["user_id"] == "google:alice@example.com"
+
+
+def test_activity_log_records_anonymous_requests(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import list_request_log
+
+    client.get("/api/whoami", follow_redirects=False)
+
+    rows = list_request_log()
+    matching = [r for r in rows if r["path"] == "/api/whoami"]
+    assert len(matching) == 1
+    assert matching[0]["user_id"] is None
+    assert matching[0]["status"] in (302, 307)
+
+
+def test_image_route_requests_are_not_logged(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import list_request_log
+
+    client.get("/images/badset/1")  # invalid collector_number-ish but exercises the route
+
+    rows = list_request_log()
+    assert all(not r["path"].startswith("/images/") for r in rows)

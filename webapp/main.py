@@ -11,7 +11,7 @@ from starlette.responses import RedirectResponse
 
 load_dotenv()
 
-from api.users import get_user_config, seed_owner_whitelist
+from api.users import get_user_config, log_request, seed_owner_whitelist
 from mtg_manager.config import Config
 from webapp.auth import router as auth_router
 from webapp.config import router as config_router
@@ -27,6 +27,19 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(images_router)
 app.include_router(config_router)
+
+
+@app.middleware("http")
+async def _log_requests(request: Request, call_next):
+    response = await call_next(request)
+    if not request.url.path.startswith("/images/"):
+        user_id = request.session.get("user_id")
+        try:
+            log_request(user_id, request.method, request.url.path, response.status_code)
+        except Exception:
+            pass
+    return response
+
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
