@@ -346,6 +346,26 @@ def set_profile(user_id: str, display_name: str, icon: str) -> None:
         )
 
 
+def remove_whitelisted_user(email: str) -> None:
+    """Fully delete a whitelisted user's account: whitelist entry, registry
+    row (packages/formats/sort cascade via FK), and their per-user DB file.
+    Irreversible. Refuses to remove the owner's own email."""
+    email = email.strip().lower()
+    owner_email = os.environ.get("OWNER_GOOGLE_EMAIL")
+    if owner_email is not None and email == owner_email.lower():
+        raise ValueError("Cannot remove the owner's account.")
+
+    user_id = f"google:{email}"
+
+    with _registry_conn() as conn:
+        conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM whitelisted_emails WHERE email = ?", (email,))
+
+    db_path = _USERS_DIR / f"{_safe_filename(user_id)}.sqlite"
+    if db_path.exists():
+        db_path.unlink()
+
+
 def list_profiles() -> list[dict]:
     with _registry_conn() as conn:
         rows = conn.execute(

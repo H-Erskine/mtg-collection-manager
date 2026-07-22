@@ -326,3 +326,46 @@ def test_profile_migration_safe_on_fresh_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(u, "_USERS_DIR", tmp_path / "fresh_users")
     u.ensure_user("google:fresh@example.com")  # must not raise
     assert u.is_registered("google:fresh@example.com")
+
+
+def test_remove_whitelisted_user_deletes_everything(tmp_path, monkeypatch):
+    monkeypatch.setattr(users_mod, "_USERS_DIR", tmp_path / "users")
+    users_mod.ensure_user("google:alice@example.com")
+    users_mod.add_package("google:alice@example.com", "Red", "abc123")
+    users_mod.add_whitelisted_email("alice@example.com")
+
+    # Force creation of alice's per-user db file on disk
+    cfg = users_mod.get_user_config("google:alice@example.com")
+    import sqlite3
+    conn = sqlite3.connect(cfg.db_path)
+    conn.close()
+    assert cfg.db_path.exists()
+
+    users_mod.remove_whitelisted_user("alice@example.com")
+
+    assert not users_mod.is_registered("google:alice@example.com")
+    assert users_mod.list_packages("google:alice@example.com") == []
+    assert not users_mod.is_whitelisted("alice@example.com")
+    assert not cfg.db_path.exists()
+
+
+def test_remove_whitelisted_user_refuses_to_remove_owner(monkeypatch):
+    monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "owner@example.com")
+    users_mod.ensure_user("google:owner@example.com")
+    users_mod.add_whitelisted_email("owner@example.com", is_admin=True)
+
+    with pytest.raises(ValueError):
+        users_mod.remove_whitelisted_user("owner@example.com")
+
+    assert users_mod.is_whitelisted("owner@example.com")
+
+
+def test_remove_whitelisted_user_case_insensitive_owner_guard(monkeypatch):
+    monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "Owner@Example.com")
+    with pytest.raises(ValueError):
+        users_mod.remove_whitelisted_user("owner@example.com")
+
+
+def test_remove_whitelisted_user_is_safe_for_unregistered_email():
+    """Removing an email that was never whitelisted/registered should not raise."""
+    users_mod.remove_whitelisted_user("nobody@example.com")
