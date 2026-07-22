@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse
 
-from api.users import ensure_user
+from api.users import add_package, ensure_user
 import webapp.config as config_mod
 from webapp.deps import NotAuthenticated
 
@@ -158,6 +158,7 @@ def test_set_formats(tmp_path, monkeypatch):
 def test_sync_calls_handle_sync_and_marks_synced(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:alice@example.com")
+    add_package("google:alice@example.com", "Red", "some-package-id")
 
     with patch.object(config_mod, "handle_sync", return_value="Synced 3 cards.") as mock_sync:
         with client as c:
@@ -170,9 +171,25 @@ def test_sync_calls_handle_sync_and_marks_synced(tmp_path, monkeypatch):
     mock_sync.assert_called_once()
 
 
+def test_sync_rejects_when_no_packages_configured(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ensure_user("google:alice@example.com")  # no packages added
+
+    with patch.object(config_mod, "handle_sync") as mock_sync:
+        with client as c:
+            with c.session_transaction() as session:
+                session["user_id"] = "google:alice@example.com"
+            response = c.post("/api/config/sync")
+
+    assert response.status_code == 400
+    assert "No Moxfield packages added yet" in response.json()["detail"]
+    mock_sync.assert_not_called()
+
+
 def test_sync_throttled_returns_429(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:alice@example.com")
+    add_package("google:alice@example.com", "Red", "some-package-id")
 
     from api.users import mark_synced
     mark_synced("google:alice@example.com")
@@ -191,6 +208,7 @@ def test_sync_skips_throttle_for_owner(tmp_path, monkeypatch):
     monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "owner@example.com")
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:owner@example.com")
+    add_package("google:owner@example.com", "Red", "some-package-id")
 
     from api.users import mark_synced
     mark_synced("google:owner@example.com")  # just synced 0 minutes ago
@@ -212,6 +230,7 @@ def test_sync_still_throttles_non_owner(tmp_path, monkeypatch):
     monkeypatch.delenv("OWNER_GOOGLE_EMAIL", raising=False)
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:alice@example.com")
+    add_package("google:alice@example.com", "Red", "some-package-id")
 
     from api.users import mark_synced
     mark_synced("google:alice@example.com")

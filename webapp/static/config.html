@@ -206,7 +206,7 @@ async function syncNow() {
     msg.textContent = data.message || 'Sync complete.';
     msg.className = 'msg ok';
   } else {
-    msg.textContent = 'Sync failed.';
+    msg.textContent = data.detail || 'Sync failed.';
     msg.className = 'msg err';
   }
 }

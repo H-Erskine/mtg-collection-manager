@@ -95,6 +95,12 @@ def sync_now(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     owner = is_owner(user_id)
 
+    if not cfg.packages:
+        raise HTTPException(
+            status_code=400,
+            detail="No Moxfield packages added yet. Add at least one package before syncing.",
+        )
+
     if not owner:
         mins = minutes_since_last_sync(user_id)
         if mins is not None and mins < SYNC_THROTTLE_MINUTES:
