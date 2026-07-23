@@ -417,10 +417,14 @@ def test_api_meta_compares_saved_decklists_against_own_collection(tmp_path, monk
     cfg = get_user_config("google:alice@example.com")
 
     with get_conn(cfg.db_path) as conn:
-        upsert_cards(conn, [OwnedCard(name="Brainstorm", quantity=1, color_group="Blue")])
+        upsert_cards(conn, [
+            OwnedCard(name="Brainstorm", quantity=1, color_group="Blue"),
+            OwnedCard(name="Ponder", quantity=1, color_group="Blue"),
+        ])
         replace_meta_decks(conn, "modern", [
             Decklist(deck_id="d1", name="Mono Blue", url="https://example.com/d1", meta_share=10.0,
-                      cards=[DeckCard(name="Brainstorm", quantity=4), DeckCard(name="Force of Will", quantity=4)])
+                      cards=[DeckCard(name="Brainstorm", quantity=4), DeckCard(name="Force of Will", quantity=4),
+                             DeckCard(name="Ponder", quantity=1)])
         ])
 
     with client as c:
@@ -433,10 +437,14 @@ def test_api_meta_compares_saved_decklists_against_own_collection(tmp_path, monk
     assert data["formats"][0]["format"] == "modern"
     deck = data["formats"][0]["decks"][0]
     assert deck["name"] == "Mono Blue"
-    assert deck["total_slots"] == 8
-    assert deck["owned_slots"] == 1
+    assert deck["total_slots"] == 9
+    assert deck["owned_slots"] == 2
     card_names_missing_first = [c["name"] for c in deck["cards"]]
-    assert card_names_missing_first[0] == "Force of Will"  # missing sorts before owned
+    # Brainstorm (1/4) and Force of Will (0/4) are both still missing, so
+    # within that group they sort alphabetically; Ponder (1/1) is fully
+    # owned and must sort last, after both missing cards, regardless of
+    # its own alphabetical position (it would otherwise sort before both).
+    assert card_names_missing_first == ["Brainstorm", "Force of Will", "Ponder"]
 
 
 def test_api_meta_skips_formats_with_no_saved_decklists(tmp_path, monkeypatch):

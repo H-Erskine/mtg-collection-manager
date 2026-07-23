@@ -134,7 +134,7 @@ def get_meta(cfg: Config) -> dict:
                     owned_slots += min(owned, qty)
                     cards.append({"name": name, "quantity": qty, "owned": owned})
 
-                cards.sort(key=lambda c: (c["owned"], c["name"]))
+                cards.sort(key=lambda c: (c["owned"] >= c["quantity"], c["name"]))
 
                 decks.append({
                     "name": dl.name,
