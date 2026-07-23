@@ -494,3 +494,79 @@ def test_seconds_since_last_auto_sync_unknown_user_returns_none():
     from api.users import seconds_since_last_auto_sync
 
     assert seconds_since_last_auto_sync("google:nobody@example.com") is None
+
+
+def test_add_group_member_then_list_group_members():
+    from api.users import add_group_member, ensure_user, list_group_members
+
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    add_group_member("google:alice@example.com", "google:bob@example.com")
+
+    members = list_group_members("google:alice@example.com")
+
+    assert members == [{"user_id": "google:bob@example.com", "display_name": "google:bob@example.com", "icon": "🂠"}]
+
+
+def test_list_group_members_uses_display_name_and_icon_when_set():
+    from api.users import add_group_member, ensure_user, list_group_members, set_profile
+
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    set_profile("google:bob@example.com", "Bob", "🐉")
+    add_group_member("google:alice@example.com", "google:bob@example.com")
+
+    members = list_group_members("google:alice@example.com")
+
+    assert members == [{"user_id": "google:bob@example.com", "display_name": "Bob", "icon": "🐉"}]
+
+
+def test_list_group_members_empty_when_no_group():
+    from api.users import ensure_user, list_group_members
+
+    ensure_user("google:alice@example.com")
+
+    assert list_group_members("google:alice@example.com") == []
+
+
+def test_add_group_member_is_one_directional():
+    from api.users import add_group_member, ensure_user, list_group_members
+
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    add_group_member("google:alice@example.com", "google:bob@example.com")
+
+    assert list_group_members("google:bob@example.com") == []
+
+
+def test_remove_group_member_returns_true_when_removed():
+    from api.users import add_group_member, ensure_user, remove_group_member
+
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    add_group_member("google:alice@example.com", "google:bob@example.com")
+
+    removed = remove_group_member("google:alice@example.com", "google:bob@example.com")
+
+    assert removed is True
+    from api.users import list_group_members
+    assert list_group_members("google:alice@example.com") == []
+
+
+def test_remove_group_member_returns_false_when_not_present():
+    from api.users import ensure_user, remove_group_member
+
+    ensure_user("google:alice@example.com")
+
+    assert remove_group_member("google:alice@example.com", "google:nobody@example.com") is False
+
+
+def test_add_group_member_twice_is_idempotent():
+    from api.users import add_group_member, ensure_user, list_group_members
+
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    add_group_member("google:alice@example.com", "google:bob@example.com")
+    add_group_member("google:alice@example.com", "google:bob@example.com")
+
+    assert len(list_group_members("google:alice@example.com")) == 1

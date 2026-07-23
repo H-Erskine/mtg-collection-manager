@@ -40,6 +40,12 @@ CREATE TABLE IF NOT EXISTS user_packages (
     public_id   TEXT NOT NULL,
     PRIMARY KEY (user_id, color_group)
 );
+CREATE TABLE IF NOT EXISTS user_groups (
+    owner_user_id  TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    member_user_id TEXT NOT NULL,
+    added_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (owner_user_id, member_user_id)
+);
 CREATE TABLE IF NOT EXISTS whitelisted_emails (
     email    TEXT PRIMARY KEY,
     is_admin INTEGER NOT NULL DEFAULT 0,
@@ -279,6 +285,47 @@ def list_packages(user_id: str) -> list[tuple[str, str]]:
         return [(r["color_group"], r["public_id"]) for r in rows]
 
 
+def add_group_member(owner_user_id: str, member_user_id: str) -> None:
+    """Add another user to owner_user_id's personal group. One-directional and
+    idempotent -- does not require member_user_id's consent and does not
+    affect member_user_id's own group."""
+    with _registry_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_groups (owner_user_id, member_user_id)
+            VALUES (?, ?)
+            ON CONFLICT (owner_user_id, member_user_id) DO NOTHING
+            """,
+            (owner_user_id, member_user_id),
+        )
+
+
+def remove_group_member(owner_user_id: str, member_user_id: str) -> bool:
+    """Remove a member from owner_user_id's group. Returns True if a row was deleted."""
+    with _registry_conn() as conn:
+        conn.execute(
+            "DELETE FROM user_groups WHERE owner_user_id = ? AND member_user_id = ?",
+            (owner_user_id, member_user_id),
+        )
+        return conn.total_changes > 0
+
+
+def list_group_members(owner_user_id: str) -> list[dict]:
+    """Return [{"user_id", "display_name", "icon"}, ...] for owner_user_id's group."""
+    with _registry_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT u.user_id, u.display_name, u.icon
+            FROM user_groups g
+            JOIN users u ON u.user_id = g.member_user_id
+            WHERE g.owner_user_id = ?
+            ORDER BY u.user_id
+            """,
+            (owner_user_id,),
+        ).fetchall()
+        return [_display_profile(dict(r)) for r in rows]
+
+
 def set_sort(user_id: str, sort_mode: str) -> None:
     if sort_mode not in VALID_SORT_OPTIONS:
         raise ValueError(
@@ -449,6 +496,17 @@ def remove_whitelisted_user(email: str) -> None:
     db_path = _USERS_DIR / f"{_safe_filename(user_id)}.sqlite"
     if db_path.exists():
         db_path.unlink()
+
+
+def _display_profile(row: dict) -> dict:
+    """Apply the same display_name/icon fallback app.html already does client-side
+    (p.display_name || p.user_id, p.icon || '🂠'), so every server-side aggregation
+    (directory, group listing, group-scoped collections) is consistent."""
+    return {
+        "user_id": row["user_id"],
+        "display_name": row["display_name"] or row["user_id"],
+        "icon": row["icon"] or "🂠",
+    }
 
 
 def list_profiles() -> list[dict]:
