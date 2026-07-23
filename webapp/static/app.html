@@ -267,7 +267,7 @@ let collectionMap = {};   // lower_name -> { quantity, set_code, collector_numbe
 let allocatedCards = {};  // lower_name -> [{deckName, color, quantity}]
 let activeGroup = 'all';
 let viewScope = 'me';          // 'me' | 'all' | a specific owner_user_id
-let combinedData = null;       // lazily fetched /api/collection/all payload
+let combinedData = null;       // lazily fetched /api/collection/group payload
 
 let saleForSale = [];
 let saleExtras = [];
@@ -594,7 +594,7 @@ async function setViewScope(scope) {
   viewScope = scope;
 
   if (scope !== 'me' && !combinedData) {
-    const res = await fetch('/api/collection/all');
+    const res = await fetch('/api/collection/group');
     if (res.ok) combinedData = await res.json();
   }
 

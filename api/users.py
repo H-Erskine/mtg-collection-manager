@@ -492,6 +492,7 @@ def remove_whitelisted_user(email: str) -> None:
     with _registry_conn() as conn:
         conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM whitelisted_emails WHERE email = ?", (email,))
+        conn.execute("DELETE FROM user_groups WHERE member_user_id = ?", (user_id,))
 
     db_path = _USERS_DIR / f"{_safe_filename(user_id)}.sqlite"
     if db_path.exists():

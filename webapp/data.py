@@ -112,7 +112,12 @@ def get_meta(cfg: Config) -> dict:
     logic in web/export_meta.py (which only runs as a static export job).
     No EUR pricing here by design -- meta decklists carry only card names
     (from MTGGoldfish), not Scryfall IDs, so pricing would need its own
-    name-keyed cache; deferred to a later task."""
+    name-keyed cache; deferred to a later task.
+    Also unlike the old static exporter, this does not do diacritic-folded
+    name matching (e.g. "Lorien Revealed" vs "Lórien Revealed") -- it relies
+    solely on get_owned_quantity's double-faced-name handling. Porting the
+    old _normalize/normalized_owned machinery is a deliberate scope gap,
+    deferred to a later task."""
     format_results = []
     with get_conn(cfg.db_path) as conn:
         for fmt in cfg.formats:
