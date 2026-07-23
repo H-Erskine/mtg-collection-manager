@@ -1,6 +1,7 @@
 import pytest
 
-from mtg_manager.manabox import ManaboxImportError, parse_manabox_csv
+from mtg_manager.manabox import ManaboxImportError, parse_manabox_csv, import_manabox_csv
+from mtg_manager.models import OwnedCard
 
 HEADER = "Name,Set code,Set name,Collector number,Foil,Rarity,Quantity,ManaBox ID,Scryfall ID,Purchase price,Misprint,Altered,Condition,Language,Purchase price currency,Added"
 
@@ -109,3 +110,40 @@ def test_parse_too_many_rows_raises():
     csv_text = HEADER + "\n" + "".join(_row(scryfall_id=f"id-{i}") + "\n" for i in range(5))
     with pytest.raises(ManaboxImportError, match="exceeds maximum of"):
         parse_manabox_csv(csv_text, max_rows=3)
+
+
+def test_import_manabox_csv_builds_owned_cards_with_manabox_color_group():
+    csv_text = HEADER + "\n" + _row(name="Eldritch Evolution", set_code="inr", collector_number="195", quantity="2", scryfall_id="scry-1") + "\n"
+
+    def fake_resolve_cmc(scryfall_ids):
+        assert scryfall_ids == ["scry-1"]
+        return {"scry-1": 3.0}
+
+    cards = import_manabox_csv(csv_text, resolve_cmc_fn=fake_resolve_cmc)
+
+    assert cards == [
+        OwnedCard(
+            name="Eldritch Evolution",
+            quantity=2,
+            color_group="manabox",
+            set_code="inr",
+            collector_number="195",
+            foil=False,
+            cmc=3.0,
+        )
+    ]
+
+
+def test_import_manabox_csv_defaults_cmc_to_zero_when_unresolved():
+    csv_text = HEADER + "\n" + _row(scryfall_id="unknown-id") + "\n"
+
+    cards = import_manabox_csv(csv_text, resolve_cmc_fn=lambda ids: {})
+
+    assert cards[0].cmc == 0.0
+
+
+def test_import_manabox_csv_propagates_validation_errors():
+    csv_text = HEADER + "\n" + _row(quantity="0") + "\n"
+
+    with pytest.raises(ManaboxImportError, match="Quantity must be positive"):
+        import_manabox_csv(csv_text, resolve_cmc_fn=lambda ids: {})

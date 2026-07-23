@@ -11,6 +11,9 @@ import csv
 import io
 from dataclasses import dataclass
 
+from mtg_manager.card_cache import resolve_cmc
+from mtg_manager.models import OwnedCard
+
 REQUIRED_COLUMNS = {"Name", "Set code", "Collector number", "Foil", "Quantity", "Scryfall ID"}
 DEFAULT_MAX_BYTES = 5 * 1024 * 1024
 DEFAULT_MAX_ROWS = 20_000
@@ -77,3 +80,25 @@ def parse_manabox_csv(
         ))
 
     return rows
+
+
+def import_manabox_csv(csv_text: str, resolve_cmc_fn=resolve_cmc) -> list[OwnedCard]:
+    """Parse a ManaBox CSV and return OwnedCard rows ready for db.upsert_cards.
+
+    resolve_cmc_fn defaults to card_cache.resolve_cmc but is overridable so
+    callers (and tests) can avoid the cache/network dependency entirely.
+    """
+    rows = parse_manabox_csv(csv_text)
+    cmc_by_id = resolve_cmc_fn([r.scryfall_id for r in rows])
+    return [
+        OwnedCard(
+            name=r.name,
+            quantity=r.quantity,
+            color_group="manabox",
+            set_code=r.set_code,
+            collector_number=r.collector_number,
+            foil=r.foil,
+            cmc=cmc_by_id.get(r.scryfall_id, 0.0),
+        )
+        for r in rows
+    ]
