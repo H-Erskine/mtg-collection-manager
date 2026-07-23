@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 
 
@@ -52,9 +54,6 @@ def test_cache_printings_empty_list_is_a_noop():
     cache_printings([])  # must not raise
 
 
-from unittest.mock import patch
-
-
 def test_resolve_cmc_uses_cache_without_network_call():
     from mtg_manager.card_cache import cache_printings, resolve_cmc
 
@@ -105,6 +104,17 @@ def test_resolve_cmc_ignores_blank_ids_and_deduplicates():
         resolve_cmc(["dup-1", "", "dup-1", None])
 
     mock_fetch.assert_called_once_with(["dup-1"])
+
+
+def test_resolve_cmc_survives_a_failed_batch():
+    from mtg_manager.card_cache import resolve_cmc
+
+    with patch("mtg_manager.card_cache._scryfall_collection_by_id", side_effect=RuntimeError("boom")) as mock_fetch:
+        result = resolve_cmc(["broken-1", "broken-2"])
+
+    mock_fetch.assert_called_once_with(["broken-1", "broken-2"])
+    # A failed batch leaves those ids unresolved rather than raising.
+    assert result == {}
 
 
 def test_resolve_cmc_defaults_missing_cmc_field_to_zero():

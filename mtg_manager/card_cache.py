@@ -9,6 +9,7 @@ falling back to resolve_cmc (added in a later task) for cache misses.
 
 import json
 import sqlite3
+import sys
 import time
 import urllib.request
 from contextlib import contextmanager
@@ -110,7 +111,12 @@ def resolve_cmc(scryfall_ids: list[str]) -> dict[str, float]:
     batch_size = 75
     for i in range(0, len(missing), batch_size):
         batch = missing[i:i + batch_size]
-        cards = _scryfall_collection_by_id(batch)
+        batch_num = i // batch_size + 1
+        try:
+            cards = _scryfall_collection_by_id(batch)
+        except Exception as e:
+            print(f"[warn] Scryfall CMC batch {batch_num} failed: {e}", file=sys.stderr)
+            continue
         printings = []
         for card in cards:
             sid = card.get("id")
