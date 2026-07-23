@@ -89,6 +89,14 @@
   </section>
 
   <section>
+    <h2>My Group</h2>
+    <p class="muted">Add friends/teammates you want "can my group complete this?" checks to include. This is private to you — adding someone doesn't change what they can see.</p>
+    <div id="group-list"></div>
+    <input id="group-search" placeholder="Search by name or email" oninput="searchDirectory()">
+    <div id="group-search-results"></div>
+  </section>
+
+  <section>
     <h2>ManaBox Import</h2>
     <p class="muted">Upload a ManaBox collection export (CSV) as an alternative to Moxfield packages. Re-uploading replaces your previous ManaBox import.</p>
     <input type="file" id="manabox-file" accept=".csv">
@@ -150,6 +158,7 @@ async function loadConfig() {
   const data = await res.json();
 
   renderPackages(data.packages);
+  renderGroup(data.group);
   document.getElementById('formats-input').value = data.formats.join(',');
   document.getElementById('sort-select').value = data.pick_list_sort;
   document.getElementById('profile-name').value = data.display_name || '';
@@ -209,6 +218,74 @@ async function removePackage(color_group) {
   if (res.ok) {
     showAutoSyncStatus(data.auto_sync);
   }
+}
+
+function renderGroup(group) {
+  const list = document.getElementById('group-list');
+  list.innerHTML = '';
+  if (!group.length) {
+    list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No group members yet.</p>';
+    return;
+  }
+  for (const member of group) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${member.icon} ${member.display_name}`;
+    row.appendChild(label);
+    const btn = document.createElement('button');
+    btn.className = 'btn-secondary';
+    btn.textContent = 'Remove';
+    btn.onclick = () => removeGroupMember(member.user_id);
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+
+let directoryCache = null;
+
+async function searchDirectory() {
+  const query = document.getElementById('group-search').value.trim().toLowerCase();
+  const resultsEl = document.getElementById('group-search-results');
+  if (!query) { resultsEl.innerHTML = ''; return; }
+
+  if (!directoryCache) {
+    const res = await fetch('/api/users/directory');
+    directoryCache = (await res.json()).people;
+  }
+
+  const matches = directoryCache.filter(p =>
+    p.display_name.toLowerCase().includes(query) || p.user_id.toLowerCase().includes(query)
+  );
+
+  resultsEl.innerHTML = '';
+  for (const person of matches) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${person.icon} ${person.display_name}`;
+    row.appendChild(label);
+    const btn = document.createElement('button');
+    btn.className = 'btn-secondary';
+    btn.textContent = 'Add';
+    btn.onclick = () => addGroupMember(person.user_id);
+    row.appendChild(btn);
+    resultsEl.appendChild(row);
+  }
+}
+
+async function addGroupMember(memberUserId) {
+  await fetch('/api/config/group', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ member_user_id: memberUserId }),
+  });
+  loadConfig();
+}
+
+async function removeGroupMember(memberUserId) {
+  await fetch(`/api/config/group/${encodeURIComponent(memberUserId)}`, { method: 'DELETE' });
+  loadConfig();
 }
 
 async function uploadManaboxCsv() {
