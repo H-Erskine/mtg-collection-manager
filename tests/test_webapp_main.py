@@ -135,20 +135,59 @@ def test_api_collection_all_requires_auth(tmp_path, monkeypatch):
     assert response.status_code in (302, 307)
 
 
-def test_api_collection_all_returns_combined_data(tmp_path, monkeypatch):
+def test_api_collection_all_requires_admin_now(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     from api.users import ensure_user
-    ensure_user("google:alice@example.com")
+    ensure_user("google:alice@example.com")  # not whitelisted as admin
 
     with client as c:
         with c.session_transaction() as session:
             session["user_id"] = "google:alice@example.com"
         response = c.get("/api/collection/all")
 
+    assert response.status_code == 403
+
+
+def test_api_collection_all_returns_combined_data_for_admin(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import add_whitelisted_email, ensure_user
+    ensure_user("google:admin@example.com")
+    add_whitelisted_email("admin@example.com", is_admin=True)
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:admin@example.com"
+        response = c.get("/api/collection/all")
+
     assert response.status_code == 200
     data = response.json()
     assert "people" in data
     assert "cards" in data
+
+
+def test_api_collection_group_requires_auth(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    response = client.get("/api/collection/group", follow_redirects=False)
+    assert response.status_code in (302, 307)
+
+
+def test_api_collection_group_scoped_to_caller_and_group_members(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import add_group_member, ensure_user
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    ensure_user("google:carol@example.com")  # not in alice's group
+    add_group_member("google:alice@example.com", "google:bob@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/api/collection/group")
+
+    assert response.status_code == 200
+    data = response.json()
+    people_ids = {p["user_id"] for p in data["people"]}
+    assert people_ids == {"google:alice@example.com", "google:bob@example.com"}
 
 
 def test_whoami_redirects_when_not_logged_in(tmp_path, monkeypatch):

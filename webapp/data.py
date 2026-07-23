@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from api.users import get_user_config, list_profiles
+from api.users import get_user_config, list_group_members, list_profiles, _display_profile
 from mtg_manager.config import Config
 from mtg_manager.db import get_conn
 from web.export import get_collection_data, get_decks_data, get_sale_data
@@ -80,6 +80,39 @@ def get_all_collections() -> dict:
     (or whose DB can't be read) is skipped rather than failing the whole request.
     """
     people = list_profiles()
+    cards: list[dict] = []
+
+    for person in people:
+        cfg = get_user_config(person["user_id"])
+        if cfg is None:
+            continue
+        try:
+            with get_conn(cfg.db_path) as conn:
+                person_cards = get_collection_data(conn)
+        except Exception:
+            continue
+        for card in person_cards:
+            cards.append({
+                **card,
+                "owner_user_id": person["user_id"],
+                "owner_display_name": person["display_name"],
+                "owner_icon": person["icon"],
+            })
+
+    return {
+        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "people": people,
+        "cards": cards,
+    }
+
+
+def get_group_collections(user_id: str) -> dict:
+    """Combined collection view scoped to the caller plus their personal group,
+    instead of every registered user (see get_all_collections). Same
+    skip-on-failure resilience: a member whose config/DB can't be read is
+    dropped rather than failing the whole request."""
+    member_ids = {user_id} | {m["user_id"] for m in list_group_members(user_id)}
+    people = [_display_profile(p) for p in list_profiles() if p["user_id"] in member_ids]
     cards: list[dict] = []
 
     for person in people:
