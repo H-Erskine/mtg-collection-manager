@@ -1,6 +1,6 @@
 """Self-service config routes: Moxfield packages, formats, sort order."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from api.handlers import handle_sync
@@ -22,6 +22,8 @@ from api.users import (
 )
 from api.users import get_user_config
 from mtg_manager.config import Config
+from mtg_manager.db import clear_color_group, get_conn, upsert_cards
+from mtg_manager.manabox import ManaboxImportError, import_manabox_csv
 from mtg_manager.moxfield import public_id_from_url
 from webapp.deps import require_user
 
@@ -101,6 +103,29 @@ async def remove_config_package(request: Request, color_group: str, cfg: Config 
     user_id = request.session["user_id"]
     remove_package(user_id, color_group)
     return {"ok": True, "auto_sync": _trigger_auto_sync(user_id)}
+
+
+@router.post("/api/config/manabox")
+async def upload_manabox_csv(request: Request, file: UploadFile = File(...), cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File must be UTF-8 encoded text")
+
+    try:
+        cards = import_manabox_csv(text)
+    except ManaboxImportError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    with get_conn(cfg.db_path) as conn:
+        clear_color_group(conn, "manabox")
+        upsert_cards(conn, cards)
+
+    mark_auto_synced(user_id)
+    mark_synced(user_id)
+    return {"ok": True, "imported": len(cards)}
 
 
 @router.post("/api/config/sort")
