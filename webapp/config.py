@@ -6,20 +6,24 @@ from starlette.concurrency import run_in_threadpool
 
 from api.handlers import handle_sync
 from api.users import (
+    add_group_member,
     add_package,
     is_owner,
     is_whitelist_admin,
+    list_group_members,
     list_packages,
     list_profiles,
     mark_auto_synced,
     mark_onboarded,
     mark_synced,
     minutes_since_last_sync,
+    remove_group_member,
     remove_package,
     seconds_since_last_auto_sync,
     set_formats,
     set_profile,
     set_sort,
+    _display_profile,
 )
 from api.users import get_user_config
 from mtg_manager.config import Config
@@ -50,6 +54,10 @@ class FormatsIn(BaseModel):
 class ProfileIn(BaseModel):
     display_name: str
     icon: str
+
+
+class GroupMemberIn(BaseModel):
+    member_user_id: str
 
 
 def _is_admin(user_id: str) -> bool:
@@ -88,6 +96,7 @@ async def get_config(request: Request, cfg: Config = Depends(require_user)):
         "is_admin": _is_admin(user_id),
         "display_name": profile["display_name"],
         "icon": profile["icon"],
+        "group": list_group_members(user_id),
     }
 
 
@@ -182,4 +191,23 @@ def sync_now(request: Request, cfg: Config = Depends(require_user)):
 async def complete_onboarding(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     mark_onboarded(user_id)
+    return {"ok": True}
+
+
+@router.get("/api/users/directory")
+async def users_directory(cfg: Config = Depends(require_user)):
+    return {"people": [_display_profile(p) for p in list_profiles()]}
+
+
+@router.post("/api/config/group")
+async def add_config_group_member(request: Request, body: GroupMemberIn, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    add_group_member(user_id, body.member_user_id)
+    return {"ok": True}
+
+
+@router.delete("/api/config/group/{member_user_id}")
+async def remove_config_group_member(request: Request, member_user_id: str, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    remove_group_member(user_id, member_user_id)
     return {"ok": True}
