@@ -246,6 +246,25 @@ def get_card_set_code(conn: sqlite3.Connection, card_name: str) -> str:
     return (row["set_code"] or "?").upper() if row else "?"
 
 
+def get_card_printing(conn: sqlite3.Connection, card_name: str) -> tuple[str, str] | None:
+    """Return (set_code, collector_number) for a card's highest-quantity owned
+    printing, or None if the card isn't owned. Used to look up card art."""
+    name_lower = card_name.lower()
+    row = conn.execute(
+        """
+        SELECT set_code, collector_number FROM owned_cards
+        WHERE LOWER(name) = ?
+           OR LOWER(SUBSTR(name, 1, INSTR(name, ' // ') - 1)) = ?
+        ORDER BY quantity DESC
+        LIMIT 1
+        """,
+        (name_lower, name_lower),
+    ).fetchone()
+    if not row or not row["set_code"] or not row["collector_number"]:
+        return None
+    return (row["set_code"], row["collector_number"])
+
+
 def get_card_cmc(conn: sqlite3.Connection, card_name: str) -> float:
     """Return the CMC for a card (highest-quantity copy), or 0 if unknown."""
     name_lower = card_name.lower()

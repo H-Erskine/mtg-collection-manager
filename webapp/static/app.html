@@ -125,15 +125,34 @@
 
   /* META */
   #page-meta > label { display: block; margin-bottom: 16px; font-size: 0.9rem; }
-  .meta-format { margin-bottom: 28px; }
-  .meta-format h3 { font-size: 1rem; font-weight: 700; color: var(--gold); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--surface2); }
-  .meta-deck { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 10px; }
-  .meta-deck h4 { font-size: 0.95rem; margin-bottom: 8px; }
-  .meta-deck h4 a { color: #6ab0f5; text-decoration: none; }
-  .meta-deck h4 a:hover { text-decoration: underline; }
-  .meta-cards { display: flex; flex-direction: column; gap: 4px; }
-  .meta-card-row { font-size: 0.82rem; color: var(--text); }
-  .group-owners { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+  .meta-format-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
+  .meta-fmt-tab { padding: 6px 16px; border-radius: 20px; font-size: 0.82rem; cursor: pointer; border: 1px solid var(--surface2); background: var(--surface); color: var(--muted); }
+  .meta-fmt-tab:hover { color: var(--text); background: var(--surface2); }
+  .meta-fmt-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+  .meta-layout { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 800px) { .meta-layout { grid-template-columns: 1fr; } }
+  .meta-sidebar { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); overflow: hidden; position: sticky; top: 20px; max-height: calc(100vh - 80px); overflow-y: auto; }
+  .meta-section-header { font-size: 0.68rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px 4px; background: var(--bg); border-bottom: 1px solid var(--surface2); position: sticky; top: 0; z-index: 1; }
+  .meta-section-header.can-build { color: var(--green); }
+  .meta-section-header.close { color: var(--gold); }
+  .meta-section-header.far { color: var(--red); }
+  .meta-deck-item { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--surface2); user-select: none; border-left: 3px solid transparent; }
+  .meta-deck-item:last-child { border-bottom: none; }
+  .meta-deck-item:hover { background: var(--surface2); }
+  .meta-deck-item.active { background: var(--surface2); border-left-color: var(--accent); }
+  .meta-deck-name { font-size: 0.88rem; font-weight: 600; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta-deck-frac { font-size: 0.75rem; color: var(--muted); margin-bottom: 5px; }
+  .meta-bar-bg { height: 3px; background: var(--surface2); border-radius: 2px; }
+  .meta-bar-fill { height: 3px; border-radius: 2px; }
+  .meta-panel { min-height: 300px; }
+  .meta-deck-header { margin-bottom: 20px; }
+  .meta-deck-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
+  .meta-deck-subtitle { font-size: 0.82rem; color: var(--muted); display: flex; align-items: center; gap: 12px; }
+  .meta-deck-link { color: #6ab0f5; text-decoration: none; }
+  .meta-deck-link:hover { text-decoration: underline; }
+  .group-owners { font-size: 0.65rem; color: var(--muted); position: absolute; bottom: -18px; left: 0; width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta-panel .mtg-card { margin-bottom: 18px; }
 </style>
 </head>
 <body>
@@ -209,8 +228,30 @@
 
 <!-- META -->
 <div id="page-meta" class="page">
-  <label><input type="checkbox" id="meta-group-check" onchange="loadMeta()"> Can my group complete this?</label>
-  <div id="meta-formats"></div>
+  <label><input type="checkbox" id="meta-group-check" onchange="onMetaGroupCheckToggled()"> Can my group complete this?</label>
+  <div class="meta-format-tabs" id="meta-format-tabs"></div>
+  <div class="loading" id="meta-loading">Loading meta…</div>
+  <div class="meta-layout" id="meta-layout" style="display:none">
+    <div class="meta-sidebar" id="meta-sidebar"></div>
+    <div class="meta-panel" id="meta-panel">
+      <div class="placeholder-text" id="meta-placeholder">Select a deck to see its cards</div>
+      <div id="meta-deck-view" style="display:none">
+        <div class="meta-deck-header">
+          <div class="meta-deck-title" id="meta-deck-title"></div>
+          <div class="meta-deck-subtitle">
+            <span id="meta-deck-stats"></span>
+            <a class="meta-deck-link" id="meta-deck-link" href="#" target="_blank" rel="noopener">View decklist ↗</a>
+          </div>
+        </div>
+        <div class="section-label">Missing / Insufficient</div>
+        <div class="card-grid" id="meta-missing-grid"></div>
+        <p id="meta-missing-empty" style="display:none;color:var(--green);padding:8px 0;font-size:0.85rem">✓ You own all cards in this deck</p>
+        <div class="section-label" style="margin-top:24px">Owned</div>
+        <div class="card-grid" id="meta-owned-grid"></div>
+      </div>
+    </div>
+  </div>
+  <div id="meta-empty" style="display:none" class="placeholder-text">No meta decks tracked yet.</div>
 </div>
 
 <!-- FOR SALE -->
@@ -849,72 +890,171 @@ function buildOwnershipBadge(cardName, ownership) {
 
 // ─── Meta tab ────────────────────────────────────────────────────────────────
 
+let metaData = null;
+let currentMetaDeck = null;
+
+function metaGroupCheckEnabled() {
+  return document.getElementById('meta-group-check').checked;
+}
+
+async function onMetaGroupCheckToggled() {
+  if (currentMetaDeck) await renderMetaDeckView(currentMetaDeck.format, currentMetaDeck.deck);
+}
+
 async function loadMeta() {
-  const container = document.getElementById('meta-formats');
-  const groupCheck = document.getElementById('meta-group-check').checked;
-  container.textContent = 'Loading…';
+  document.getElementById('meta-loading').style.display = 'block';
+  document.getElementById('meta-loading').textContent = 'Loading meta…';
+  document.getElementById('meta-layout').style.display = 'none';
+  document.getElementById('meta-empty').style.display = 'none';
+  document.getElementById('meta-format-tabs').innerHTML = '';
 
   const res = await fetch('/api/meta');
   if (!res.ok) {
-    container.textContent = 'Failed to load meta data.';
+    document.getElementById('meta-loading').textContent = 'Failed to load meta data.';
     return;
   }
-  const data = await res.json();
+  metaData = await res.json();
 
-  if (!data.formats || !data.formats.length) {
-    container.textContent = 'No meta decks tracked yet.';
+  if (!metaData.formats || !metaData.formats.length) {
+    document.getElementById('meta-loading').style.display = 'none';
+    document.getElementById('meta-empty').style.display = 'block';
     return;
   }
+
+  document.getElementById('meta-loading').style.display = 'none';
+  document.getElementById('meta-layout').style.display = 'grid';
+  buildMetaFormatTabs();
+  selectMetaFormat(metaData.formats[0].format);
+}
+
+function buildMetaFormatTabs() {
+  const tabsEl = document.getElementById('meta-format-tabs');
+  tabsEl.innerHTML = '';
+  for (const fmt of metaData.formats) {
+    const tab = document.createElement('div');
+    tab.className = 'meta-fmt-tab';
+    tab.textContent = fmt.format;
+    tab.onclick = () => selectMetaFormat(fmt.format, tab);
+    tabsEl.appendChild(tab);
+  }
+}
+
+function selectMetaFormat(formatName, tabEl) {
+  currentMetaDeck = null;
+  document.querySelectorAll('.meta-fmt-tab').forEach(t => t.classList.remove('active'));
+  if (tabEl) {
+    tabEl.classList.add('active');
+  } else {
+    const match = [...document.querySelectorAll('.meta-fmt-tab')].find(t => t.textContent === formatName);
+    if (match) match.classList.add('active');
+  }
+  document.getElementById('meta-placeholder').style.display = 'flex';
+  document.getElementById('meta-deck-view').style.display = 'none';
+  renderMetaSidebar(formatName);
+}
+
+function _metaDeckMissingCount(deck) {
+  return deck.cards.filter(c => c.owned < c.quantity).length;
+}
+
+function _makeMetaDeckSidebarItem(deck, fmt) {
+  const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
+  const missingCount = _metaDeckMissingCount(deck);
+  const barColor = missingCount === 0 ? 'var(--green)' : missingCount <= 10 ? 'var(--gold)' : 'var(--red)';
+
+  const item = document.createElement('div');
+  item.className = 'meta-deck-item';
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'meta-deck-name';
+  nameEl.title = deck.name;
+  nameEl.textContent = deck.name;
+
+  const fracEl = document.createElement('div');
+  fracEl.className = 'meta-deck-frac';
+  fracEl.textContent = `${deck.owned_slots}/${deck.total_slots} (${pct}%)`;
+
+  const barBg = document.createElement('div');
+  barBg.className = 'meta-bar-bg';
+  const barFill = document.createElement('div');
+  barFill.className = 'meta-bar-fill';
+  barFill.style.width = `${pct}%`;
+  barFill.style.background = barColor;
+  barBg.appendChild(barFill);
+
+  item.appendChild(nameEl);
+  item.appendChild(fracEl);
+  item.appendChild(barBg);
+  item.addEventListener('click', () => selectMetaDeck(item, fmt, deck));
+  return item;
+}
+
+function renderMetaSidebar(fmt) {
+  const fmtData = metaData.formats.find(f => f.format === fmt);
+  const sidebar = document.getElementById('meta-sidebar');
+  sidebar.innerHTML = '';
+  if (!fmtData) return;
+
+  const annotated = fmtData.decks.map(deck => ({ deck, missingCount: _metaDeckMissingCount(deck) }));
+  const buildable = annotated.filter(d => d.missingCount === 0);
+  const close = annotated.filter(d => d.missingCount >= 1 && d.missingCount <= 10);
+  const far = annotated.filter(d => d.missingCount > 10);
+
+  function appendGroup(label, cls, items) {
+    if (!items.length) return;
+    const hdr = document.createElement('div');
+    hdr.className = `meta-section-header ${cls}`;
+    hdr.textContent = label;
+    sidebar.appendChild(hdr);
+    for (const { deck } of items) sidebar.appendChild(_makeMetaDeckSidebarItem(deck, fmt));
+  }
+
+  appendGroup(`✓ Can Build (${buildable.length})`, 'can-build', buildable);
+  appendGroup(`1–10 missing (${close.length})`, 'close', close);
+  appendGroup(`10+ missing (${far.length})`, 'far', far);
+}
+
+async function selectMetaDeck(itemEl, fmt, deck) {
+  document.querySelectorAll('.meta-deck-item').forEach(el => el.classList.remove('active'));
+  itemEl.classList.add('active');
+  currentMetaDeck = { format: fmt, deck };
+  await renderMetaDeckView(fmt, deck);
+}
+
+async function renderMetaDeckView(fmt, deck) {
+  document.getElementById('meta-placeholder').style.display = 'none';
+  document.getElementById('meta-deck-view').style.display = 'block';
+
+  const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
+  const missing = deck.cards.filter(c => c.owned < c.quantity);
+  const owned = deck.cards.filter(c => c.owned >= c.quantity);
+
+  document.getElementById('meta-deck-title').textContent = deck.name;
+  document.getElementById('meta-deck-stats').textContent =
+    `${fmt.charAt(0).toUpperCase() + fmt.slice(1)} · ${deck.owned_slots}/${deck.total_slots} owned (${pct}%)`;
+  document.getElementById('meta-deck-link').href = deck.url;
 
   let ownership = {};
-  if (groupCheck) {
-    const missing = data.formats
-      .flatMap(f => f.decks)
-      .flatMap(d => d.cards)
-      .filter(c => c.owned < c.quantity)
-      .map(c => ({ name: c.name, quantity: c.quantity - c.owned }));
-    ownership = await annotateGroupOwnership(missing);
+  if (metaGroupCheckEnabled() && missing.length) {
+    const needs = missing.map(c => ({ name: c.name, quantity: c.quantity - c.owned }));
+    ownership = await annotateGroupOwnership(needs);
   }
 
-  container.innerHTML = '';
-  for (const fmt of data.formats) {
-    const fmtEl = document.createElement('div');
-    fmtEl.className = 'meta-format';
-    const h3 = document.createElement('h3');
-    h3.textContent = fmt.format;
-    fmtEl.appendChild(h3);
+  const mg = document.getElementById('meta-missing-grid');
+  mg.innerHTML = '';
+  document.getElementById('meta-missing-empty').style.display = missing.length ? 'none' : 'block';
+  for (const c of missing) {
+    const label = c.owned > 0 ? `${c.owned}/${c.quantity}` : 'MISSING';
+    const cardEl = makeCard(c.name, c.set_code, c.collector_number, null, '', label);
+    const badge = buildOwnershipBadge(c.name, ownership);
+    if (badge) cardEl.appendChild(badge);
+    mg.appendChild(cardEl);
+  }
 
-    for (const deck of fmt.decks) {
-      const deckEl = document.createElement('div');
-      deckEl.className = 'meta-deck';
-      const pct = deck.total_slots ? Math.round((deck.owned_slots / deck.total_slots) * 100) : 0;
-
-      const h4 = document.createElement('h4');
-      const link = document.createElement('a');
-      link.href = deck.url;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.textContent = deck.name;
-      h4.appendChild(link);
-      h4.append(` (${pct}% owned)`);
-      deckEl.appendChild(h4);
-
-      const cardsWrap = document.createElement('div');
-      cardsWrap.className = 'meta-cards';
-      for (const card of deck.cards) {
-        const cardEl = document.createElement('div');
-        cardEl.className = 'meta-card-row';
-        cardEl.textContent = `${card.quantity}x ${card.name} (owned: ${card.owned})`;
-        if (groupCheck) {
-          const badge = buildOwnershipBadge(card.name, ownership);
-          if (badge) cardEl.appendChild(badge);
-        }
-        cardsWrap.appendChild(cardEl);
-      }
-      deckEl.appendChild(cardsWrap);
-      fmtEl.appendChild(deckEl);
-    }
-    container.appendChild(fmtEl);
+  const og = document.getElementById('meta-owned-grid');
+  og.innerHTML = '';
+  for (const c of owned) {
+    og.appendChild(makeCard(c.name, c.set_code, c.collector_number, `×${c.quantity}`, 'green', null));
   }
 }
 

@@ -1,7 +1,7 @@
 import json
 
 from mtg_manager.config import Config
-from mtg_manager.db import get_conn, get_meta_decks, replace_meta_decks, upsert_cards
+from mtg_manager.db import get_card_printing, get_conn, get_meta_decks, replace_meta_decks, upsert_cards
 from mtg_manager.models import DeckCard, Decklist, OwnedCard
 from web.export_meta import export_meta_static
 
@@ -110,3 +110,34 @@ def test_export_meta_static_writes_meta_json_from_saved_decks(tmp_path):
 def test_export_meta_static_no_op_when_web_static_dir_none(tmp_path):
     cfg = _cfg(tmp_path, web_static_dir=None)
     export_meta_static(cfg, ["modern"])  # should not raise
+
+
+def test_get_card_printing_returns_set_code_and_collector_number(tmp_path):
+    cfg = _cfg(tmp_path)
+    with get_conn(cfg.db_path) as conn:
+        upsert_cards(conn, [
+            OwnedCard(name="Lightning Bolt", quantity=4, color_group="Red", set_code="lea", collector_number="161"),
+        ])
+        printing = get_card_printing(conn, "Lightning Bolt")
+
+    assert printing == ("lea", "161")
+
+
+def test_get_card_printing_picks_highest_quantity_printing(tmp_path):
+    cfg = _cfg(tmp_path)
+    with get_conn(cfg.db_path) as conn:
+        upsert_cards(conn, [
+            OwnedCard(name="Lightning Bolt", quantity=1, color_group="Red", set_code="lea", collector_number="161"),
+            OwnedCard(name="Lightning Bolt", quantity=4, color_group="Red", set_code="m10", collector_number="146"),
+        ])
+        printing = get_card_printing(conn, "Lightning Bolt")
+
+    assert printing == ("m10", "146")
+
+
+def test_get_card_printing_returns_none_when_not_owned(tmp_path):
+    cfg = _cfg(tmp_path)
+    with get_conn(cfg.db_path) as conn:
+        printing = get_card_printing(conn, "Nonexistent Card")
+
+    assert printing is None

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from api.users import get_user_config, list_group_members, list_profiles, _display_profile
 from mtg_manager.config import Config
-from mtg_manager.db import get_conn, get_meta_decks, get_owned_quantity
+from mtg_manager.db import get_card_printing, get_conn, get_meta_decks, get_owned_quantity
 from web.export import get_collection_data, get_decks_data, get_sale_data
 
 
@@ -117,7 +117,11 @@ def get_meta(cfg: Config) -> dict:
     name matching (e.g. "Lorien Revealed" vs "Lórien Revealed") -- it relies
     solely on get_owned_quantity's double-faced-name handling. Porting the
     old _normalize/normalized_owned machinery is a deliberate scope gap,
-    deferred to a later task."""
+    deferred to a later task.
+    Each card includes set_code/collector_number (from the user's own best
+    owned printing, via get_card_printing) so the frontend can render card
+    art the same way the Collection/Decks tabs do; both are None when the
+    card isn't owned at all (nothing to look a printing up from)."""
     format_results = []
     with get_conn(cfg.db_path) as conn:
         for fmt in cfg.formats:
@@ -137,7 +141,14 @@ def get_meta(cfg: Config) -> dict:
                 for name, qty in card_totals.items():
                     owned = get_owned_quantity(conn, name)
                     owned_slots += min(owned, qty)
-                    cards.append({"name": name, "quantity": qty, "owned": owned})
+                    printing = get_card_printing(conn, name)
+                    cards.append({
+                        "name": name,
+                        "quantity": qty,
+                        "owned": owned,
+                        "set_code": printing[0] if printing else None,
+                        "collector_number": printing[1] if printing else None,
+                    })
 
                 cards.sort(key=lambda c: (c["owned"] >= c["quantity"], c["name"]))
 

@@ -447,6 +447,40 @@ def test_api_meta_compares_saved_decklists_against_own_collection(tmp_path, monk
     assert card_names_missing_first == ["Brainstorm", "Force of Will", "Ponder"]
 
 
+def test_api_meta_includes_set_code_and_collector_number_for_owned_cards(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user, get_user_config, set_formats
+    from mtg_manager.db import get_conn, replace_meta_decks, upsert_cards
+    from mtg_manager.models import DeckCard, Decklist, OwnedCard
+
+    ensure_user("google:alice@example.com")
+    set_formats("google:alice@example.com", ["modern"])
+    cfg = get_user_config("google:alice@example.com")
+
+    with get_conn(cfg.db_path) as conn:
+        upsert_cards(conn, [
+            OwnedCard(name="Brainstorm", quantity=1, color_group="Blue", set_code="ice", collector_number="48"),
+        ])
+        replace_meta_decks(conn, "modern", [
+            Decklist(deck_id="d1", name="Mono Blue", url="https://example.com/d1", meta_share=10.0,
+                      cards=[DeckCard(name="Brainstorm", quantity=1), DeckCard(name="Force of Will", quantity=4)])
+        ])
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/api/meta")
+
+    deck = response.json()["formats"][0]["decks"][0]
+    brainstorm = next(c for c in deck["cards"] if c["name"] == "Brainstorm")
+    force_of_will = next(c for c in deck["cards"] if c["name"] == "Force of Will")
+
+    assert brainstorm["set_code"] == "ice"
+    assert brainstorm["collector_number"] == "48"
+    assert force_of_will["set_code"] is None
+    assert force_of_will["collector_number"] is None
+
+
 def test_api_meta_skips_formats_with_no_saved_decklists(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     from api.users import ensure_user, set_formats
