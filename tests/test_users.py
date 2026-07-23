@@ -468,3 +468,29 @@ def test_prune_logs_deletes_rows_older_than_cutoff():
     paths = [r["path"] for r in users_mod.list_request_log()]
     assert "/old" not in paths
     assert "/recent" in paths
+
+
+def test_seconds_since_last_auto_sync_none_when_never_synced():
+    from api.users import ensure_user, seconds_since_last_auto_sync
+
+    ensure_user("google:alice@example.com")
+
+    assert seconds_since_last_auto_sync("google:alice@example.com") is None
+
+
+def test_mark_auto_synced_then_seconds_since_is_near_zero():
+    from api.users import ensure_user, mark_auto_synced, seconds_since_last_auto_sync
+
+    ensure_user("google:alice@example.com")
+    mark_auto_synced("google:alice@example.com")
+
+    seconds = seconds_since_last_auto_sync("google:alice@example.com")
+
+    assert seconds is not None
+    assert 0 <= seconds < 5
+
+
+def test_seconds_since_last_auto_sync_unknown_user_returns_none():
+    from api.users import seconds_since_last_auto_sync
+
+    assert seconds_since_last_auto_sync("google:nobody@example.com") is None

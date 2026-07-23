@@ -122,6 +122,18 @@ def _migrate_onboarding_column(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE users ADD COLUMN onboarded INTEGER NOT NULL DEFAULT 0")
 
 
+def _migrate_auto_sync_column(conn: sqlite3.Connection) -> None:
+    """One-time addition of the last_auto_synced_at column for pre-existing registries."""
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "users" not in tables:
+        return
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "last_auto_synced_at" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN last_auto_synced_at TEXT")
+
+
 @contextmanager
 def _registry_conn():
     _REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -133,6 +145,7 @@ def _registry_conn():
         conn.executescript(REGISTRY_SCHEMA)
         _migrate_profile_columns(conn)
         _migrate_onboarding_column(conn)
+        _migrate_auto_sync_column(conn)
         yield conn
         conn.commit()
     except Exception:
@@ -321,6 +334,33 @@ def minutes_since_last_sync(user_id: str) -> float | None:
         if not row:
             return None
         return row["minutes_ago"]
+
+
+def mark_auto_synced(user_id: str) -> None:
+    with _registry_conn() as conn:
+        conn.execute(
+            "UPDATE users SET last_auto_synced_at = datetime('now') WHERE user_id = ?",
+            (user_id,),
+        )
+
+
+def seconds_since_last_auto_sync(user_id: str) -> float | None:
+    """Return seconds since the last auto-triggered sync, or None if never auto-synced."""
+    with _registry_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                CASE
+                    WHEN last_auto_synced_at IS NULL THEN NULL
+                    ELSE (julianday('now') - julianday(last_auto_synced_at)) * 24 * 60 * 60
+                END AS seconds_ago
+            FROM users WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return row["seconds_ago"]
 
 
 def list_users_for_eviction(threshold_days: int = 7) -> list[str]:
