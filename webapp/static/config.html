@@ -50,6 +50,7 @@
   .icon-option { font-size: 1.3rem; padding: 6px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--surface2); cursor: pointer; }
   .icon-option:hover { background: var(--surface2); }
   .icon-option.selected { border-color: var(--accent); background: var(--surface2); }
+  .muted { color: var(--muted); font-size: 0.85rem; margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -85,6 +86,14 @@
       <button class="btn" onclick="addPackage()">Add</button>
     </div>
     <div id="pkg-msg" class="msg"></div>
+  </section>
+
+  <section>
+    <h2>ManaBox Import</h2>
+    <p class="muted">Upload a ManaBox collection export (CSV) as an alternative to Moxfield packages. Re-uploading replaces your previous ManaBox import.</p>
+    <input type="file" id="manabox-file" accept=".csv">
+    <button class="btn" onclick="uploadManaboxCsv()">Import CSV</button>
+    <div id="manabox-msg" class="msg"></div>
   </section>
 
   <section>
@@ -182,18 +191,57 @@ async function addPackage() {
     body: JSON.stringify({ color_group, public_id }),
   });
   const msg = document.getElementById('pkg-msg');
+  const data = await res.json().catch(() => ({}));
   msg.textContent = res.ok ? 'Added.' : 'Failed to add package.';
   msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
   if (res.ok) {
     document.getElementById('pkg-color').value = '';
     document.getElementById('pkg-id').value = '';
     loadConfig();
+    showAutoSyncStatus(data.auto_sync);
   }
 }
 
 async function removePackage(color_group) {
-  await fetch(`/api/config/packages/${encodeURIComponent(color_group)}`, { method: 'DELETE' });
+  const res = await fetch(`/api/config/packages/${encodeURIComponent(color_group)}`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
   loadConfig();
+  if (res.ok) {
+    showAutoSyncStatus(data.auto_sync);
+  }
+}
+
+async function uploadManaboxCsv() {
+  const input = document.getElementById('manabox-file');
+  const msgEl = document.getElementById('manabox-msg');
+  if (!input.files.length) {
+    msgEl.textContent = 'Choose a CSV file first.';
+    msgEl.className = 'msg err';
+    return;
+  }
+  const formData = new FormData();
+  formData.append('file', input.files[0]);
+  const response = await fetch('/api/config/manabox', { method: 'POST', body: formData });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    msgEl.textContent = data.detail || 'Import failed.';
+    msgEl.className = 'msg err';
+    return;
+  }
+  msgEl.textContent = `Imported ${data.imported} card(s).`;
+  msgEl.className = 'msg ok';
+  input.value = '';
+}
+
+function showAutoSyncStatus(autoSync) {
+  const msgEl = document.getElementById('pkg-msg');
+  if (!autoSync) return;
+  if (autoSync.synced) {
+    msgEl.textContent = `Auto-synced: ${autoSync.message}`;
+  } else if (autoSync.retry_after_seconds) {
+    msgEl.textContent = `Auto-syncing shortly (throttled, ${autoSync.retry_after_seconds}s remaining).`;
+  }
+  msgEl.className = 'msg ok';
 }
 
 async function saveFormats() {
