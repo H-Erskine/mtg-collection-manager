@@ -122,6 +122,18 @@
   .results-summary .miss { color: var(--red); font-weight: 600; }
   .section-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin: 16px 0 8px; }
   .placeholder-text { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.9rem; min-height: 200px; }
+
+  /* META */
+  #page-meta > label { display: block; margin-bottom: 16px; font-size: 0.9rem; }
+  .meta-format { margin-bottom: 28px; }
+  .meta-format h3 { font-size: 1rem; font-weight: 700; color: var(--gold); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--surface2); }
+  .meta-deck { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 10px; }
+  .meta-deck h4 { font-size: 0.95rem; margin-bottom: 8px; }
+  .meta-deck h4 a { color: #6ab0f5; text-decoration: none; }
+  .meta-deck h4 a:hover { text-decoration: underline; }
+  .meta-cards { display: flex; flex-direction: column; gap: 4px; }
+  .meta-card-row { font-size: 0.82rem; color: var(--text); }
+  .group-owners { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -131,6 +143,7 @@
   <div class="tab active" data-tab="collection" onclick="showTab('collection', this)">Collection</div>
   <div class="tab" data-tab="decks" onclick="showTab('decks', this)">Decks</div>
   <div class="tab" data-tab="missing" onclick="showTab('missing', this)">Missing</div>
+  <div class="tab" data-tab="meta" onclick="showTab('meta', this)">Meta</div>
   <div class="tab" data-tab="sale" onclick="showTab('sale', this)">For Sale</div>
   <a class="tab" href="/config" style="text-decoration:none">Config</a>
   <div class="nav-meta" id="nav-identity">Loading…</div>
@@ -175,6 +188,7 @@
       <h3>Check a decklist</h3>
       <p class="hint">Paste cards in MTG Arena / MTGO format:<br><code>4 Lightning Bolt</code></p>
       <textarea id="decklist-input" placeholder="4 Lightning Bolt&#10;4 Goblin Guide&#10;20 Mountain"></textarea>
+      <label style="display:block;margin-top:8px;font-size:0.85rem"><input type="checkbox" id="missing-group-check" onchange="checkMissing()"> Can my group complete this?</label>
       <button class="btn" onclick="checkMissing()">Check Collection</button>
     </div>
     <div id="missing-results">
@@ -191,6 +205,12 @@
       </div>
     </div>
   </div>
+</div>
+
+<!-- META -->
+<div id="page-meta" class="page">
+  <label><input type="checkbox" id="meta-group-check" onchange="loadMeta()"> Can my group complete this?</label>
+  <div id="meta-formats"></div>
 </div>
 
 <!-- FOR SALE -->
@@ -257,6 +277,8 @@ let saleActiveGroup = 'all';
 let saleView = 'for-sale';     // 'for-sale' | 'wants'
 let combinedSaleData = null;   // lazily fetched /api/sale/all payload
 
+let metaLoaded = false;        // whether loadMeta() has run at least once
+
 const COLOUR_TILES = [
   { group: 'White',       icon: '☀️', iconColor: null,      numColor: '#e8e8d0', bg: '#2a2a1e', border: '#4a4a2e', label: 'White' },
   { group: 'Blue',        icon: '💧', iconColor: null,      numColor: '#6ab0f5', bg: '#1a1e2e', border: '#2a3a5e', label: 'Blue' },
@@ -275,6 +297,10 @@ function showTab(name, tabEl) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   tabEl.classList.add('active');
+  if (name === 'meta' && !metaLoaded) {
+    metaLoaded = true;
+    loadMeta();
+  }
 }
 
 function selectTabFromHash() {
@@ -796,6 +822,102 @@ function filterSale() {
   }
 }
 
+// ─── Group ownership helper (shared by Missing + Meta) ──────────────────────
+
+async function annotateGroupOwnership(cardNeeds) {
+  // cardNeeds: [{name, quantity}, ...] for cards the caller is missing/short on.
+  // Returns {name: [{owner_user_id, owner_display_name, owner_icon, owned}, ...]}
+  if (!cardNeeds.length) return {};
+  const res = await fetch('/api/collection/group-check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cards: cardNeeds }),
+  });
+  if (!res.ok) return {};
+  const data = await res.json();
+  return data.ownership || {};
+}
+
+function buildOwnershipBadge(cardName, ownership) {
+  const owners = ownership[cardName];
+  if (!owners || !owners.length) return null;
+  const badge = document.createElement('div');
+  badge.className = 'group-owners';
+  badge.textContent = owners.map(o => `${o.owner_icon} ${o.owner_display_name} x${o.owned}`).join(', ');
+  return badge;
+}
+
+// ─── Meta tab ────────────────────────────────────────────────────────────────
+
+async function loadMeta() {
+  const container = document.getElementById('meta-formats');
+  const groupCheck = document.getElementById('meta-group-check').checked;
+  container.textContent = 'Loading…';
+
+  const res = await fetch('/api/meta');
+  if (!res.ok) {
+    container.textContent = 'Failed to load meta data.';
+    return;
+  }
+  const data = await res.json();
+
+  if (!data.formats || !data.formats.length) {
+    container.textContent = 'No meta decks tracked yet.';
+    return;
+  }
+
+  let ownership = {};
+  if (groupCheck) {
+    const missing = data.formats
+      .flatMap(f => f.decks)
+      .flatMap(d => d.cards)
+      .filter(c => c.owned < c.quantity)
+      .map(c => ({ name: c.name, quantity: c.quantity - c.owned }));
+    ownership = await annotateGroupOwnership(missing);
+  }
+
+  container.innerHTML = '';
+  for (const fmt of data.formats) {
+    const fmtEl = document.createElement('div');
+    fmtEl.className = 'meta-format';
+    const h3 = document.createElement('h3');
+    h3.textContent = fmt.format;
+    fmtEl.appendChild(h3);
+
+    for (const deck of fmt.decks) {
+      const deckEl = document.createElement('div');
+      deckEl.className = 'meta-deck';
+      const pct = deck.total_slots ? Math.round((deck.owned_slots / deck.total_slots) * 100) : 0;
+
+      const h4 = document.createElement('h4');
+      const link = document.createElement('a');
+      link.href = deck.url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = deck.name;
+      h4.appendChild(link);
+      h4.append(` (${pct}% owned)`);
+      deckEl.appendChild(h4);
+
+      const cardsWrap = document.createElement('div');
+      cardsWrap.className = 'meta-cards';
+      for (const card of deck.cards) {
+        const cardEl = document.createElement('div');
+        cardEl.className = 'meta-card-row';
+        cardEl.textContent = `${card.quantity}x ${card.name} (owned: ${card.owned})`;
+        if (groupCheck) {
+          const badge = buildOwnershipBadge(card.name, ownership);
+          if (badge) cardEl.appendChild(badge);
+        }
+        cardsWrap.appendChild(cardEl);
+      }
+      deckEl.appendChild(cardsWrap);
+      fmtEl.appendChild(deckEl);
+    }
+    container.appendChild(fmtEl);
+  }
+}
+
 // ─── Missing tab ─────────────────────────────────────────────────────────────
 
 function parseDeckList(text) {
@@ -811,7 +933,7 @@ function parseDeckList(text) {
 
 let lastMissingCards = [];
 
-function checkMissing() {
+async function checkMissing() {
   const text = document.getElementById('decklist-input').value;
   const parsed = parseDeckList(text);
   if (!parsed.length) return;
@@ -839,11 +961,23 @@ function checkMissing() {
   document.getElementById('missing-summary').innerHTML =
     `<span class="ok">${owned.length} cards owned</span> · <span class="miss">${missing.length} missing or insufficient</span>`;
 
+  const groupCheck = document.getElementById('missing-group-check').checked;
+  let ownership = {};
+  if (groupCheck && missing.length) {
+    const needs = missing.map(c => ({ name: c.name, quantity: c.qty - c.have }));
+    ownership = await annotateGroupOwnership(needs);
+  }
+
   const mg = document.getElementById('missing-grid');
   mg.innerHTML = '';
   for (const c of missing) {
     const label = c.have > 0 ? `${c.have}/${c.qty}` : 'MISSING';
-    mg.appendChild(makeCard(c.name, c.set_code, c.collector_number, null, '', label));
+    const cardEl = makeCard(c.name, c.set_code, c.collector_number, null, '', label);
+    if (groupCheck) {
+      const badge = buildOwnershipBadge(c.name, ownership);
+      if (badge) cardEl.appendChild(badge);
+    }
+    mg.appendChild(cardEl);
   }
 
   const og = document.getElementById('owned-grid');
