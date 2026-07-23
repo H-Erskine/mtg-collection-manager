@@ -100,6 +100,23 @@ def test_add_and_list_package(tmp_path, monkeypatch):
     assert get_response.json()["packages"] == [{"color_group": "Red", "public_id": "abc123"}]
 
 
+def test_add_package_extracts_slug_from_full_url(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        add_response = c.post(
+            "/api/config/packages",
+            json={"color_group": "Red", "public_id": "https://www.moxfield.com/decks/abc123"},
+        )
+        get_response = c.get("/api/config")
+
+    assert add_response.status_code == 200
+    assert get_response.json()["packages"] == [{"color_group": "Red", "public_id": "abc123"}]
+
+
 def test_remove_package(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:alice@example.com")
@@ -240,6 +257,28 @@ def test_sync_skips_throttle_for_owner(tmp_path, monkeypatch):
     # Confirm handle_sync was told this IS the owner, not hardcoded False.
     _, kwargs = mock_sync.call_args
     assert kwargs.get("is_owner") is True
+
+
+def test_complete_onboarding_marks_user_onboarded(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ensure_user("google:alice@example.com")
+
+    from api.users import is_onboarded
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        assert not is_onboarded("google:alice@example.com")
+        response = c.post("/api/onboarding/complete")
+
+    assert response.status_code == 200
+    assert is_onboarded("google:alice@example.com")
+
+
+def test_complete_onboarding_requires_auth(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    response = client.post("/api/onboarding/complete", follow_redirects=False)
+    assert response.status_code in (302, 307)
 
 
 def test_sync_still_throttles_non_owner(tmp_path, monkeypatch):

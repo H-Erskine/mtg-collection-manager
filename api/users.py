@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS users (
     formats        TEXT NOT NULL DEFAULT '',
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
     last_seen_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    last_synced_at TEXT
+    last_synced_at TEXT,
+    onboarded      INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS user_packages (
     user_id     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -109,6 +110,18 @@ def _migrate_profile_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE users ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
 
 
+def _migrate_onboarding_column(conn: sqlite3.Connection) -> None:
+    """One-time addition of the onboarded column for pre-existing registries."""
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "users" not in tables:
+        return
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "onboarded" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN onboarded INTEGER NOT NULL DEFAULT 0")
+
+
 @contextmanager
 def _registry_conn():
     _REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -119,6 +132,7 @@ def _registry_conn():
         _migrate_legacy_discord_id(conn)
         conn.executescript(REGISTRY_SCHEMA)
         _migrate_profile_columns(conn)
+        _migrate_onboarding_column(conn)
         yield conn
         conn.commit()
     except Exception:
@@ -359,6 +373,21 @@ def set_profile(user_id: str, display_name: str, icon: str) -> None:
         conn.execute(
             "UPDATE users SET display_name = ?, icon = ? WHERE user_id = ?",
             (display_name.strip(), icon.strip(), user_id),
+        )
+
+
+def is_onboarded(user_id: str) -> bool:
+    with _registry_conn() as conn:
+        row = conn.execute(
+            "SELECT onboarded FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return bool(row and row["onboarded"])
+
+
+def mark_onboarded(user_id: str) -> None:
+    with _registry_conn() as conn:
+        conn.execute(
+            "UPDATE users SET onboarded = 1 WHERE user_id = ?", (user_id,)
         )
 
 

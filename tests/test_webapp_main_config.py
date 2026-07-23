@@ -55,8 +55,9 @@ def test_config_route_redirects_when_not_logged_in(tmp_path, monkeypatch):
 def test_config_route_serves_page_when_logged_in(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
 
-    from api.users import ensure_user
+    from api.users import ensure_user, mark_onboarded
     ensure_user("google:alice@example.com")
+    mark_onboarded("google:alice@example.com")
 
     with client as c:
         with c.session_transaction() as session:
@@ -65,3 +66,18 @@ def test_config_route_serves_page_when_logged_in(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
+
+
+def test_config_route_redirects_to_onboarding_when_not_onboarded(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    from api.users import ensure_user
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/config", follow_redirects=False)
+
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "/onboarding"

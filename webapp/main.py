@@ -11,7 +11,7 @@ from starlette.responses import RedirectResponse
 
 load_dotenv()
 
-from api.users import get_user_config, log_request, seed_owner_whitelist
+from api.users import get_user_config, is_onboarded, log_request, seed_owner_whitelist
 from mtg_manager.config import Config
 from webapp.admin import router as admin_router
 from webapp.auth import router as auth_router
@@ -88,13 +88,24 @@ async def api_whoami(request: Request, cfg: Config = Depends(require_user)):
 
 
 @app.get("/app")
-async def app_page(cfg: Config = Depends(require_user)):
+async def app_page(request: Request, cfg: Config = Depends(require_user)):
+    if not is_onboarded(request.session["user_id"]):
+        return RedirectResponse(url="/onboarding", status_code=302)
     return FileResponse(_STATIC_DIR / "app.html")
 
 
 @app.get("/config")
-async def config_page(cfg: Config = Depends(require_user)):
+async def config_page(request: Request, cfg: Config = Depends(require_user)):
+    if not is_onboarded(request.session["user_id"]):
+        return RedirectResponse(url="/onboarding", status_code=302)
     return FileResponse(_STATIC_DIR / "config.html")
+
+
+@app.get("/onboarding")
+async def onboarding_page(request: Request, cfg: Config = Depends(require_user)):
+    if is_onboarded(request.session["user_id"]):
+        return RedirectResponse(url="/app", status_code=302)
+    return FileResponse(_STATIC_DIR / "onboarding.html")
 
 
 @app.get("/admin")

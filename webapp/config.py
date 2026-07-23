@@ -10,6 +10,7 @@ from api.users import (
     is_whitelist_admin,
     list_packages,
     list_profiles,
+    mark_onboarded,
     mark_synced,
     minutes_since_last_sync,
     remove_package,
@@ -18,6 +19,7 @@ from api.users import (
     set_sort,
 )
 from mtg_manager.config import Config
+from mtg_manager.moxfield import public_id_from_url
 from webapp.deps import require_user
 
 router = APIRouter()
@@ -66,7 +68,8 @@ async def get_config(request: Request, cfg: Config = Depends(require_user)):
 @router.post("/api/config/packages")
 async def add_config_package(request: Request, body: PackageIn, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
-    add_package(user_id, body.color_group, body.public_id)
+    public_id = public_id_from_url(body.public_id) or body.public_id.strip()
+    add_package(user_id, body.color_group, public_id)
     return {"ok": True}
 
 
@@ -124,3 +127,10 @@ def sync_now(request: Request, cfg: Config = Depends(require_user)):
     message = handle_sync(cfg, is_owner=owner)
     mark_synced(user_id)
     return {"message": message}
+
+
+@router.post("/api/onboarding/complete")
+async def complete_onboarding(request: Request, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    mark_onboarded(user_id)
+    return {"ok": True}

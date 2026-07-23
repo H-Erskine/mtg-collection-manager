@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTG Collection — Welcome</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --accent: #e94560;
+    --text: #eaeaea;
+    --muted: #888;
+    --green: #4caf50;
+    --red: #e94560;
+    --gold: #f0c040;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  .page { padding: 40px 24px; max-width: 640px; margin: 0 auto; }
+  .welcome { text-align: center; margin-bottom: 24px; }
+  .welcome h1 { color: var(--gold); font-size: 1.4rem; margin-bottom: 6px; }
+  .welcome p { color: var(--muted); font-size: 0.9rem; }
+  section { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+  h2 { font-size: 1rem; color: var(--gold); margin-bottom: 14px; }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+  input { background: var(--bg); border: 1px solid var(--surface2); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 0.9rem; margin-bottom: 10px; width: 100%; }
+  input:focus { outline: none; border-color: var(--accent); }
+  .btn { padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+  .btn:hover { background: #c73652; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary { padding: 8px 16px; background: var(--surface2); color: var(--text); border: none; border-radius: var(--radius); font-size: 0.85rem; cursor: pointer; }
+  .btn-link { background: none; border: none; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 0.85rem; }
+  .btn-link:hover { color: var(--text); }
+  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--surface2); }
+  .row:last-child { border-bottom: none; }
+  .msg { font-size: 0.85rem; margin-top: 8px; }
+  .msg.ok { color: var(--green); }
+  .msg.err { color: var(--red); }
+  .inline-form { display: flex; gap: 8px; align-items: flex-end; }
+  .inline-form input { margin-bottom: 0; }
+  .icon-palette { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .icon-option { font-size: 1.3rem; padding: 6px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--surface2); cursor: pointer; }
+  .icon-option:hover { background: var(--surface2); }
+  .icon-option.selected { border-color: var(--accent); background: var(--surface2); }
+  .finish-row { display: flex; justify-content: flex-end; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="welcome">
+    <h1>Welcome to MTG Collection</h1>
+    <p>Let's get your profile set up.</p>
+  </div>
+
+  <section>
+    <h2>Profile</h2>
+    <label>Display name</label>
+    <input id="profile-name" placeholder="e.g. Alice">
+    <label>Icon</label>
+    <div id="profile-icon-palette" class="icon-palette"></div>
+    <input type="hidden" id="profile-icon">
+  </section>
+
+  <section>
+    <h2>Moxfield Package <span style="color:var(--muted);font-weight:normal">(optional — you can add this later in Config)</span></h2>
+    <div id="packages-list"></div>
+    <div class="inline-form" style="margin-top:12px">
+      <div style="flex:1"><label>Color group</label><input id="pkg-color" placeholder="e.g. Red"></div>
+      <div style="flex:1"><label>Moxfield deck</label><input id="pkg-id" placeholder="Paste a moxfield.com/decks/... URL or just the slug"></div>
+      <button class="btn-secondary" onclick="addPackage()">Add</button>
+    </div>
+    <div id="pkg-msg" class="msg"></div>
+  </section>
+
+  <div class="finish-row">
+    <button class="btn" id="finish-btn" onclick="finishOnboarding()" disabled>Finish</button>
+  </div>
+  <div id="finish-msg" class="msg"></div>
+</div>
+
+<script>
+const ICON_OPTIONS = ['⚔', '🐉', '🔥', '💧', '🌿', '☀️', '💀', '🌈', '🃏', '🎲', '🦄', '🧙', '👑', '⭐'];
+let packages = [];
+
+function renderIconPalette(selected) {
+  const palette = document.getElementById('profile-icon-palette');
+  palette.innerHTML = '';
+  for (const icon of ICON_OPTIONS) {
+    const btn = document.createElement('div');
+    btn.className = 'icon-option' + (icon === selected ? ' selected' : '');
+    btn.textContent = icon;
+    btn.onclick = () => selectIcon(icon);
+    palette.appendChild(btn);
+  }
+}
+
+function selectIcon(icon) {
+  document.getElementById('profile-icon').value = icon;
+  renderIconPalette(icon);
+  updateFinishState();
+}
+
+function updateFinishState() {
+  const name = document.getElementById('profile-name').value.trim();
+  const icon = document.getElementById('profile-icon').value.trim();
+  document.getElementById('finish-btn').disabled = !(name && icon);
+}
+
+function renderPackages() {
+  const list = document.getElementById('packages-list');
+  list.innerHTML = '';
+  if (!packages.length) {
+    list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No packages yet.</p>';
+    return;
+  }
+  for (const p of packages) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<span>${p.color_group} → <code>${p.public_id}</code></span>`;
+    list.appendChild(row);
+  }
+}
+
+async function addPackage() {
+  const color_group = document.getElementById('pkg-color').value.trim();
+  const public_id = document.getElementById('pkg-id').value.trim();
+  if (!color_group || !public_id) return;
+  const res = await fetch('/api/config/packages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ color_group, public_id }),
+  });
+  const msg = document.getElementById('pkg-msg');
+  msg.textContent = res.ok ? 'Added.' : 'Failed to add package.';
+  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+  if (res.ok) {
+    document.getElementById('pkg-color').value = '';
+    document.getElementById('pkg-id').value = '';
+    await loadPackages();
+  }
+}
+
+async function loadPackages() {
+  const res = await fetch('/api/config');
+  if (!res.ok) return;
+  const data = await res.json();
+  packages = data.packages;
+  renderPackages();
+}
+
+async function finishOnboarding() {
+  const display_name = document.getElementById('profile-name').value.trim();
+  const icon = document.getElementById('profile-icon').value.trim();
+  if (!display_name || !icon) return;
+
+  const finishMsg = document.getElementById('finish-msg');
+  const profileRes = await fetch('/api/config/profile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display_name, icon }),
+  });
+  if (!profileRes.ok) {
+    finishMsg.textContent = 'Failed to save profile.';
+    finishMsg.className = 'msg err';
+    return;
+  }
+
+  const completeRes = await fetch('/api/onboarding/complete', { method: 'POST' });
+  if (!completeRes.ok) {
+    finishMsg.textContent = 'Failed to complete onboarding.';
+    finishMsg.className = 'msg err';
+    return;
+  }
+  location.href = '/app';
+}
+
+renderIconPalette('');
+loadPackages();
+document.getElementById('profile-name').addEventListener('input', updateFinishState);
+</script>
+</body>
+</html>

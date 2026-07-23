@@ -319,6 +319,30 @@ def test_list_profiles_includes_all_registered_users():
     assert "discord:12345" in ids
 
 
+def test_is_onboarded_defaults_false():
+    users_mod.ensure_user("google:alice@example.com")
+    assert not users_mod.is_onboarded("google:alice@example.com")
+
+
+def test_mark_onboarded_sets_true():
+    users_mod.ensure_user("google:alice@example.com")
+    users_mod.mark_onboarded("google:alice@example.com")
+    assert users_mod.is_onboarded("google:alice@example.com")
+
+
+def test_is_onboarded_false_for_unregistered_user():
+    assert not users_mod.is_onboarded("google:nobody@example.com")
+
+
+def test_onboarding_migration_safe_on_fresh_registry(tmp_path, monkeypatch):
+    """A brand-new registry (no users table yet) must not fail the onboarded column migration guard."""
+    import api.users as u
+    monkeypatch.setattr(u, "_REGISTRY_PATH", tmp_path / "fresh_registry.sqlite")
+    monkeypatch.setattr(u, "_USERS_DIR", tmp_path / "fresh_users")
+    u.ensure_user("google:fresh@example.com")  # must not raise
+    assert not u.is_onboarded("google:fresh@example.com")
+
+
 def test_profile_migration_safe_on_fresh_registry(tmp_path, monkeypatch):
     """A brand-new registry (no users table yet) must not fail the display_name/icon migration guard."""
     import api.users as u
