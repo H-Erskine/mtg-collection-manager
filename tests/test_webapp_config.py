@@ -298,3 +298,55 @@ def test_sync_still_throttles_non_owner(tmp_path, monkeypatch):
 
     assert response.status_code == 429
     mock_sync.assert_not_called()
+
+
+def test_add_package_triggers_auto_sync(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user
+    ensure_user("google:alice@example.com")
+
+    with patch.object(config_mod, "handle_sync", return_value="Synced.") as mock_sync:
+        with client as c:
+            with c.session_transaction() as session:
+                session["user_id"] = "google:alice@example.com"
+            response = c.post("/api/config/packages", json={"color_group": "Red", "public_id": "some-id"})
+
+    assert response.status_code == 200
+    assert response.json()["auto_sync"] == {"synced": True, "message": "Synced."}
+    mock_sync.assert_called_once()
+
+
+def test_add_package_auto_sync_throttled_within_60_seconds(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user, mark_auto_synced
+    ensure_user("google:alice@example.com")
+    mark_auto_synced("google:alice@example.com")
+
+    with patch.object(config_mod, "handle_sync") as mock_sync:
+        with client as c:
+            with c.session_transaction() as session:
+                session["user_id"] = "google:alice@example.com"
+            response = c.post("/api/config/packages", json={"color_group": "Blue", "public_id": "another-id"})
+
+    assert response.status_code == 200
+    body = response.json()["auto_sync"]
+    assert body["synced"] is False
+    assert 0 < body["retry_after_seconds"] <= 60
+    mock_sync.assert_not_called()
+
+
+def test_remove_package_triggers_auto_sync(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import add_package, ensure_user
+    ensure_user("google:alice@example.com")
+    add_package("google:alice@example.com", "Red", "some-id")
+
+    with patch.object(config_mod, "handle_sync", return_value="Synced.") as mock_sync:
+        with client as c:
+            with c.session_transaction() as session:
+                session["user_id"] = "google:alice@example.com"
+            response = c.delete("/api/config/packages/Red")
+
+    assert response.status_code == 200
+    assert response.json()["auto_sync"]["synced"] is True
+    mock_sync.assert_called_once()

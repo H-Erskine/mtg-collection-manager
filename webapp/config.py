@@ -10,14 +10,17 @@ from api.users import (
     is_whitelist_admin,
     list_packages,
     list_profiles,
+    mark_auto_synced,
     mark_onboarded,
     mark_synced,
     minutes_since_last_sync,
     remove_package,
+    seconds_since_last_auto_sync,
     set_formats,
     set_profile,
     set_sort,
 )
+from api.users import get_user_config
 from mtg_manager.config import Config
 from mtg_manager.moxfield import public_id_from_url
 from webapp.deps import require_user
@@ -25,6 +28,7 @@ from webapp.deps import require_user
 router = APIRouter()
 
 SYNC_THROTTLE_MINUTES = 60
+AUTO_SYNC_THROTTLE_SECONDS = 60
 
 
 class PackageIn(BaseModel):
@@ -49,6 +53,25 @@ def _is_admin(user_id: str) -> bool:
     return user_id.startswith("google:") and is_whitelist_admin(user_id.split(":", 1)[1])
 
 
+def _trigger_auto_sync(user_id: str) -> dict:
+    """Fire an auto-sync for this user's Moxfield packages, throttled to once per
+    AUTO_SYNC_THROTTLE_SECONDS. Reloads Config fresh so a just-added/removed
+    package is reflected (the cfg passed into the route was fetched before the
+    mutation)."""
+    seconds = seconds_since_last_auto_sync(user_id)
+    if seconds is not None and seconds < AUTO_SYNC_THROTTLE_SECONDS:
+        return {"synced": False, "retry_after_seconds": int(AUTO_SYNC_THROTTLE_SECONDS - seconds) or 1}
+
+    fresh_cfg = get_user_config(user_id)
+    if fresh_cfg is None:
+        return {"synced": False, "retry_after_seconds": 0}
+
+    message = handle_sync(fresh_cfg, is_owner=is_owner(user_id))
+    mark_auto_synced(user_id)
+    mark_synced(user_id)
+    return {"synced": True, "message": message}
+
+
 @router.get("/api/config")
 async def get_config(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
@@ -70,14 +93,14 @@ async def add_config_package(request: Request, body: PackageIn, cfg: Config = De
     user_id = request.session["user_id"]
     public_id = public_id_from_url(body.public_id) or body.public_id.strip()
     add_package(user_id, body.color_group, public_id)
-    return {"ok": True}
+    return {"ok": True, "auto_sync": _trigger_auto_sync(user_id)}
 
 
 @router.delete("/api/config/packages/{color_group}")
 async def remove_config_package(request: Request, color_group: str, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     remove_package(user_id, color_group)
-    return {"ok": True}
+    return {"ok": True, "auto_sync": _trigger_auto_sync(user_id)}
 
 
 @router.post("/api/config/sort")
