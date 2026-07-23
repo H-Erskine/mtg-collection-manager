@@ -1,10 +1,11 @@
 """Live (non-exported) per-user collection/deck data for the web app."""
 
+from collections import defaultdict
 from datetime import datetime, timezone
 
 from api.users import get_user_config, list_group_members, list_profiles, _display_profile
 from mtg_manager.config import Config
-from mtg_manager.db import get_conn, get_owned_quantity
+from mtg_manager.db import get_conn, get_meta_decks, get_owned_quantity
 from web.export import get_collection_data, get_decks_data, get_sale_data
 
 
@@ -104,6 +105,54 @@ def get_all_collections() -> dict:
         "people": people,
         "cards": cards,
     }
+
+
+def get_meta(cfg: Config) -> dict:
+    """Live per-request deck-vs-collection comparison, ported from the batch
+    logic in web/export_meta.py (which only runs as a static export job).
+    No EUR pricing here by design -- meta decklists carry only card names
+    (from MTGGoldfish), not Scryfall IDs, so pricing would need its own
+    name-keyed cache; deferred to a later task."""
+    format_results = []
+    with get_conn(cfg.db_path) as conn:
+        for fmt in cfg.formats:
+            decklists = get_meta_decks(conn, fmt)
+            if not decklists:
+                continue
+
+            decks = []
+            for dl in decklists:
+                card_totals: dict[str, int] = defaultdict(int)
+                for card in dl.cards:
+                    card_totals[card.name] += card.quantity
+
+                total_slots = sum(card_totals.values())
+                owned_slots = 0
+                cards = []
+                for name, qty in card_totals.items():
+                    owned = get_owned_quantity(conn, name)
+                    owned_slots += min(owned, qty)
+                    cards.append({"name": name, "quantity": qty, "owned": owned})
+
+                cards.sort(key=lambda c: (c["owned"], c["name"]))
+
+                decks.append({
+                    "name": dl.name,
+                    "url": dl.url,
+                    "meta_share": dl.meta_share,
+                    "total_slots": total_slots,
+                    "owned_slots": owned_slots,
+                    "cards": cards,
+                })
+
+            if any(d["meta_share"] > 0 for d in decks):
+                decks.sort(key=lambda d: -d["meta_share"])
+            else:
+                decks.sort(key=lambda d: -(d["owned_slots"] / d["total_slots"]) if d["total_slots"] else 0)
+
+            format_results.append({"format": fmt, "decks": decks})
+
+    return {"formats": format_results}
 
 
 def get_group_ownership(user_id: str, card_needs: list[dict]) -> dict[str, list[dict]]:

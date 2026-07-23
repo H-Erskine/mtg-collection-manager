@@ -397,3 +397,58 @@ def test_group_check_requires_auth(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     response = client.post("/api/collection/group-check", json={"cards": []}, follow_redirects=False)
     assert response.status_code in (302, 307)
+
+
+def test_api_meta_requires_auth(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    response = client.get("/api/meta", follow_redirects=False)
+    assert response.status_code in (302, 307)
+
+
+def test_api_meta_compares_saved_decklists_against_own_collection(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user, get_user_config, set_formats
+    from mtg_manager.db import get_conn, upsert_cards
+    from mtg_manager.models import DeckCard, Decklist, OwnedCard
+    from mtg_manager.db import replace_meta_decks
+
+    ensure_user("google:alice@example.com")
+    set_formats("google:alice@example.com", ["modern"])
+    cfg = get_user_config("google:alice@example.com")
+
+    with get_conn(cfg.db_path) as conn:
+        upsert_cards(conn, [OwnedCard(name="Brainstorm", quantity=1, color_group="Blue")])
+        replace_meta_decks(conn, "modern", [
+            Decklist(deck_id="d1", name="Mono Blue", url="https://example.com/d1", meta_share=10.0,
+                      cards=[DeckCard(name="Brainstorm", quantity=4), DeckCard(name="Force of Will", quantity=4)])
+        ])
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/api/meta")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["formats"][0]["format"] == "modern"
+    deck = data["formats"][0]["decks"][0]
+    assert deck["name"] == "Mono Blue"
+    assert deck["total_slots"] == 8
+    assert deck["owned_slots"] == 1
+    card_names_missing_first = [c["name"] for c in deck["cards"]]
+    assert card_names_missing_first[0] == "Force of Will"  # missing sorts before owned
+
+
+def test_api_meta_skips_formats_with_no_saved_decklists(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user, set_formats
+    ensure_user("google:alice@example.com")
+    set_formats("google:alice@example.com", ["standard"])  # no saved meta_decks for this format
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/api/meta")
+
+    assert response.status_code == 200
+    assert response.json()["formats"] == []
