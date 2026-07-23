@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from api.handlers import handle_sync
 from api.users import (
@@ -91,7 +92,7 @@ async def get_config(request: Request, cfg: Config = Depends(require_user)):
 
 
 @router.post("/api/config/packages")
-async def add_config_package(request: Request, body: PackageIn, cfg: Config = Depends(require_user)):
+def add_config_package(request: Request, body: PackageIn, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     public_id = public_id_from_url(body.public_id) or body.public_id.strip()
     add_package(user_id, body.color_group, public_id)
@@ -99,7 +100,7 @@ async def add_config_package(request: Request, body: PackageIn, cfg: Config = De
 
 
 @router.delete("/api/config/packages/{color_group}")
-async def remove_config_package(request: Request, color_group: str, cfg: Config = Depends(require_user)):
+def remove_config_package(request: Request, color_group: str, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     remove_package(user_id, color_group)
     return {"ok": True, "auto_sync": _trigger_auto_sync(user_id)}
@@ -110,12 +111,12 @@ async def upload_manabox_csv(request: Request, file: UploadFile = File(...), cfg
     user_id = request.session["user_id"]
     raw = await file.read()
     try:
-        text = raw.decode("utf-8")
+        text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="File must be UTF-8 encoded text")
 
     try:
-        cards = import_manabox_csv(text)
+        cards = await run_in_threadpool(import_manabox_csv, text)
     except ManaboxImportError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

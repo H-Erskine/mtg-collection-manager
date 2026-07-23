@@ -387,6 +387,46 @@ def test_upload_manabox_csv_imports_cards(tmp_path, monkeypatch):
     assert row["color_group"] == "manabox"
 
 
+def test_upload_manabox_csv_with_utf8_bom_imports_cards(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user, get_user_config
+    ensure_user("google:alice@example.com")
+
+    csv_text = (
+        "Name,Set code,Set name,Collector number,Foil,Rarity,Quantity,ManaBox ID,Scryfall ID,"
+        "Purchase price,Misprint,Altered,Condition,Language,Purchase price currency,Added\n"
+        "Brainstorm,ice,Ice Age,48,normal,rare,3,1,scry-1,1.00,false,false,near_mint,en,EUR,2026-07-23T00:00:00Z\n"
+    )
+
+    with patch.object(config_mod, "import_manabox_csv") as mock_import:
+        from mtg_manager.models import OwnedCard
+        mock_import.return_value = [
+            OwnedCard(name="Brainstorm", quantity=3, color_group="manabox", set_code="ice", collector_number="48", foil=False, cmc=1.0)
+        ]
+        with client as c:
+            with c.session_transaction() as session:
+                session["user_id"] = "google:alice@example.com"
+            response = c.post(
+                "/api/config/manabox",
+                files={"file": ("collection.csv", csv_text.encode("utf-8-sig"), "text/csv")},
+            )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "imported": 1}
+
+    # Confirm the BOM was stripped before reaching import_manabox_csv.
+    called_text = mock_import.call_args[0][0]
+    assert not called_text.startswith("﻿")
+    assert called_text.startswith("Name,Set code")
+
+    cfg = get_user_config("google:alice@example.com")
+    from mtg_manager.db import get_conn
+    with get_conn(cfg.db_path) as conn:
+        row = conn.execute("SELECT quantity, color_group FROM owned_cards WHERE name = 'Brainstorm'").fetchone()
+    assert row["quantity"] == 3
+    assert row["color_group"] == "manabox"
+
+
 def test_upload_manabox_csv_rejects_invalid_csv(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     from api.users import ensure_user
