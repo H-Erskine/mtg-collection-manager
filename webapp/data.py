@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from api.users import get_user_config, list_group_members, list_profiles, _display_profile
 from mtg_manager.config import Config
-from mtg_manager.db import get_conn
+from mtg_manager.db import get_conn, get_owned_quantity
 from web.export import get_collection_data, get_decks_data, get_sale_data
 
 
@@ -104,6 +104,33 @@ def get_all_collections() -> dict:
         "people": people,
         "cards": cards,
     }
+
+
+def get_group_ownership(user_id: str, card_needs: list[dict]) -> dict[str, list[dict]]:
+    """For each {"name","quantity"} need, return which of the caller's group
+    members (never the caller themself) own at least 1 copy, and how many."""
+    members = list_group_members(user_id)
+    result: dict[str, list[dict]] = {}
+
+    for person in members:
+        cfg = get_user_config(person["user_id"])
+        if cfg is None:
+            continue
+        try:
+            with get_conn(cfg.db_path) as conn:
+                for need in card_needs:
+                    owned = get_owned_quantity(conn, need["name"])
+                    if owned > 0:
+                        result.setdefault(need["name"], []).append({
+                            "owner_user_id": person["user_id"],
+                            "owner_display_name": person["display_name"],
+                            "owner_icon": person["icon"],
+                            "owned": owned,
+                        })
+        except Exception:
+            continue
+
+    return result
 
 
 def get_group_collections(user_id: str) -> dict:

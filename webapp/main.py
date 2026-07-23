@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse
 
@@ -16,9 +17,18 @@ from mtg_manager.config import Config
 from webapp.admin import router as admin_router
 from webapp.auth import router as auth_router
 from webapp.config import router as config_router
-from webapp.data import get_all_collections, get_all_sale, get_collection, get_decks, get_group_collections, get_sale
+from webapp.data import get_all_collections, get_all_sale, get_collection, get_decks, get_group_collections, get_group_ownership, get_sale
 from webapp.deps import NotAuthenticated, require_admin, require_user
 from webapp.images import router as images_router
+
+
+class CardNeed(BaseModel):
+    name: str
+    quantity: int
+
+
+class GroupCheckIn(BaseModel):
+    cards: list[CardNeed]
 
 app = FastAPI()
 app.add_middleware(
@@ -74,6 +84,13 @@ async def api_collection_all(cfg: Config = Depends(require_admin)):
 @app.get("/api/collection/group")
 async def api_collection_group(request: Request, cfg: Config = Depends(require_user)):
     return get_group_collections(request.session["user_id"])
+
+
+@app.post("/api/collection/group-check")
+async def api_collection_group_check(request: Request, body: GroupCheckIn, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    card_needs = [{"name": c.name, "quantity": c.quantity} for c in body.cards]
+    return {"ownership": get_group_ownership(user_id, card_needs)}
 
 
 @app.get("/api/sale")
