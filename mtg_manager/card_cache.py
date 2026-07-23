@@ -7,7 +7,10 @@ ID (e.g. ManaBox import) should check this cache first via get_cached_cmc,
 falling back to resolve_cmc (added in a later task) for cache misses.
 """
 
+import json
 import sqlite3
+import time
+import urllib.request
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -72,3 +75,58 @@ def cache_printings(printings: list[dict]) -> None:
             """,
             printings,
         )
+
+
+def _scryfall_collection_by_id(scryfall_ids: list[str]) -> list[dict]:
+    """POST a batch (<=75) of Scryfall IDs to /cards/collection, return matched card objects."""
+    identifiers = [{"id": sid} for sid in scryfall_ids]
+    payload = json.dumps({"identifiers": identifiers}).encode()
+    req = urllib.request.Request(
+        "https://api.scryfall.com/cards/collection",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "mtg-manager/1.0",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read())
+    return data.get("data", [])
+
+
+def resolve_cmc(scryfall_ids: list[str]) -> dict[str, float]:
+    """Return {scryfall_id: cmc} for every non-blank id, using the cache first.
+
+    Cache misses are batched to Scryfall's /cards/collection (75 ids per
+    request, matching web/export_meta.py's existing batching convention) and
+    the results are written back to the cache for every future caller.
+    """
+    unique_ids = list(dict.fromkeys(sid for sid in scryfall_ids if sid))
+    result = get_cached_cmc(unique_ids)
+    missing = [sid for sid in unique_ids if sid not in result]
+
+    batch_size = 75
+    for i in range(0, len(missing), batch_size):
+        batch = missing[i:i + batch_size]
+        cards = _scryfall_collection_by_id(batch)
+        printings = []
+        for card in cards:
+            sid = card.get("id")
+            if not sid:
+                continue
+            cmc = float(card.get("cmc", 0) or 0)
+            result[sid] = cmc
+            printings.append({
+                "scryfall_id": sid,
+                "name": card.get("name", ""),
+                "set_code": card.get("set", ""),
+                "collector_number": card.get("collector_number", ""),
+                "cmc": cmc,
+            })
+        cache_printings(printings)
+        if i + batch_size < len(missing):
+            time.sleep(0.15)
+
+    return result
