@@ -19,4 +19,11 @@ jobs:
             git pull
             sudo systemctl restart mtg-bot
             sudo systemctl status mtg-bot --no-pager
+            cd ~/mtg-manager-web
+            git fetch origin
+            git checkout main
+            git reset --hard origin/main
+            .venv/bin/pip install -q -r requirements-web.txt
+            sudo systemctl restart mtg-web
+            sudo systemctl status mtg-web --no-pager
             sudo systemctl reload nginx
