@@ -434,6 +434,30 @@ def test_list_request_log_respects_limit():
     assert len(rows) == 2
 
 
+def test_list_request_log_filters_by_user_id():
+    users_mod.ensure_user("google:alice@example.com")
+    users_mod.ensure_user("google:bob@example.com")
+    users_mod.log_request("google:alice@example.com", "GET", "/api/config", 200)
+    users_mod.log_request("google:bob@example.com", "GET", "/api/collection", 200)
+    users_mod.log_request(None, "GET", "/login", 302)
+
+    rows = users_mod.list_request_log(user_id="google:alice@example.com")
+
+    assert len(rows) == 1
+    assert rows[0]["path"] == "/api/config"
+    assert rows[0]["user_id"] == "google:alice@example.com"
+
+
+def test_list_request_log_user_filter_respects_limit():
+    users_mod.ensure_user("google:alice@example.com")
+    for i in range(5):
+        users_mod.log_request("google:alice@example.com", "GET", f"/path{i}", 200)
+
+    rows = users_mod.list_request_log(limit=2, user_id="google:alice@example.com")
+
+    assert len(rows) == 2
+
+
 def test_list_users_includes_admin_flag():
     users_mod.ensure_user("google:boss@example.com")
     users_mod.add_whitelisted_email("boss@example.com", is_admin=True)

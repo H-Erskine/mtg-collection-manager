@@ -145,6 +145,11 @@ async def admin_page(cfg: Config = Depends(require_admin)):
     return FileResponse(_STATIC_DIR / "admin.html")
 
 
+@app.get("/admin/users/{user_id}")
+async def admin_user_detail_page(user_id: str, cfg: Config = Depends(require_admin)):
+    return FileResponse(_STATIC_DIR / "admin-user.html")
+
+
 @app.get("/")
 async def root(request: Request):
     return RedirectResponse(url="/app", status_code=302)

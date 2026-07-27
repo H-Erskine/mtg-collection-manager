@@ -171,3 +171,72 @@ def test_non_admin_cannot_remove_whitelisted_user(tmp_path, monkeypatch):
         response = c.delete("/api/admin/whitelist/someone@example.com")
 
     assert response.status_code == 403
+
+
+def test_admin_user_detail_requires_admin(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ensure_user("google:alice@example.com")  # not an admin
+    ensure_user("google:friend@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        assert c.get("/api/admin/users/google:friend@example.com").status_code == 403
+        assert c.post("/api/admin/users/google:friend@example.com/sync").status_code == 403
+
+
+def test_admin_user_detail_404s_for_unknown_user(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    admin_email = _as_admin(client)
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = f"google:{admin_email}"
+        detail_response = c.get("/api/admin/users/google:nobody@example.com")
+        sync_response = c.post("/api/admin/users/google:nobody@example.com/sync")
+
+    assert detail_response.status_code == 404
+    assert sync_response.status_code == 404
+
+
+def test_admin_user_detail_returns_packages_and_activity(tmp_path, monkeypatch):
+    from api.users import add_package
+
+    client = _client(tmp_path, monkeypatch)
+    admin_email = _as_admin(client)
+    ensure_user("google:friend@example.com")
+    add_package("google:friend@example.com", "red", "abc123")
+    log_request("google:friend@example.com", "GET", "/api/config", 200)
+    log_request("google:someone-else@example.com", "GET", "/api/config", 200)
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = f"google:{admin_email}"
+        response = c.get("/api/admin/users/google:friend@example.com")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user_id"] == "google:friend@example.com"
+    assert body["packages"] == [{"color_group": "red", "public_id": "abc123"}]
+    paths = [row["path"] for row in body["activity"]]
+    assert paths == ["/api/config"]  # only friend's row, not someone-else's
+
+
+def test_admin_sync_bypasses_self_service_throttle(tmp_path, monkeypatch):
+    from api.users import add_package, mark_synced
+
+    client = _client(tmp_path, monkeypatch)
+    admin_email = _as_admin(client)
+    ensure_user("google:friend@example.com")
+    add_package("google:friend@example.com", "red", "abc123")
+    mark_synced("google:friend@example.com")  # simulate "just synced" -- would block self-service
+
+    monkeypatch.setattr(admin_mod, "handle_sync", lambda cfg, is_owner: "Synced 1 package.")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = f"google:{admin_email}"
+        response = c.post("/api/admin/users/google:friend@example.com/sync")
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Synced 1 package."}

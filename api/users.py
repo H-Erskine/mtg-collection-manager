@@ -763,13 +763,16 @@ def list_failed_logins(limit: int = 200) -> list[dict]:
     ]
 
 
-def list_request_log(limit: int = 200) -> list[dict]:
+def list_request_log(limit: int = 200, user_id: str | None = None) -> list[dict]:
     with _registry_conn() as conn:
-        rows = conn.execute(
-            "SELECT user_id, method, path, status, created_at FROM request_log "
-            "ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        query = "SELECT user_id, method, path, status, created_at FROM request_log"
+        params: list = []
+        if user_id is not None:
+            query += " WHERE user_id = ?"
+            params.append(user_id)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(query, params).fetchall()
     return [
         {
             "user_id": r["user_id"],

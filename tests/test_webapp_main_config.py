@@ -81,3 +81,41 @@ def test_config_route_redirects_to_onboarding_when_not_onboarded(tmp_path, monke
 
     assert response.status_code in (302, 307)
     assert response.headers["location"] == "/onboarding"
+
+
+def test_admin_user_detail_page_redirects_when_not_logged_in(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    response = client.get("/admin/users/google:friend@example.com", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "/login"
+
+
+def test_admin_user_detail_page_forbidden_for_non_admin(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    from api.users import ensure_user
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/admin/users/google:friend@example.com")
+
+    assert response.status_code == 403
+
+
+def test_admin_user_detail_page_serves_for_admin(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    from api.users import add_whitelisted_email, ensure_user
+    ensure_user("google:boss@example.com")
+    add_whitelisted_email("boss@example.com", is_admin=True)
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:boss@example.com"
+        response = c.get("/admin/users/google:friend@example.com")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
