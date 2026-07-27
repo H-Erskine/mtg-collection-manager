@@ -37,7 +37,17 @@ def _client(tmp_path, monkeypatch):
     monkeypatch.setattr(u, "_REGISTRY_PATH", tmp_path / "registry.sqlite")
     monkeypatch.setattr(u, "_USERS_DIR", tmp_path / "users")
 
-    from webapp.main import app
+    from webapp.main import app  # noqa: F401 (imported for its side effect: load_dotenv())
+
+    # The real .env on this machine sets these to the actual site owner's
+    # identity, which routes straight to the real ~/.mtg_manager/config.toml
+    # DB (bypassing the tmp registry above). load_dotenv() (triggered by the
+    # import above, only on the first call across the whole test session)
+    # would otherwise repopulate them, so clear them AFTER importing —
+    # tests that need owner behavior set OWNER_GOOGLE_EMAIL explicitly.
+    monkeypatch.delenv("OWNER_DISCORD_ID", raising=False)
+    monkeypatch.delenv("OWNER_GOOGLE_EMAIL", raising=False)
+
     client = TestClient(app)
     _install_session_transaction(client, "test-secret")
     return client
@@ -103,6 +113,63 @@ def test_api_sale_returns_data_when_logged_in(tmp_path, monkeypatch):
     assert data["for_sale"] == []
     assert data["extras"] == []
     assert data["wants"] == []
+
+
+def _configure_fake_owner(tmp_path, monkeypatch):
+    """Point the Google-owner shortcut at a throwaway config.toml/db, per the
+    isolation pattern in tests/test_users.py — never let tests touch the real
+    ~/.mtg_manager/config.toml or its collection.db."""
+    monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "owner@example.com")
+    toml = tmp_path / "owner_config.toml"
+    real_db = tmp_path / "owner_collection.db"
+    toml.write_text(
+        "[moxfield]\npackages = []\nrequest_delay_seconds = 1.0\n"
+        "[mtgtop8]\nrequest_delay_seconds = 1.5\ncache_ttl_hours = 24\n"
+        f"[database]\npath = '{real_db.as_posix()}'\n"
+    )
+    monkeypatch.setattr("mtg_manager.config.DEFAULT_CONFIG", toml)
+
+    from api.users import ensure_user, get_user_config
+    ensure_user("google:owner@example.com")
+    return get_user_config("google:owner@example.com")
+
+
+def test_api_collection_falls_back_to_owner_when_not_logged_in(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    owner_cfg = _configure_fake_owner(tmp_path, monkeypatch)
+
+    from mtg_manager.db import get_conn, upsert_cards
+    from mtg_manager.models import OwnedCard
+    with get_conn(owner_cfg.db_path) as conn:
+        upsert_cards(conn, [OwnedCard(name="Brainstorm", quantity=2, color_group="Blue")])
+
+    response = client.get("/api/collection")
+
+    assert response.status_code == 200
+    assert response.json()["cards"][0]["name"] == "Brainstorm"
+
+
+def test_api_sale_falls_back_to_owner_when_not_logged_in(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _configure_fake_owner(tmp_path, monkeypatch)
+
+    response = client.get("/api/sale")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["for_sale"] == []
+    assert data["extras"] == []
+    assert data["wants"] == []
+
+
+def test_app_serves_page_when_not_logged_in_and_owner_configured(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    _configure_fake_owner(tmp_path, monkeypatch)
+
+    response = client.get("/app")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
 
 
 def test_api_sale_all_requires_auth(tmp_path, monkeypatch):
@@ -190,11 +257,11 @@ def test_api_collection_group_scoped_to_caller_and_group_members(tmp_path, monke
     assert people_ids == {"google:alice@example.com", "google:bob@example.com"}
 
 
-def test_whoami_redirects_when_not_logged_in(tmp_path, monkeypatch):
+def test_whoami_reports_unauthenticated_when_not_logged_in(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     response = client.get("/api/whoami", follow_redirects=False)
-    assert response.status_code in (302, 307)
-    assert response.headers["location"] == "/login"
+    assert response.status_code == 200
+    assert response.json() == {"authenticated": False}
 
 
 def test_whoami_returns_email_when_logged_in(tmp_path, monkeypatch):
@@ -209,14 +276,14 @@ def test_whoami_returns_email_when_logged_in(tmp_path, monkeypatch):
         response = c.get("/api/whoami")
 
     assert response.status_code == 200
-    assert response.json() == {"email": "alice@example.com"}
+    assert response.json() == {"authenticated": True, "email": "alice@example.com"}
 
 
-def test_root_redirects_to_login_when_not_authenticated(tmp_path, monkeypatch):
+def test_root_redirects_to_app(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     response = client.get("/", follow_redirects=False)
     assert response.status_code in (302, 307)
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"] == "/app"
 
 
 def test_root_redirects_to_app_when_authenticated(tmp_path, monkeypatch):
@@ -339,7 +406,7 @@ def test_activity_log_records_anonymous_requests(tmp_path, monkeypatch):
     matching = [r for r in rows if r["path"] == "/api/whoami"]
     assert len(matching) == 1
     assert matching[0]["user_id"] is None
-    assert matching[0]["status"] in (302, 307)
+    assert matching[0]["status"] == 200
 
 
 def test_image_route_requests_are_not_logged(tmp_path, monkeypatch):
@@ -447,7 +514,7 @@ def test_api_meta_compares_saved_decklists_against_own_collection(tmp_path, monk
     assert card_names_missing_first == ["Brainstorm", "Force of Will", "Ponder"]
 
 
-def test_api_meta_includes_set_code_and_collector_number_for_owned_cards(tmp_path, monkeypatch):
+def test_api_meta_never_includes_set_code_and_collector_number(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     from api.users import ensure_user, get_user_config, set_formats
     from mtg_manager.db import get_conn, replace_meta_decks, upsert_cards
@@ -475,8 +542,10 @@ def test_api_meta_includes_set_code_and_collector_number_for_owned_cards(tmp_pat
     brainstorm = next(c for c in deck["cards"] if c["name"] == "Brainstorm")
     force_of_will = next(c for c in deck["cards"] if c["name"] == "Force of Will")
 
-    assert brainstorm["set_code"] == "ice"
-    assert brainstorm["collector_number"] == "48"
+    # set_code/collector_number are always None from /api/meta now (no
+    # per-card printing lookup); the frontend fetches art by name instead.
+    assert brainstorm["set_code"] is None
+    assert brainstorm["collector_number"] is None
     assert force_of_will["set_code"] is None
     assert force_of_will["collector_number"] is None
 

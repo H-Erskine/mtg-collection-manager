@@ -12,13 +12,13 @@ from starlette.responses import RedirectResponse
 
 load_dotenv()
 
-from api.users import get_user_config, is_onboarded, log_request, seed_owner_whitelist
+from api.users import is_onboarded, log_request, seed_owner_whitelist
 from mtg_manager.config import Config
 from webapp.admin import router as admin_router
 from webapp.auth import router as auth_router
 from webapp.config import router as config_router
 from webapp.data import get_all_collections, get_all_sale, get_collection, get_decks, get_group_collections, get_group_ownership, get_meta, get_sale
-from webapp.deps import NotAuthenticated, require_admin, require_user
+from webapp.deps import NotAuthenticated, require_admin, require_user, require_user_or_owner
 from webapp.images import router as images_router
 
 
@@ -67,7 +67,7 @@ async def _on_startup():
 
 
 @app.get("/api/collection")
-async def api_collection(cfg: Config = Depends(require_user)):
+async def api_collection(cfg: Config = Depends(require_user_or_owner)):
     return get_collection(cfg)
 
 
@@ -99,7 +99,7 @@ async def api_collection_group_check(request: Request, body: GroupCheckIn, cfg: 
 
 
 @app.get("/api/sale")
-async def api_sale(cfg: Config = Depends(require_user)):
+async def api_sale(cfg: Config = Depends(require_user_or_owner)):
     return get_sale(cfg)
 
 
@@ -109,14 +109,17 @@ async def api_sale_all(cfg: Config = Depends(require_user)):
 
 
 @app.get("/api/whoami")
-async def api_whoami(request: Request, cfg: Config = Depends(require_user)):
-    user_id = request.session["user_id"]
-    return {"email": user_id.split(":", 1)[1]}
+async def api_whoami(request: Request):
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return {"authenticated": False}
+    return {"authenticated": True, "email": user_id.split(":", 1)[1]}
 
 
 @app.get("/app")
-async def app_page(request: Request, cfg: Config = Depends(require_user)):
-    if not is_onboarded(request.session["user_id"]):
+async def app_page(request: Request, cfg: Config = Depends(require_user_or_owner)):
+    user_id = request.session.get("user_id")
+    if user_id and not is_onboarded(user_id):
         return RedirectResponse(url="/onboarding", status_code=302)
     return FileResponse(_STATIC_DIR / "app.html")
 
@@ -142,7 +145,4 @@ async def admin_page(cfg: Config = Depends(require_admin)):
 
 @app.get("/")
 async def root(request: Request):
-    user_id = request.session.get("user_id")
-    if user_id and get_user_config(user_id) is not None:
-        return RedirectResponse(url="/app", status_code=302)
-    return RedirectResponse(url="/login", status_code=302)
+    return RedirectResponse(url="/app", status_code=302)

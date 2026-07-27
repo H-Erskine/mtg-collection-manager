@@ -171,6 +171,20 @@ def is_owner(user_id: str) -> bool:
     return False
 
 
+def get_owner_config() -> Config | None:
+    """Resolve the site owner's Config directly, with no session involved.
+
+    Used to serve the public (logged-out) collection/sale views.
+    """
+    owner_discord_id = os.environ.get("OWNER_DISCORD_ID")
+    if owner_discord_id is not None:
+        return get_user_config(f"discord:{owner_discord_id}")
+    owner_google_email = os.environ.get("OWNER_GOOGLE_EMAIL")
+    if owner_google_email is not None:
+        return get_user_config(f"google:{owner_google_email}")
+    return None
+
+
 def is_registered(user_id: str) -> bool:
     with _registry_conn() as conn:
         row = conn.execute(

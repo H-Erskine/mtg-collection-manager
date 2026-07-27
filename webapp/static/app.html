@@ -389,16 +389,55 @@ function buildStatsBanner() {
 
 // ─── Data loading ───────────────────────────────────────────────────────────
 
+let isAuthenticated = false;
+
+function applyAuthState(whoamiData) {
+  isAuthenticated = !!whoamiData.authenticated;
+  const el = document.getElementById('nav-identity');
+  el.innerHTML = '';
+
+  if (isAuthenticated) {
+    el.append(whoamiData.email + ' · ');
+    const logout = document.createElement('span');
+    logout.className = 'nav-logout';
+    logout.textContent = 'Logout';
+    logout.onclick = doLogout;
+    el.appendChild(logout);
+    return;
+  }
+
+  const login = document.createElement('a');
+  login.className = 'nav-logout';
+  login.href = '/login';
+  login.textContent = 'Log in';
+  el.appendChild(login);
+
+  // Anonymous visitors only get the safe, owner-collection-scoped tabs.
+  ['decks', 'missing', 'meta'].forEach(name => {
+    const t = document.querySelector(`.tab[data-tab="${name}"]`);
+    if (t) t.style.display = 'none';
+  });
+  const configLink = document.querySelector('a.tab[href="/config"]');
+  if (configLink) configLink.style.display = 'none';
+  const peopleSidebar = document.getElementById('people-sidebar');
+  if (peopleSidebar) peopleSidebar.style.display = 'none';
+  const salePeopleSidebar = document.getElementById('sale-people-sidebar');
+  if (salePeopleSidebar) salePeopleSidebar.style.display = 'none';
+}
+
 async function init() {
   try {
+    const whoamiRes = await fetch('/api/whoami');
+    applyAuthState(whoamiRes.ok ? await whoamiRes.json() : { authenticated: false });
+
     const [colRes, deckRes, saleRes] = await Promise.all([
       fetch('/api/collection'),
-      fetch('/api/decks'),
+      isAuthenticated ? fetch('/api/decks') : Promise.resolve(null),
       fetch('/api/sale'),
     ]);
-    if (!colRes.ok || !deckRes.ok) throw new Error('data missing');
+    if (!colRes.ok || (isAuthenticated && !deckRes.ok)) throw new Error('data missing');
     const colData = await colRes.json();
-    const deckData = await deckRes.json();
+    const deckData = deckRes && deckRes.ok ? await deckRes.json() : { decks: [] };
     const saleData = saleRes.ok ? await saleRes.json() : { for_sale: [], extras: [], wants: [] };
 
     collectionCards = colData.cards;
@@ -451,32 +490,6 @@ async function init() {
     document.getElementById('collection-loading').style.display = 'none';
     document.getElementById('decks-loading').style.display = 'none';
     document.getElementById('sale-loading').style.display = 'none';
-  }
-
-  loadWhoami();
-}
-
-async function loadWhoami() {
-  try {
-    const res = await fetch('/api/whoami');
-    if (!res.ok) throw new Error('whoami failed');
-    const data = await res.json();
-    const el = document.getElementById('nav-identity');
-    el.innerHTML = '';
-    el.append(data.email + ' · ');
-    const logout = document.createElement('span');
-    logout.className = 'nav-logout';
-    logout.textContent = 'Logout';
-    logout.onclick = doLogout;
-    el.appendChild(logout);
-  } catch {
-    const el = document.getElementById('nav-identity');
-    el.innerHTML = '';
-    const logout = document.createElement('span');
-    logout.className = 'nav-logout';
-    logout.textContent = 'Logout';
-    logout.onclick = doLogout;
-    el.appendChild(logout);
   }
 }
 
