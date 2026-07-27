@@ -153,7 +153,14 @@ function renderUsers(users) {
   tbody.innerHTML = '';
   for (const u of users) {
     const tr = document.createElement('tr');
-    const cells = [u.user_id, u.is_admin ? '✓' : '', u.last_seen_at || '', u.last_synced_at || ''];
+    const link = document.createElement('a');
+    link.href = `/admin/users/${encodeURIComponent(u.user_id)}`;
+    link.textContent = u.user_id;
+    link.style.color = 'inherit';
+    const linkTd = document.createElement('td');
+    linkTd.appendChild(link);
+    tr.appendChild(linkTd);
+    const cells = [u.is_admin ? '✓' : '', u.last_seen_at || '', u.last_synced_at || ''];
     for (const value of cells) {
       const td = document.createElement('td');
       td.textContent = String(value);

@@ -1,2 +1,211 @@
 <!DOCTYPE html>
-<html><head><title>MTG Collection — Admin</title></head><body></body></html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTG Collection — Admin — User</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --accent: #e94560;
+    --text: #eaeaea;
+    --muted: #888;
+    --green: #4caf50;
+    --red: #e94560;
+    --gold: #f0c040;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  nav { background: var(--surface); border-bottom: 2px solid var(--surface2); padding: 0 24px; display: flex; align-items: center; gap: 0; }
+  .nav-brand { font-weight: 700; font-size: 1.1rem; color: var(--gold); padding: 16px 24px 16px 0; border-right: 1px solid var(--surface2); margin-right: 8px; }
+  .nav-link { padding: 16px 20px; color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+  .nav-link:hover { color: var(--text); }
+  .nav-meta { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
+  .nav-logout { color: var(--text); text-decoration: underline; cursor: pointer; margin-left: 8px; }
+  .nav-logout:hover { color: var(--accent); }
+
+  .page { padding: 24px; max-width: 1000px; margin: 0 auto; }
+  section { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+  h1 { font-size: 1.2rem; margin-bottom: 16px; }
+  h2 { font-size: 1rem; color: var(--gold); margin-bottom: 14px; }
+  .btn { padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+  .btn:hover { background: #c73652; }
+  .btn:disabled { opacity: 0.6; cursor: default; }
+  .msg { font-size: 0.85rem; margin-top: 8px; }
+  .msg.ok { color: var(--green); }
+  .msg.err { color: var(--red); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--surface2); }
+  th { color: var(--muted); font-weight: 600; }
+  .empty { color: var(--muted); font-size: 0.85rem; }
+  .back-link { display: inline-block; margin-bottom: 16px; color: var(--muted); text-decoration: none; font-size: 0.85rem; }
+  .back-link:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">⚔ MTG Collection</div>
+  <a class="nav-link" href="/app#collection">Collection</a>
+  <a class="nav-link" href="/app#decks">Decks</a>
+  <a class="nav-link" href="/app#missing">Missing</a>
+  <a class="nav-link" href="/config">Config</a>
+  <a class="nav-link" href="/admin">Admin</a>
+  <div class="nav-meta" id="nav-identity">Loading…</div>
+</nav>
+
+<div class="page">
+  <a class="back-link" href="/admin">← Back to Admin</a>
+  <h1 id="page-title">Loading…</h1>
+
+  <div id="not-found" class="empty" style="display:none">User not found.</div>
+
+  <div id="user-content" style="display:none">
+    <section>
+      <h2>Moxfield packages</h2>
+      <table id="packages-table">
+        <thead><tr><th>Color group</th><th>Public ID</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="packages-empty" class="empty" style="display:none">No packages configured.</div>
+    </section>
+
+    <section>
+      <h2>Sync</h2>
+      <button class="btn" id="sync-btn" onclick="syncUser()">Sync now</button>
+      <div id="sync-msg" class="msg"></div>
+    </section>
+
+    <section>
+      <h2>Activity</h2>
+      <table id="activity-table">
+        <thead><tr><th>Time</th><th>Action</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="activity-empty" class="empty" style="display:none">No activity recorded.</div>
+    </section>
+  </div>
+</div>
+
+<script>
+const ACTION_LABELS = [
+  { pattern: /^POST \/api\/config\/packages$/, label: 'Added Moxfield package' },
+  { pattern: /^DELETE \/api\/config\/packages\//, label: 'Removed Moxfield package' },
+  { pattern: /^POST \/api\/config\/sort$/, label: 'Changed pick list sort' },
+  { pattern: /^POST \/api\/config\/formats$/, label: 'Changed tracked formats' },
+  { pattern: /^POST \/api\/config\/profile$/, label: 'Updated profile' },
+  { pattern: /^POST \/api\/config\/sync$/, label: 'Ran sync' },
+  { pattern: /^POST \/api\/admin\/whitelist$/, label: 'Added user to whitelist' },
+  { pattern: /^DELETE \/api\/admin\/whitelist\//, label: 'Removed whitelisted user' },
+  { pattern: /^GET \/api\/config$/, label: 'Loaded config' },
+  { pattern: /^GET \/api\/collection$/, label: 'Loaded collection' },
+  { pattern: /^GET \/api\/decks$/, label: 'Loaded decks' },
+  { pattern: /^GET \/api\/whoami$/, label: 'Checked session' },
+];
+
+function friendlyLabel(method, path) {
+  const key = `${method} ${path}`;
+  for (const { pattern, label } of ACTION_LABELS) {
+    if (pattern.test(key)) return label;
+  }
+  return key;
+}
+
+function userIdFromPath() {
+  const parts = location.pathname.split('/admin/users/');
+  return decodeURIComponent(parts[1] || '');
+}
+
+async function loadUserDetail() {
+  const userId = userIdFromPath();
+  const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`);
+  if (res.status === 401 || res.status === 403) { location.href = '/login'; return; }
+  if (res.status === 404) {
+    document.getElementById('page-title').textContent = userId;
+    document.getElementById('not-found').style.display = 'block';
+    return;
+  }
+  const data = await res.json();
+  document.getElementById('page-title').textContent = data.user_id;
+  document.getElementById('user-content').style.display = 'block';
+  renderPackages(data.packages);
+  renderActivity(data.activity);
+}
+
+function renderPackages(packages) {
+  const tbody = document.querySelector('#packages-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('packages-empty').style.display = packages.length ? 'none' : 'block';
+  for (const p of packages) {
+    const tr = document.createElement('tr');
+    for (const value of [p.color_group, p.public_id]) {
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+}
+
+function renderActivity(activity) {
+  const tbody = document.querySelector('#activity-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('activity-empty').style.display = activity.length ? 'none' : 'block';
+  for (const r of activity) {
+    const tr = document.createElement('tr');
+    const cells = [r.created_at, friendlyLabel(r.method, r.path), r.status];
+    for (const value of cells) {
+      const td = document.createElement('td');
+      td.textContent = String(value);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+}
+
+async function syncUser() {
+  const userId = userIdFromPath();
+  const btn = document.getElementById('sync-btn');
+  const msg = document.getElementById('sync-msg');
+  btn.disabled = true;
+  msg.textContent = '';
+  try {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/sync`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      msg.textContent = data.message || 'Synced.';
+      msg.className = 'msg ok';
+      loadUserDetail();
+    } else {
+      msg.textContent = data.detail || 'Sync failed.';
+      msg.className = 'msg err';
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadWhoami() {
+  try {
+    const res = await fetch('/api/whoami');
+    const data = await res.json();
+    const el = document.getElementById('nav-identity');
+    el.innerHTML = '';
+    el.append(data.email + ' · ');
+    const logout = document.createElement('span');
+    logout.className = 'nav-logout';
+    logout.textContent = 'Logout';
+    logout.onclick = () => fetch('/logout', { method: 'POST' }).then(() => { location.href = '/login'; });
+    el.appendChild(logout);
+  } catch {}
+}
+
+loadUserDetail();
+loadWhoami();
+</script>
+</body>
+</html>
