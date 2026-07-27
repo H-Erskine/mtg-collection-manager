@@ -207,7 +207,9 @@
       <h3>Check a decklist</h3>
       <p class="hint">Paste cards in MTG Arena / MTGO format:<br><code>4 Lightning Bolt</code></p>
       <textarea id="decklist-input" placeholder="4 Lightning Bolt&#10;4 Goblin Guide&#10;20 Mountain"></textarea>
-      <label style="display:block;margin-top:8px;font-size:0.85rem"><input type="checkbox" id="missing-group-check" onchange="checkMissing()"> Can my group complete this?</label>
+      <label style="display:block;margin-top:8px;font-size:0.85rem">Can this group complete this?
+        <select id="missing-group-check" onchange="checkMissing()"><option value="">— off —</option></select>
+      </label>
       <button class="btn" onclick="checkMissing()">Check Collection</button>
     </div>
     <div id="missing-results">
@@ -228,7 +230,9 @@
 
 <!-- META -->
 <div id="page-meta" class="page">
-  <label><input type="checkbox" id="meta-group-check" onchange="onMetaGroupCheckToggled()"> Can my group complete this?</label>
+  <label>Can this group complete this?
+    <select id="meta-group-check" onchange="onMetaGroupCheckToggled()"><option value="">— off —</option></select>
+  </label>
   <div class="meta-format-tabs" id="meta-format-tabs"></div>
   <div class="loading" id="meta-loading">Loading meta…</div>
   <div class="meta-layout" id="meta-layout" style="display:none">
@@ -319,6 +323,7 @@ let saleView = 'for-sale';     // 'for-sale' | 'wants'
 let combinedSaleData = null;   // lazily fetched /api/sale/all payload
 
 let metaLoaded = false;        // whether loadMeta() has run at least once
+let myGroups = [];             // [{id, name, members}, ...] for the logged-in user
 
 const COLOUR_TILES = [
   { group: 'White',       icon: '☀️', iconColor: null,      numColor: '#e8e8d0', bg: '#2a2a1e', border: '#4a4a2e', label: 'White' },
@@ -430,15 +435,18 @@ async function init() {
     const whoamiRes = await fetch('/api/whoami');
     applyAuthState(whoamiRes.ok ? await whoamiRes.json() : { authenticated: false });
 
-    const [colRes, deckRes, saleRes] = await Promise.all([
+    const [colRes, deckRes, saleRes, configRes] = await Promise.all([
       fetch('/api/collection'),
       isAuthenticated ? fetch('/api/decks') : Promise.resolve(null),
       fetch('/api/sale'),
+      isAuthenticated ? fetch('/api/config') : Promise.resolve(null),
     ]);
     if (!colRes.ok || (isAuthenticated && !deckRes.ok)) throw new Error('data missing');
     const colData = await colRes.json();
     const deckData = deckRes && deckRes.ok ? await deckRes.json() : { decks: [] };
     const saleData = saleRes.ok ? await saleRes.json() : { for_sale: [], extras: [], wants: [] };
+    myGroups = configRes && configRes.ok ? (await configRes.json()).groups : [];
+    populateGroupSelects();
 
     collectionCards = colData.cards;
 
@@ -878,14 +886,28 @@ function filterSale() {
 
 // ─── Group ownership helper (shared by Missing + Meta) ──────────────────────
 
-async function annotateGroupOwnership(cardNeeds) {
+function populateGroupSelects() {
+  for (const id of ['missing-group-check', 'meta-group-check']) {
+    const select = document.getElementById(id);
+    if (!select) continue;
+    select.innerHTML = '<option value="">— off —</option>';
+    for (const group of myGroups) {
+      const opt = document.createElement('option');
+      opt.value = group.id;
+      opt.textContent = group.name;
+      select.appendChild(opt);
+    }
+  }
+}
+
+async function annotateGroupOwnership(cardNeeds, groupId) {
   // cardNeeds: [{name, quantity}, ...] for cards the caller is missing/short on.
   // Returns {name: [{owner_user_id, owner_display_name, owner_icon, owned}, ...]}
-  if (!cardNeeds.length) return {};
+  if (!cardNeeds.length || !groupId) return {};
   const res = await fetch('/api/collection/group-check', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cards: cardNeeds }),
+    body: JSON.stringify({ cards: cardNeeds, group_id: parseInt(groupId, 10) }),
   });
   if (!res.ok) return {};
   const data = await res.json();
@@ -907,7 +929,11 @@ let metaData = null;
 let currentMetaDeck = null;
 
 function metaGroupCheckEnabled() {
-  return document.getElementById('meta-group-check').checked;
+  return !!document.getElementById('meta-group-check').value;
+}
+
+function metaGroupCheckId() {
+  return document.getElementById('meta-group-check').value;
 }
 
 async function onMetaGroupCheckToggled() {
@@ -1050,7 +1076,7 @@ async function renderMetaDeckView(fmt, deck) {
   let ownership = {};
   if (metaGroupCheckEnabled() && missing.length) {
     const needs = missing.map(c => ({ name: c.name, quantity: c.quantity - c.owned }));
-    ownership = await annotateGroupOwnership(needs);
+    ownership = await annotateGroupOwnership(needs, metaGroupCheckId());
   }
 
   const mg = document.getElementById('meta-missing-grid');
@@ -1114,11 +1140,12 @@ async function checkMissing() {
   document.getElementById('missing-summary').innerHTML =
     `<span class="ok">${owned.length} cards owned</span> · <span class="miss">${missing.length} missing or insufficient</span>`;
 
-  const groupCheck = document.getElementById('missing-group-check').checked;
+  const groupId = document.getElementById('missing-group-check').value;
+  const groupCheck = !!groupId;
   let ownership = {};
   if (groupCheck && missing.length) {
     const needs = missing.map(c => ({ name: c.name, quantity: c.qty - c.have }));
-    ownership = await annotateGroupOwnership(needs);
+    ownership = await annotateGroupOwnership(needs, groupId);
   }
 
   const mg = document.getElementById('missing-grid');

@@ -8,9 +8,12 @@ from api.handlers import handle_sync
 from api.users import (
     add_group_member,
     add_package,
+    create_group,
+    delete_group,
+    get_profiles_by_ids,
     is_owner,
-    is_whitelist_admin,
-    list_group_members,
+    is_private,
+    list_groups,
     list_packages,
     list_profiles,
     mark_auto_synced,
@@ -19,8 +22,10 @@ from api.users import (
     minutes_since_last_sync,
     remove_group_member,
     remove_package,
+    rename_group,
     seconds_since_last_auto_sync,
     set_formats,
+    set_privacy,
     set_profile,
     set_sort,
     _display_profile,
@@ -30,7 +35,7 @@ from mtg_manager.config import Config
 from mtg_manager.db import clear_color_group, get_conn, upsert_cards
 from mtg_manager.manabox import ManaboxImportError, import_manabox_csv
 from mtg_manager.moxfield import public_id_from_url
-from webapp.deps import require_user
+from webapp.deps import is_admin_user, require_user
 
 router = APIRouter()
 
@@ -56,12 +61,16 @@ class ProfileIn(BaseModel):
     icon: str
 
 
+class PrivacyIn(BaseModel):
+    is_private: bool
+
+
+class GroupIn(BaseModel):
+    name: str
+
+
 class GroupMemberIn(BaseModel):
     member_user_id: str
-
-
-def _is_admin(user_id: str) -> bool:
-    return user_id.startswith("google:") and is_whitelist_admin(user_id.split(":", 1)[1])
 
 
 def _trigger_auto_sync(user_id: str) -> dict:
@@ -87,16 +96,18 @@ def _trigger_auto_sync(user_id: str) -> dict:
 async def get_config(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     pkgs = list_packages(user_id)
-    profile = next((p for p in list_profiles() if p["user_id"] == user_id), {"display_name": "", "icon": ""})
+    own = get_profiles_by_ids({user_id})
+    profile = own[0] if own else {"display_name": user_id, "icon": "🂠"}
     return {
         "packages": [{"color_group": cg, "public_id": pid} for cg, pid in pkgs],
         "formats": cfg.formats,
         "pick_list_sort": cfg.pick_list_sort,
         "minutes_since_last_sync": minutes_since_last_sync(user_id),
-        "is_admin": _is_admin(user_id),
+        "is_admin": is_admin_user(user_id),
         "display_name": profile["display_name"],
         "icon": profile["icon"],
-        "group": list_group_members(user_id),
+        "is_private": is_private(user_id),
+        "groups": list_groups(user_id),
     }
 
 
@@ -162,6 +173,13 @@ async def set_config_profile(request: Request, body: ProfileIn, cfg: Config = De
     return {"ok": True}
 
 
+@router.post("/api/config/privacy")
+async def set_config_privacy(request: Request, body: PrivacyIn, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    set_privacy(user_id, body.is_private)
+    return {"ok": True}
+
+
 @router.post("/api/config/sync")
 def sync_now(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
@@ -195,19 +213,55 @@ async def complete_onboarding(request: Request, cfg: Config = Depends(require_us
 
 
 @router.get("/api/users/directory")
-async def users_directory(cfg: Config = Depends(require_user)):
-    return {"people": [_display_profile(p) for p in list_profiles()]}
-
-
-@router.post("/api/config/group")
-async def add_config_group_member(request: Request, body: GroupMemberIn, cfg: Config = Depends(require_user)):
+async def users_directory(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
-    add_group_member(user_id, body.member_user_id)
+    people = [
+        p for p in list_profiles(viewer_is_admin=is_admin_user(user_id))
+        if p["user_id"] != user_id
+    ]
+    return {"people": [_display_profile(p) for p in people]}
+
+
+@router.post("/api/config/groups")
+async def create_config_group(request: Request, body: GroupIn, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    try:
+        group_id = create_group(user_id, body.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "id": group_id}
+
+
+@router.patch("/api/config/groups/{group_id}")
+async def rename_config_group(request: Request, group_id: int, body: GroupIn, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    try:
+        ok = rename_group(user_id, group_id, body.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not ok:
+        raise HTTPException(status_code=404, detail="Group not found.")
     return {"ok": True}
 
 
-@router.delete("/api/config/group/{member_user_id}")
-async def remove_config_group_member(request: Request, member_user_id: str, cfg: Config = Depends(require_user)):
+@router.delete("/api/config/groups/{group_id}")
+async def delete_config_group(request: Request, group_id: int, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
-    remove_group_member(user_id, member_user_id)
+    if not delete_group(user_id, group_id):
+        raise HTTPException(status_code=404, detail="Group not found.")
+    return {"ok": True}
+
+
+@router.post("/api/config/groups/{group_id}/members")
+async def add_config_group_member(request: Request, group_id: int, body: GroupMemberIn, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    if not add_group_member(user_id, group_id, body.member_user_id):
+        raise HTTPException(status_code=404, detail="Group not found.")
+    return {"ok": True}
+
+
+@router.delete("/api/config/groups/{group_id}/members/{member_user_id}")
+async def remove_config_group_member(request: Request, group_id: int, member_user_id: str, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    remove_group_member(user_id, group_id, member_user_id)
     return {"ok": True}

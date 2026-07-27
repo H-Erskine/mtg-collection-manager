@@ -486,13 +486,23 @@ def test_directory_lists_all_registered_users_without_collection_data(tmp_path, 
     assert all("cards" not in p and "quantity" not in p for p in people)
 
 
-def test_directory_requires_auth(tmp_path, monkeypatch):
+def test_directory_hides_private_users_from_non_admins(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
-    response = client.get("/api/users/directory", follow_redirects=False)
-    assert response.status_code in (302, 307)
+    from api.users import ensure_user, set_privacy
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    set_privacy("google:bob@example.com", True)
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.get("/api/users/directory")
+
+    people_ids = {p["user_id"] for p in response.json()["people"]}
+    assert "google:bob@example.com" not in people_ids
 
 
-def test_add_group_member_route(tmp_path, monkeypatch):
+def test_directory_excludes_caller_themself(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     from api.users import ensure_user
     ensure_user("google:alice@example.com")
@@ -501,40 +511,148 @@ def test_add_group_member_route(tmp_path, monkeypatch):
     with client as c:
         with c.session_transaction() as session:
             session["user_id"] = "google:alice@example.com"
-        response = c.post("/api/config/group", json={"member_user_id": "google:bob@example.com"})
+        response = c.get("/api/users/directory")
 
-    assert response.status_code == 200
-    from api.users import list_group_members
-    assert list_group_members("google:alice@example.com")[0]["user_id"] == "google:bob@example.com"
+    people_ids = {p["user_id"] for p in response.json()["people"]}
+    assert "google:alice@example.com" not in people_ids
+    assert "google:bob@example.com" in people_ids
 
 
-def test_remove_group_member_route(tmp_path, monkeypatch):
+def test_directory_requires_auth(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
-    from api.users import add_group_member, ensure_user
+    response = client.get("/api/users/directory", follow_redirects=False)
+    assert response.status_code in (302, 307)
+
+
+def test_create_group_route(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user
     ensure_user("google:alice@example.com")
-    ensure_user("google:bob@example.com")
-    add_group_member("google:alice@example.com", "google:bob@example.com")
 
     with client as c:
         with c.session_transaction() as session:
             session["user_id"] = "google:alice@example.com"
-        response = c.delete("/api/config/group/google:bob@example.com")
+        response = c.post("/api/config/groups", json={"name": "Cube Night"})
+
+    assert response.status_code == 200
+    from api.users import list_groups
+    assert list_groups("google:alice@example.com")[0]["name"] == "Cube Night"
+
+
+def test_rename_group_route(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import create_group, ensure_user
+    ensure_user("google:alice@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.patch(f"/api/config/groups/{group_id}", json={"name": "Legacy Cube"})
+
+    assert response.status_code == 200
+    from api.users import list_groups
+    assert list_groups("google:alice@example.com")[0]["name"] == "Legacy Cube"
+
+
+def test_delete_group_route(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import create_group, ensure_user
+    ensure_user("google:alice@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.delete(f"/api/config/groups/{group_id}")
+
+    assert response.status_code == 200
+    from api.users import list_groups
+    assert list_groups("google:alice@example.com") == []
+
+
+def test_add_group_member_route(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import create_group, ensure_user
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.post(f"/api/config/groups/{group_id}/members", json={"member_user_id": "google:bob@example.com"})
 
     assert response.status_code == 200
     from api.users import list_group_members
-    assert list_group_members("google:alice@example.com") == []
+    assert list_group_members(group_id)[0]["user_id"] == "google:bob@example.com"
 
 
-def test_get_config_includes_group(tmp_path, monkeypatch):
+def test_add_group_member_route_rejects_group_not_owned_by_caller(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
-    from api.users import add_group_member, ensure_user
+    from api.users import create_group, ensure_user
     ensure_user("google:alice@example.com")
     ensure_user("google:bob@example.com")
-    add_group_member("google:alice@example.com", "google:bob@example.com")
+    ensure_user("google:mallory@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:mallory@example.com"
+        response = c.post(f"/api/config/groups/{group_id}/members", json={"member_user_id": "google:bob@example.com"})
+
+    assert response.status_code == 404
+
+
+def test_remove_group_member_route(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import add_group_member, create_group, ensure_user
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.delete(f"/api/config/groups/{group_id}/members/google:bob@example.com")
+
+    assert response.status_code == 200
+    from api.users import list_group_members
+    assert list_group_members(group_id) == []
+
+
+def test_get_config_includes_groups(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import add_group_member, create_group, ensure_user
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
 
     with client as c:
         with c.session_transaction() as session:
             session["user_id"] = "google:alice@example.com"
         response = c.get("/api/config")
 
-    assert response.json()["group"] == [{"user_id": "google:bob@example.com", "display_name": "google:bob@example.com", "icon": "🂠"}]
+    groups = response.json()["groups"]
+    assert groups == [{
+        "id": group_id,
+        "name": "Cube Night",
+        "members": [{"user_id": "google:bob@example.com", "display_name": "google:bob@example.com", "icon": "🂠"}],
+    }]
+
+
+def test_set_and_get_privacy(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    from api.users import ensure_user
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.post("/api/config/privacy", json={"is_private": True})
+        assert response.status_code == 200
+        config_response = c.get("/api/config")
+
+    assert config_response.json()["is_private"] is True

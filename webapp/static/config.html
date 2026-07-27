@@ -75,6 +75,11 @@
     <input type="hidden" id="profile-icon">
     <button class="btn" onclick="saveProfile()">Save</button>
     <div id="profile-msg" class="msg"></div>
+    <div class="checkbox-row" style="margin-top:14px">
+      <input type="checkbox" id="profile-private" onchange="savePrivacy()">
+      <label style="margin:0" for="profile-private">Private account (hide me from the directory and combined collection/for-sale views)</label>
+    </div>
+    <div id="privacy-msg" class="msg"></div>
   </section>
 
   <section>
@@ -89,10 +94,17 @@
   </section>
 
   <section>
-    <h2>My Group</h2>
-    <p class="muted">Add friends/teammates you want "can my group complete this?" checks to include. This is private to you — adding someone doesn't change what they can see.</p>
-    <div id="group-list"></div>
-    <input id="group-search" placeholder="Search by name or email" oninput="searchDirectory()">
+    <h2>My Groups</h2>
+    <p class="muted">Organise friends/teammates into groups (e.g. "Cube Night", "Commander Pod") for "can my group complete this?" checks and combined collection views. This is private to you — adding someone doesn't change what they can see.</p>
+    <div id="groups-list"></div>
+    <div class="inline-form" style="margin-top:12px">
+      <div style="flex:1"><label>New group name</label><input id="new-group-name" placeholder="e.g. Cube Night"></div>
+      <button class="btn" onclick="createGroup()">Create group</button>
+    </div>
+    <div id="group-msg" class="msg"></div>
+
+    <label style="margin-top:16px">All users</label>
+    <input id="group-search" placeholder="Filter by name or email" oninput="renderDirectory()">
     <div id="group-search-results"></div>
   </section>
 
@@ -158,11 +170,14 @@ async function loadConfig() {
   const data = await res.json();
 
   renderPackages(data.packages);
-  renderGroup(data.group);
+  currentGroups = data.groups;
+  renderGroups(data.groups);
+  renderDirectory();
   document.getElementById('formats-input').value = data.formats.join(',');
   document.getElementById('sort-select').value = data.pick_list_sort;
   document.getElementById('profile-name').value = data.display_name || '';
   document.getElementById('profile-icon').value = data.icon || '';
+  document.getElementById('profile-private').checked = !!data.is_private;
   renderIconPalette(data.icon || '');
 
   if (data.is_admin) {
@@ -220,62 +235,165 @@ async function removePackage(color_group) {
   }
 }
 
-function renderGroup(group) {
-  const list = document.getElementById('group-list');
+let currentGroups = [];
+
+function renderGroups(groups) {
+  const list = document.getElementById('groups-list');
   list.innerHTML = '';
-  if (!group.length) {
-    list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No group members yet.</p>';
+  if (!groups.length) {
+    list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No groups yet — create one below.</p>';
     return;
   }
-  for (const member of group) {
-    const row = document.createElement('div');
-    row.className = 'row';
-    const label = document.createElement('span');
-    label.textContent = `${member.icon} ${member.display_name}`;
-    row.appendChild(label);
-    const btn = document.createElement('button');
-    btn.className = 'btn-secondary';
-    btn.textContent = 'Remove';
-    btn.onclick = () => removeGroupMember(member.user_id);
-    row.appendChild(btn);
-    list.appendChild(row);
+  for (const group of groups) {
+    const box = document.createElement('div');
+    box.style.cssText = 'border:1px solid var(--surface2);border-radius:var(--radius);padding:10px;margin-bottom:10px';
+
+    const header = document.createElement('div');
+    header.className = 'row';
+    header.style.borderBottom = 'none';
+    const title = document.createElement('span');
+    title.style.fontWeight = '600';
+    title.textContent = group.name;
+    header.appendChild(title);
+
+    const btns = document.createElement('span');
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'btn-secondary';
+    renameBtn.textContent = 'Rename';
+    renameBtn.style.marginRight = '6px';
+    renameBtn.onclick = () => renameGroupPrompt(group.id, group.name);
+    btns.appendChild(renameBtn);
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-secondary';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.onclick = () => deleteGroup(group.id);
+    btns.appendChild(deleteBtn);
+    header.appendChild(btns);
+    box.appendChild(header);
+
+    if (!group.members.length) {
+      const empty = document.createElement('p');
+      empty.style.cssText = 'color:var(--muted);font-size:0.85rem;margin:4px 0 0';
+      empty.textContent = 'No members yet.';
+      box.appendChild(empty);
+    }
+    for (const member of group.members) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const label = document.createElement('span');
+      label.textContent = `${member.icon} ${member.display_name}`;
+      row.appendChild(label);
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'btn-secondary';
+      removeBtn.textContent = 'Remove';
+      removeBtn.onclick = () => removeGroupMember(group.id, member.user_id);
+      row.appendChild(removeBtn);
+      box.appendChild(row);
+    }
+    list.appendChild(box);
   }
+}
+
+async function createGroup() {
+  const nameInput = document.getElementById('new-group-name');
+  const name = nameInput.value.trim();
+  const msg = document.getElementById('group-msg');
+  if (!name) return;
+  const res = await fetch('/api/config/groups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  msg.textContent = res.ok ? 'Group created.' : 'Failed to create group.';
+  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+  if (res.ok) {
+    nameInput.value = '';
+    loadConfig();
+  }
+}
+
+async function renameGroupPrompt(groupId, currentName) {
+  const name = prompt('Rename group', currentName);
+  if (!name || !name.trim() || name.trim() === currentName) return;
+  await fetch(`/api/config/groups/${groupId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name.trim() }),
+  });
+  loadConfig();
+}
+
+async function deleteGroup(groupId) {
+  if (!confirm('Delete this group? This only removes the group, not the members\' accounts.')) return;
+  await fetch(`/api/config/groups/${groupId}`, { method: 'DELETE' });
+  loadConfig();
+}
+
+async function removeGroupMember(groupId, memberUserId) {
+  await fetch(`/api/config/groups/${groupId}/members/${encodeURIComponent(memberUserId)}`, { method: 'DELETE' });
+  loadConfig();
 }
 
 let directoryCache = null;
 
-async function searchDirectory() {
+async function renderDirectory() {
   const query = document.getElementById('group-search').value.trim().toLowerCase();
   const resultsEl = document.getElementById('group-search-results');
-  if (!query) { resultsEl.innerHTML = ''; return; }
 
   if (!directoryCache) {
     const res = await fetch('/api/users/directory');
     directoryCache = (await res.json()).people;
   }
 
-  const matches = directoryCache.filter(p =>
-    p.display_name.toLowerCase().includes(query) || p.user_id.toLowerCase().includes(query)
-  );
+  const people = query
+    ? directoryCache.filter(p => p.display_name.toLowerCase().includes(query) || p.user_id.toLowerCase().includes(query))
+    : directoryCache;
 
   resultsEl.innerHTML = '';
-  for (const person of matches) {
+  if (!people.length) {
+    resultsEl.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No users found.</p>';
+    return;
+  }
+  for (const person of people) {
     const row = document.createElement('div');
     row.className = 'row';
     const label = document.createElement('span');
     label.textContent = `${person.icon} ${person.display_name}`;
     row.appendChild(label);
-    const btn = document.createElement('button');
-    btn.className = 'btn-secondary';
-    btn.textContent = 'Add';
-    btn.onclick = () => addGroupMember(person.user_id);
-    row.appendChild(btn);
+
+    const controls = document.createElement('span');
+    controls.style.display = 'flex';
+    controls.style.gap = '6px';
+
+    if (currentGroups.length) {
+      const select = document.createElement('select');
+      select.style.cssText = 'width:auto;margin-bottom:0;padding:4px 8px';
+      for (const group of currentGroups) {
+        const opt = document.createElement('option');
+        opt.value = group.id;
+        opt.textContent = group.name;
+        select.appendChild(opt);
+      }
+      controls.appendChild(select);
+      const addBtn = document.createElement('button');
+      addBtn.className = 'btn-secondary';
+      addBtn.textContent = 'Add';
+      addBtn.onclick = () => addGroupMember(select.value, person.user_id);
+      controls.appendChild(addBtn);
+    } else {
+      const hint = document.createElement('span');
+      hint.style.cssText = 'color:var(--muted);font-size:0.8rem';
+      hint.textContent = 'Create a group first';
+      controls.appendChild(hint);
+    }
+
+    row.appendChild(controls);
     resultsEl.appendChild(row);
   }
 }
 
-async function addGroupMember(memberUserId) {
-  await fetch('/api/config/group', {
+async function addGroupMember(groupId, memberUserId) {
+  await fetch(`/api/config/groups/${groupId}/members`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ member_user_id: memberUserId }),
@@ -283,9 +401,16 @@ async function addGroupMember(memberUserId) {
   loadConfig();
 }
 
-async function removeGroupMember(memberUserId) {
-  await fetch(`/api/config/group/${encodeURIComponent(memberUserId)}`, { method: 'DELETE' });
-  loadConfig();
+async function savePrivacy() {
+  const is_private = document.getElementById('profile-private').checked;
+  const res = await fetch('/api/config/privacy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_private }),
+  });
+  const msg = document.getElementById('privacy-msg');
+  msg.textContent = res.ok ? 'Saved.' : 'Failed to save.';
+  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
 }
 
 async function uploadManaboxCsv() {

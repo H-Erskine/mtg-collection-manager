@@ -240,11 +240,12 @@ def test_api_collection_group_requires_auth(tmp_path, monkeypatch):
 
 def test_api_collection_group_scoped_to_caller_and_group_members(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
-    from api.users import add_group_member, ensure_user
+    from api.users import add_group_member, create_group, ensure_user
     ensure_user("google:alice@example.com")
     ensure_user("google:bob@example.com")
     ensure_user("google:carol@example.com")  # not in alice's group
-    add_group_member("google:alice@example.com", "google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
 
     with client as c:
         with c.session_transaction() as session:
@@ -421,14 +422,15 @@ def test_image_route_requests_are_not_logged(tmp_path, monkeypatch):
 
 def test_group_check_reports_which_members_own_missing_cards(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
-    from api.users import add_group_member, ensure_user, get_user_config, set_profile
+    from api.users import add_group_member, create_group, ensure_user, get_user_config, set_profile
     from mtg_manager.db import get_conn, upsert_cards
     from mtg_manager.models import OwnedCard
 
     ensure_user("google:alice@example.com")
     ensure_user("google:bob@example.com")
     set_profile("google:bob@example.com", "Bob", "🐉")
-    add_group_member("google:alice@example.com", "google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
 
     bob_cfg = get_user_config("google:bob@example.com")
     with get_conn(bob_cfg.db_path) as conn:
@@ -437,7 +439,7 @@ def test_group_check_reports_which_members_own_missing_cards(tmp_path, monkeypat
     with client as c:
         with c.session_transaction() as session:
             session["user_id"] = "google:alice@example.com"
-        response = c.post("/api/collection/group-check", json={"cards": [{"name": "Brainstorm", "quantity": 1}]})
+        response = c.post("/api/collection/group-check", json={"cards": [{"name": "Brainstorm", "quantity": 1}], "group_id": group_id})
 
     assert response.status_code == 200
     ownership = response.json()["ownership"]
@@ -446,15 +448,16 @@ def test_group_check_reports_which_members_own_missing_cards(tmp_path, monkeypat
 
 def test_group_check_omits_cards_no_group_member_owns(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
-    from api.users import add_group_member, ensure_user
+    from api.users import add_group_member, create_group, ensure_user
     ensure_user("google:alice@example.com")
     ensure_user("google:bob@example.com")
-    add_group_member("google:alice@example.com", "google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
 
     with client as c:
         with c.session_transaction() as session:
             session["user_id"] = "google:alice@example.com"
-        response = c.post("/api/collection/group-check", json={"cards": [{"name": "Nonexistent Card", "quantity": 1}]})
+        response = c.post("/api/collection/group-check", json={"cards": [{"name": "Nonexistent Card", "quantity": 1}], "group_id": group_id})
 
     assert response.status_code == 200
     assert response.json()["ownership"] == {}
@@ -462,7 +465,7 @@ def test_group_check_omits_cards_no_group_member_owns(tmp_path, monkeypatch):
 
 def test_group_check_requires_auth(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
-    response = client.post("/api/collection/group-check", json={"cards": []}, follow_redirects=False)
+    response = client.post("/api/collection/group-check", json={"cards": [], "group_id": 1}, follow_redirects=False)
     assert response.status_code in (302, 307)
 
 

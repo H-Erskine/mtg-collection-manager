@@ -41,10 +41,13 @@ def require_user_or_owner(request: Request) -> Config:
     return cfg
 
 
+def is_admin_user(user_id: str) -> bool:
+    return user_id.startswith("google:") and is_whitelist_admin(user_id.split(":", 1)[1])
+
+
 def require_admin(request: Request) -> Config:
     cfg = require_user(request)
     user_id = request.session["user_id"]
-    is_admin = user_id.startswith("google:") and is_whitelist_admin(user_id.split(":", 1)[1])
-    if not is_admin:
+    if not is_admin_user(user_id):
         raise HTTPException(status_code=403, detail="Admin access required")
     return cfg

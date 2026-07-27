@@ -3,9 +3,16 @@
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from api.users import get_user_config, list_group_members, list_profiles, _display_profile
+from api.users import (
+    all_group_member_ids,
+    get_profiles_by_ids,
+    get_user_config,
+    group_owner,
+    list_group_members,
+    list_profiles,
+)
 from mtg_manager.config import Config
-from mtg_manager.db import get_card_printing, get_conn, get_meta_decks, get_owned_quantity
+from mtg_manager.db import get_conn, get_meta_decks, get_owned_quantity
 from web.export import get_collection_data, get_decks_data, get_sale_data
 
 
@@ -36,13 +43,13 @@ def get_sale(cfg: Config) -> dict:
     }
 
 
-def get_all_sale() -> dict:
+def get_all_sale(viewer_is_admin: bool = False) -> dict:
     """Combined multi-person for-sale/extras/wants view: every registered user's
     cards in each bucket, tagged with their owner identity. A user whose config
     can't be resolved (or whose DB can't be read) is skipped rather than failing
-    the whole request.
+    the whole request. Private accounts are omitted unless the viewer is an admin.
     """
-    people = list_profiles()
+    people = list_profiles(viewer_is_admin)
     for_sale: list[dict] = []
     extras: list[dict] = []
     wants: list[dict] = []
@@ -75,12 +82,13 @@ def get_all_sale() -> dict:
     }
 
 
-def get_all_collections() -> dict:
+def get_all_collections(viewer_is_admin: bool = False) -> dict:
     """Combined multi-person collection view: every registered user's cards,
     tagged with their owner identity. A user whose config can't be resolved
     (or whose DB can't be read) is skipped rather than failing the whole request.
+    Private accounts are omitted unless the viewer is an admin.
     """
-    people = list_profiles()
+    people = list_profiles(viewer_is_admin)
     cards: list[dict] = []
 
     for person in people:
@@ -118,10 +126,11 @@ def get_meta(cfg: Config) -> dict:
     solely on get_owned_quantity's double-faced-name handling. Porting the
     old _normalize/normalized_owned machinery is a deliberate scope gap,
     deferred to a later task.
-    Each card includes set_code/collector_number (from the user's own best
-    owned printing, via get_card_printing) so the frontend can render card
-    art the same way the Collection/Decks tabs do; both are None when the
-    card isn't owned at all (nothing to look a printing up from)."""
+    set_code/collector_number are always None here -- exact owned printing
+    isn't looked up (that's a second full-table-scan query per card, and
+    doubled this endpoint's DB cost). The frontend falls back to fetching
+    art by name from Scryfall's /cards/named endpoint when both are None,
+    same as it does for any other card without a known printing."""
     format_results = []
     with get_conn(cfg.db_path) as conn:
         for fmt in cfg.formats:
@@ -141,13 +150,12 @@ def get_meta(cfg: Config) -> dict:
                 for name, qty in card_totals.items():
                     owned = get_owned_quantity(conn, name)
                     owned_slots += min(owned, qty)
-                    printing = get_card_printing(conn, name)
                     cards.append({
                         "name": name,
                         "quantity": qty,
                         "owned": owned,
-                        "set_code": printing[0] if printing else None,
-                        "collector_number": printing[1] if printing else None,
+                        "set_code": None,
+                        "collector_number": None,
                     })
 
                 cards.sort(key=lambda c: (c["owned"] >= c["quantity"], c["name"]))
@@ -171,10 +179,13 @@ def get_meta(cfg: Config) -> dict:
     return {"formats": format_results}
 
 
-def get_group_ownership(user_id: str, card_needs: list[dict]) -> dict[str, list[dict]]:
-    """For each {"name","quantity"} need, return which of the caller's group
-    members (never the caller themself) own at least 1 copy, and how many."""
-    members = list_group_members(user_id)
+def get_group_ownership(user_id: str, card_needs: list[dict], group_id: int) -> dict[str, list[dict]]:
+    """For each {"name","quantity"} need, return which members of the caller's
+    chosen group (never the caller themself) own at least 1 copy, and how many.
+    Returns empty results if group_id doesn't belong to user_id."""
+    if group_owner(group_id) != user_id:
+        return {}
+    members = list_group_members(group_id)
     result: dict[str, list[dict]] = {}
 
     for person in members:
@@ -199,12 +210,12 @@ def get_group_ownership(user_id: str, card_needs: list[dict]) -> dict[str, list[
 
 
 def get_group_collections(user_id: str) -> dict:
-    """Combined collection view scoped to the caller plus their personal group,
-    instead of every registered user (see get_all_collections). Same
-    skip-on-failure resilience: a member whose config/DB can't be read is
-    dropped rather than failing the whole request."""
-    member_ids = {user_id} | {m["user_id"] for m in list_group_members(user_id)}
-    people = [_display_profile(p) for p in list_profiles() if p["user_id"] in member_ids]
+    """Combined collection view scoped to the caller plus the union of members
+    across all of their groups, instead of every registered user (see
+    get_all_collections). Same skip-on-failure resilience: a member whose
+    config/DB can't be read is dropped rather than failing the whole request."""
+    member_ids = {user_id} | all_group_member_ids(user_id)
+    people = get_profiles_by_ids(member_ids)
     cards: list[dict] = []
 
     for person in people:

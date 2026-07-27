@@ -497,76 +497,179 @@ def test_seconds_since_last_auto_sync_unknown_user_returns_none():
 
 
 def test_add_group_member_then_list_group_members():
-    from api.users import add_group_member, ensure_user, list_group_members
+    from api.users import add_group_member, create_group, ensure_user, list_group_members
 
     ensure_user("google:alice@example.com")
     ensure_user("google:bob@example.com")
-    add_group_member("google:alice@example.com", "google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
 
-    members = list_group_members("google:alice@example.com")
+    members = list_group_members(group_id)
 
     assert members == [{"user_id": "google:bob@example.com", "display_name": "google:bob@example.com", "icon": "🂠"}]
 
 
 def test_list_group_members_uses_display_name_and_icon_when_set():
-    from api.users import add_group_member, ensure_user, list_group_members, set_profile
+    from api.users import add_group_member, create_group, ensure_user, list_group_members, set_profile
 
     ensure_user("google:alice@example.com")
     ensure_user("google:bob@example.com")
     set_profile("google:bob@example.com", "Bob", "🐉")
-    add_group_member("google:alice@example.com", "google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
 
-    members = list_group_members("google:alice@example.com")
+    members = list_group_members(group_id)
 
     assert members == [{"user_id": "google:bob@example.com", "display_name": "Bob", "icon": "🐉"}]
 
 
-def test_list_group_members_empty_when_no_group():
-    from api.users import ensure_user, list_group_members
+def test_list_groups_empty_when_none_created():
+    from api.users import ensure_user, list_groups
 
     ensure_user("google:alice@example.com")
 
-    assert list_group_members("google:alice@example.com") == []
+    assert list_groups("google:alice@example.com") == []
 
 
 def test_add_group_member_is_one_directional():
-    from api.users import add_group_member, ensure_user, list_group_members
+    from api.users import add_group_member, create_group, ensure_user, list_groups
 
     ensure_user("google:alice@example.com")
     ensure_user("google:bob@example.com")
-    add_group_member("google:alice@example.com", "google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
 
-    assert list_group_members("google:bob@example.com") == []
+    assert list_groups("google:bob@example.com") == []
 
 
 def test_remove_group_member_returns_true_when_removed():
-    from api.users import add_group_member, ensure_user, remove_group_member
+    from api.users import add_group_member, create_group, ensure_user, list_group_members, remove_group_member
 
     ensure_user("google:alice@example.com")
     ensure_user("google:bob@example.com")
-    add_group_member("google:alice@example.com", "google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
 
-    removed = remove_group_member("google:alice@example.com", "google:bob@example.com")
+    removed = remove_group_member("google:alice@example.com", group_id, "google:bob@example.com")
 
     assert removed is True
-    from api.users import list_group_members
-    assert list_group_members("google:alice@example.com") == []
+    assert list_group_members(group_id) == []
 
 
 def test_remove_group_member_returns_false_when_not_present():
-    from api.users import ensure_user, remove_group_member
+    from api.users import create_group, ensure_user, remove_group_member
 
     ensure_user("google:alice@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
 
-    assert remove_group_member("google:alice@example.com", "google:nobody@example.com") is False
+    assert remove_group_member("google:alice@example.com", group_id, "google:nobody@example.com") is False
 
 
 def test_add_group_member_twice_is_idempotent():
-    from api.users import add_group_member, ensure_user, list_group_members
+    from api.users import add_group_member, create_group, ensure_user, list_group_members
 
     ensure_user("google:alice@example.com")
     ensure_user("google:bob@example.com")
-    add_group_member("google:alice@example.com", "google:bob@example.com")
-    add_group_member("google:alice@example.com", "google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
 
-    assert len(list_group_members("google:alice@example.com")) == 1
+    assert len(list_group_members(group_id)) == 1
+
+
+def test_add_group_member_rejects_group_not_owned_by_caller():
+    from api.users import add_group_member, create_group, ensure_user, list_group_members
+
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    ensure_user("google:mallory@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+
+    ok = add_group_member("google:mallory@example.com", group_id, "google:bob@example.com")
+
+    assert ok is False
+    assert list_group_members(group_id) == []
+
+
+def test_create_multiple_groups_for_same_owner():
+    from api.users import create_group, ensure_user, list_groups
+
+    ensure_user("google:alice@example.com")
+    create_group("google:alice@example.com", "Cube Night")
+    create_group("google:alice@example.com", "Commander Pod")
+
+    names = {g["name"] for g in list_groups("google:alice@example.com")}
+    assert names == {"Cube Night", "Commander Pod"}
+
+
+def test_rename_group():
+    from api.users import create_group, ensure_user, list_groups, rename_group
+
+    ensure_user("google:alice@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+
+    assert rename_group("google:alice@example.com", group_id, "Legacy Cube") is True
+    assert list_groups("google:alice@example.com")[0]["name"] == "Legacy Cube"
+
+
+def test_rename_group_rejects_non_owner():
+    from api.users import create_group, ensure_user, rename_group
+
+    ensure_user("google:alice@example.com")
+    ensure_user("google:mallory@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+
+    assert rename_group("google:mallory@example.com", group_id, "Hacked") is False
+
+
+def test_delete_group_cascades_members():
+    from api.users import add_group_member, create_group, delete_group, ensure_user, list_group_members
+
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    group_id = create_group("google:alice@example.com", "Cube Night")
+    add_group_member("google:alice@example.com", group_id, "google:bob@example.com")
+
+    assert delete_group("google:alice@example.com", group_id) is True
+    assert list_group_members(group_id) == []
+
+
+def test_all_group_member_ids_unions_across_groups():
+    from api.users import add_group_member, all_group_member_ids, create_group, ensure_user
+
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    ensure_user("google:carol@example.com")
+    g1 = create_group("google:alice@example.com", "Cube Night")
+    g2 = create_group("google:alice@example.com", "Commander Pod")
+    add_group_member("google:alice@example.com", g1, "google:bob@example.com")
+    add_group_member("google:alice@example.com", g2, "google:carol@example.com")
+
+    assert all_group_member_ids("google:alice@example.com") == {
+        "google:bob@example.com",
+        "google:carol@example.com",
+    }
+
+
+def test_privacy_defaults_to_public_and_can_be_set():
+    from api.users import ensure_user, is_private, set_privacy
+
+    ensure_user("google:alice@example.com")
+    assert is_private("google:alice@example.com") is False
+
+    set_privacy("google:alice@example.com", True)
+    assert is_private("google:alice@example.com") is True
+
+
+def test_list_profiles_hides_private_users_unless_viewer_is_admin():
+    from api.users import ensure_user, list_profiles, set_privacy
+
+    ensure_user("google:alice@example.com")
+    ensure_user("google:bob@example.com")
+    set_privacy("google:bob@example.com", True)
+
+    public_ids = {p["user_id"] for p in list_profiles()}
+    admin_ids = {p["user_id"] for p in list_profiles(viewer_is_admin=True)}
+
+    assert public_ids == {"google:alice@example.com"}
+    assert admin_ids == {"google:alice@example.com", "google:bob@example.com"}

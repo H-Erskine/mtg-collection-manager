@@ -18,7 +18,7 @@ from webapp.admin import router as admin_router
 from webapp.auth import router as auth_router
 from webapp.config import router as config_router
 from webapp.data import get_all_collections, get_all_sale, get_collection, get_decks, get_group_collections, get_group_ownership, get_meta, get_sale
-from webapp.deps import NotAuthenticated, require_admin, require_user, require_user_or_owner
+from webapp.deps import NotAuthenticated, is_admin_user, require_admin, require_user, require_user_or_owner
 from webapp.images import router as images_router
 
 
@@ -29,6 +29,7 @@ class CardNeed(BaseModel):
 
 class GroupCheckIn(BaseModel):
     cards: list[CardNeed]
+    group_id: int
 
 app = FastAPI()
 app.add_middleware(
@@ -83,7 +84,7 @@ async def api_meta(cfg: Config = Depends(require_user)):
 
 @app.get("/api/collection/all")
 async def api_collection_all(cfg: Config = Depends(require_admin)):
-    return get_all_collections()
+    return get_all_collections(viewer_is_admin=True)
 
 
 @app.get("/api/collection/group")
@@ -95,7 +96,7 @@ async def api_collection_group(request: Request, cfg: Config = Depends(require_u
 async def api_collection_group_check(request: Request, body: GroupCheckIn, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     card_needs = [{"name": c.name, "quantity": c.quantity} for c in body.cards]
-    return {"ownership": get_group_ownership(user_id, card_needs)}
+    return {"ownership": get_group_ownership(user_id, card_needs, body.group_id)}
 
 
 @app.get("/api/sale")
@@ -104,8 +105,9 @@ async def api_sale(cfg: Config = Depends(require_user_or_owner)):
 
 
 @app.get("/api/sale/all")
-async def api_sale_all(cfg: Config = Depends(require_user)):
-    return get_all_sale()
+async def api_sale_all(request: Request, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    return get_all_sale(viewer_is_admin=is_admin_user(user_id))
 
 
 @app.get("/api/whoami")
