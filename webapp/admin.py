@@ -86,7 +86,7 @@ async def get_user_detail(user_id: str, cfg: Config = Depends(require_admin)):
 
 
 @router.post("/api/admin/users/{user_id}/sync")
-async def admin_sync_user(user_id: str, cfg: Config = Depends(require_admin)):
+def admin_sync_user(user_id: str, cfg: Config = Depends(require_admin)):
     if not is_registered(user_id):
         raise HTTPException(status_code=404, detail="User not found")
     target_cfg = get_user_config(user_id)
