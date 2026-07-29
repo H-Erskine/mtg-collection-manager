@@ -576,6 +576,24 @@ function makeGroupedCardTile(group) {
   return el;
 }
 
+function togglePrintings(group, groupEl, btn) {
+  const existing = groupEl.nextElementSibling;
+  if (existing && existing.classList.contains('mtg-card-printings-row')) {
+    existing.remove();
+    btn.textContent = `▼ ${group.printings.length} printings`;
+    return;
+  }
+
+  const row = document.createElement('div');
+  row.className = 'mtg-card-printings-row';
+  for (const p of group.printings) {
+    const status = `${p.set_code} #${p.collector_number}${p.foil ? ' · ✦ Foil' : ''} · ×${p.quantity}`;
+    row.appendChild(makeCard(p.name, p.set_code, p.collector_number, null, '', null, status));
+  }
+  groupEl.after(row);
+  btn.textContent = '▲ Hide';
+}
+
 function setGroup(el) {
   document.querySelectorAll('#collection-stats .count-cell').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
