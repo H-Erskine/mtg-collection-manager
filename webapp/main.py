@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import RedirectResponse
@@ -17,7 +18,7 @@ from mtg_manager.config import Config
 from webapp.admin import router as admin_router
 from webapp.auth import router as auth_router
 from webapp.config import router as config_router
-from webapp.data import get_all_collections, get_all_sale, get_collection, get_decks, get_group_collections, get_group_ownership, get_meta, get_sale
+from webapp.data import get_all_collections, get_all_sale, get_collection, get_decks, get_group_collections, get_group_ownership, get_meta, get_sale, pick_art_card
 from webapp.deps import NotAuthenticated, is_admin_user, require_admin, require_user, require_user_or_owner
 from webapp.images import router as images_router
 
@@ -55,6 +56,7 @@ async def _log_requests(request: Request, call_next):
 
 
 _STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static/assets", StaticFiles(directory=_STATIC_DIR / "assets"), name="static")
 
 
 @app.exception_handler(NotAuthenticated)
@@ -80,6 +82,15 @@ async def api_decks(cfg: Config = Depends(require_user)):
 @app.get("/api/meta")
 async def api_meta(cfg: Config = Depends(require_user)):
     return get_meta(cfg)
+
+
+class ArtPickIn(BaseModel):
+    names: list[str]
+
+
+@app.post("/api/meta/art-pick")
+async def api_meta_art_pick(body: ArtPickIn, cfg: Config = Depends(require_user)):
+    return await pick_art_card(body.names)
 
 
 @app.get("/api/collection/all")

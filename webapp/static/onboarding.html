@@ -4,48 +4,25 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MTG Collection — Welcome</title>
+<link rel="stylesheet" href="/static/assets/modernist.css">
 <style>
-  :root {
-    --bg: #1a1a2e;
-    --surface: #16213e;
-    --surface2: #0f3460;
-    --accent: #e94560;
-    --text: #eaeaea;
-    --muted: #888;
-    --green: #4caf50;
-    --red: #e94560;
-    --gold: #f0c040;
-    --radius: 8px;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
-
-  .page { padding: 40px 24px; max-width: 640px; margin: 0 auto; }
-  .welcome { text-align: center; margin-bottom: 24px; }
-  .welcome h1 { color: var(--gold); font-size: 1.4rem; margin-bottom: 6px; }
-  .welcome p { color: var(--muted); font-size: 0.9rem; }
-  section { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
-  h2 { font-size: 1rem; color: var(--gold); margin-bottom: 14px; }
-  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
-  input { background: var(--bg); border: 1px solid var(--surface2); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 0.9rem; margin-bottom: 10px; width: 100%; }
-  input:focus { outline: none; border-color: var(--accent); }
-  .btn { padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-  .btn:hover { background: #c73652; }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-secondary { padding: 8px 16px; background: var(--surface2); color: var(--text); border: none; border-radius: var(--radius); font-size: 0.85rem; cursor: pointer; }
-  .btn-link { background: none; border: none; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 0.85rem; }
-  .btn-link:hover { color: var(--text); }
-  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--surface2); }
+  .page { padding: 40px var(--space-6); max-width: 640px; margin: 0 auto; }
+  .welcome { margin-bottom: var(--space-6); }
+  .welcome h1 { font-size: 20px; margin-bottom: var(--space-1); }
+  .welcome p { color: color-mix(in srgb, var(--color-text) 55%, transparent); font-size: 13px; }
+  h2 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent-700); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-divider); }
+  label { display: block; font-size: 13px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-bottom: 4px; }
+  .row { display: flex; gap: var(--space-2); align-items: center; justify-content: space-between; padding: var(--space-2) 0; border-bottom: 1px solid var(--color-divider); }
   .row:last-child { border-bottom: none; }
-  .msg { font-size: 0.85rem; margin-top: 8px; }
-  .msg.ok { color: var(--green); }
-  .msg.err { color: var(--red); }
-  .inline-form { display: flex; gap: 8px; align-items: flex-end; }
+  .msg { font-size: 13px; margin-top: var(--space-2); }
+  .msg.ok { color: var(--color-text); }
+  .msg.err { color: var(--color-accent-700); }
+  .inline-form { display: flex; gap: var(--space-2); align-items: flex-end; }
   .inline-form input { margin-bottom: 0; }
-  .icon-palette { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-  .icon-option { font-size: 1.3rem; padding: 6px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--surface2); cursor: pointer; }
-  .icon-option:hover { background: var(--surface2); }
-  .icon-option.selected { border-color: var(--accent); background: var(--surface2); }
+  .icon-palette { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .icon-option { font-size: 20px; padding: 6px 10px; border: 1px solid var(--color-divider); cursor: pointer; }
+  .icon-option:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+  .icon-option.selected { border-color: var(--color-accent); background: var(--color-accent-100); }
   .finish-row { display: flex; justify-content: flex-end; }
 </style>
 </head>
@@ -57,28 +34,28 @@
     <p>Let's get your profile set up.</p>
   </div>
 
-  <section>
+  <div class="flush-section">
     <h2>Profile</h2>
     <label>Display name</label>
-    <input id="profile-name" placeholder="e.g. Alice">
+    <input class="input" id="profile-name" placeholder="e.g. Alice">
     <label>Icon</label>
     <div id="profile-icon-palette" class="icon-palette"></div>
     <input type="hidden" id="profile-icon">
-  </section>
+  </div>
 
-  <section>
-    <h2>Moxfield Package <span style="color:var(--muted);font-weight:normal">(optional — you can add this later in Config)</span></h2>
+  <div class="flush-section">
+    <h2>Moxfield Package <span style="color:color-mix(in srgb, var(--color-text) 55%, transparent);font-weight:normal">(optional — you can add this later in Config)</span></h2>
     <div id="packages-list"></div>
     <div class="inline-form" style="margin-top:12px">
-      <div style="flex:1"><label>Color group</label><input id="pkg-color" placeholder="e.g. Red"></div>
-      <div style="flex:1"><label>Moxfield deck</label><input id="pkg-id" placeholder="Paste a moxfield.com/decks/... URL or just the slug"></div>
-      <button class="btn-secondary" onclick="addPackage()">Add</button>
+      <div style="flex:1"><label>Color group</label><input class="input" id="pkg-color" placeholder="e.g. Red"></div>
+      <div style="flex:1"><label>Moxfield deck</label><input class="input" id="pkg-id" placeholder="Paste a moxfield.com/decks/... URL or just the slug"></div>
+      <button class="btn btn-secondary" onclick="addPackage()">Add</button>
     </div>
     <div id="pkg-msg" class="msg"></div>
-  </section>
+  </div>
 
   <div class="finish-row">
-    <button class="btn" id="finish-btn" onclick="finishOnboarding()" disabled>Finish</button>
+    <button class="btn btn-primary" id="finish-btn" onclick="finishOnboarding()" disabled>Finish</button>
   </div>
   <div id="finish-msg" class="msg"></div>
 </div>
@@ -115,7 +92,7 @@ function renderPackages() {
   const list = document.getElementById('packages-list');
   list.innerHTML = '';
   if (!packages.length) {
-    list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No packages yet.</p>';
+    list.innerHTML = '<p style="color:color-mix(in srgb, var(--color-text) 55%, transparent);font-size:13px">No packages yet.</p>';
     return;
   }
   for (const p of packages) {

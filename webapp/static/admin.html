@@ -4,59 +4,28 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MTG Collection — Admin</title>
+<link rel="stylesheet" href="/static/assets/modernist.css">
 <style>
-  :root {
-    --bg: #1a1a2e;
-    --surface: #16213e;
-    --surface2: #0f3460;
-    --accent: #e94560;
-    --text: #eaeaea;
-    --muted: #888;
-    --green: #4caf50;
-    --red: #e94560;
-    --gold: #f0c040;
-    --radius: 8px;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
 
-  nav { background: var(--surface); border-bottom: 2px solid var(--surface2); padding: 0 24px; display: flex; align-items: center; gap: 0; }
-  .nav-brand { font-weight: 700; font-size: 1.1rem; color: var(--gold); padding: 16px 24px 16px 0; border-right: 1px solid var(--surface2); margin-right: 8px; }
-  .nav-link { padding: 16px 20px; color: var(--muted); text-decoration: none; font-size: 0.95rem; }
-  .nav-link:hover { color: var(--text); }
-  .nav-meta { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
-  .nav-logout { color: var(--text); text-decoration: underline; cursor: pointer; margin-left: 8px; }
-  .nav-logout:hover { color: var(--accent); }
-
-  .page { padding: 24px; max-width: 1000px; margin: 0 auto; }
-  section { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
-  h2 { font-size: 1rem; color: var(--gold); margin-bottom: 14px; }
-  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
-  input { background: var(--bg); border: 1px solid var(--surface2); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 0.9rem; margin-bottom: 10px; width: 100%; }
-  .btn { padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-  .btn:hover { background: #c73652; }
-  .btn-secondary { padding: 6px 12px; background: var(--surface2); color: var(--text); border: none; border-radius: var(--radius); font-size: 0.82rem; cursor: pointer; }
-  .btn-toggle { padding: 6px 12px; background: var(--bg); color: var(--muted); border: 1px solid var(--surface2); border-radius: var(--radius); font-size: 0.82rem; cursor: pointer; }
-  .btn-toggle.active { color: var(--text); border-color: var(--accent); }
-  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--surface2); }
+  .page { padding: var(--space-6); max-width: 1000px; margin: 0 auto; }
+  h2 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent-700); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-divider); }
+  label { display: block; font-size: 13px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-bottom: 4px; }
+  .row { display: flex; gap: var(--space-2); align-items: center; justify-content: space-between; padding: var(--space-2) 0; border-bottom: 1px solid var(--color-divider); }
   .row:last-child { border-bottom: none; }
-  .msg { font-size: 0.85rem; margin-top: 8px; }
-  .msg.ok { color: var(--green); }
-  .msg.err { color: var(--red); }
-  .inline-form { display: flex; gap: 8px; align-items: flex-end; }
+  .msg { font-size: 13px; margin-top: var(--space-2); }
+  .msg.ok { color: var(--color-text); }
+  .msg.err { color: var(--color-accent-700); }
+  .inline-form { display: flex; gap: var(--space-2); align-items: flex-end; }
   .inline-form input { margin-bottom: 0; }
-  .checkbox-row { display: flex; align-items: center; gap: 6px; }
+  .checkbox-row { display: flex; align-items: center; gap: var(--space-2); }
   .checkbox-row input { width: auto; margin-bottom: 0; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--surface2); }
-  th { color: var(--muted); font-weight: 600; }
-  .empty { color: var(--muted); font-size: 0.85rem; }
+  .empty { color: color-mix(in srgb, var(--color-text) 55%, transparent); font-size: 13px; }
 </style>
 </head>
 <body>
 
-<nav>
-  <div class="nav-brand">⚔ MTG Collection</div>
+<nav class="nav">
+  <div class="nav-brand">MTG Collection</div>
   <a class="nav-link" href="/app#collection">Collection</a>
   <a class="nav-link" href="/app#decks">Decks</a>
   <a class="nav-link" href="/app#missing">Missing</a>
@@ -66,44 +35,44 @@
 </nav>
 
 <div class="page">
-  <section>
+  <div class="flush-section">
     <h2>Users</h2>
-    <table id="users-table">
+    <table class="table" id="users-table">
       <thead><tr><th>Email</th><th>Admin</th><th>Last seen</th><th>Last synced</th></tr></thead>
       <tbody></tbody>
     </table>
-  </section>
+  </div>
 
-  <section>
+  <div class="flush-section">
     <h2>Whitelist</h2>
     <div id="whitelist-list"></div>
     <div class="inline-form" style="margin-top:12px">
-      <div style="flex:1"><label>Email</label><input id="wl-email" placeholder="someone@example.com"></div>
+      <div style="flex:1"><label>Email</label><input class="input" id="wl-email" placeholder="someone@example.com"></div>
       <div class="checkbox-row"><input type="checkbox" id="wl-admin"><label style="margin:0">Admin</label></div>
-      <button class="btn" onclick="addWhitelist()">Add</button>
+      <button class="btn btn-primary" onclick="addWhitelist()">Add</button>
     </div>
     <div id="wl-msg" class="msg"></div>
-  </section>
+  </div>
 
-  <section>
+  <div class="flush-section">
     <h2>Failed logins</h2>
-    <table id="failed-logins-table">
+    <table class="table" id="failed-logins-table">
       <thead><tr><th>Time</th><th>Email</th><th>Reason</th></tr></thead>
       <tbody></tbody>
     </table>
-  </section>
+  </div>
 
-  <section>
+  <div class="flush-section">
     <h2>Activity</h2>
-    <div style="margin-bottom:10px">
-      <button class="btn-toggle active" id="activity-toggle" onclick="setActivityFilter('activity')">Activity</button>
-      <button class="btn-toggle" id="actions-toggle" onclick="setActivityFilter('actions')">Actions</button>
+    <div class="seg" style="margin-bottom:var(--space-3)">
+      <button class="seg-opt active" id="activity-toggle" onclick="setActivityFilter('activity')">Activity</button>
+      <button class="seg-opt" id="actions-toggle" onclick="setActivityFilter('actions')">Actions</button>
     </div>
-    <table id="activity-table">
+    <table class="table" id="activity-table">
       <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Status</th></tr></thead>
       <tbody></tbody>
     </table>
-  </section>
+  </div>
 </div>
 
 <script>
@@ -223,7 +192,7 @@ async function loadWhitelist() {
     label.textContent = row.email + (row.is_admin ? ' (admin)' : '');
     el.appendChild(label);
     const btn = document.createElement('button');
-    btn.className = 'btn-secondary';
+    btn.className = 'btn btn-secondary';
     btn.textContent = 'Remove';
     btn.onclick = () => removeWhitelistedUser(row.email);
     el.appendChild(btn);

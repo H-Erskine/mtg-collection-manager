@@ -3,6 +3,8 @@
 from collections import defaultdict
 from datetime import datetime, timezone
 
+import httpx
+
 from api.users import (
     all_group_member_ids,
     get_profiles_by_ids,
@@ -177,6 +179,44 @@ def get_meta(cfg: Config) -> dict:
             format_results.append({"format": fmt, "decks": decks})
 
     return {"formats": format_results}
+
+
+async def pick_art_card(names: list[str]) -> dict:
+    """Given a decklist's card names, ask Scryfall's batch collection endpoint
+    for type_line/cmc, and pick the highest-CMC non-land creature or
+    planeswalker to represent the deck in the Meta art bar. Returns
+    {"name": None, ...} if no such card is found (e.g. a land-only deck)."""
+    if not names:
+        return {"name": None, "set_code": None, "collector_number": None}
+
+    identifiers = [{"name": name} for name in names[:75]]
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.scryfall.com/cards/collection",
+                json={"identifiers": identifiers},
+                headers={"User-Agent": "mtg-manager/1.0 (personal collection site)"},
+            )
+    except httpx.HTTPError:
+        return {"name": None, "set_code": None, "collector_number": None}
+    if resp.status_code != 200:
+        return {"name": None, "set_code": None, "collector_number": None}
+
+    data = resp.json().get("data", [])
+    candidates = [
+        c for c in data
+        if "Land" not in c.get("type_line", "")
+        and ("Creature" in c.get("type_line", "") or "Planeswalker" in c.get("type_line", ""))
+    ]
+    if not candidates:
+        return {"name": None, "set_code": None, "collector_number": None}
+
+    best = max(candidates, key=lambda c: c.get("cmc", 0))
+    return {
+        "name": best["name"],
+        "set_code": best.get("set"),
+        "collector_number": best.get("collector_number"),
+    }
 
 
 def get_group_ownership(user_id: str, card_needs: list[dict], group_id: int) -> dict[str, list[dict]]:

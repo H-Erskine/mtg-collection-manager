@@ -21,3 +21,6 @@ mtg = "mtg_manager.cli:cli"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["mtg_manager*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

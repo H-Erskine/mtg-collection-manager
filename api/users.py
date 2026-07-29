@@ -158,6 +158,18 @@ def _migrate_privacy_column(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE users ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0")
 
 
+def _migrate_cardmarket_column(conn: sqlite3.Connection) -> None:
+    """One-time addition of the cardmarket_url column for pre-existing registries."""
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "users" not in tables:
+        return
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "cardmarket_url" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN cardmarket_url TEXT")
+
+
 def _migrate_named_groups(conn: sqlite3.Connection) -> None:
     """One-time migration from the old single-flat-group schema (user_groups)
     to named groups (friend_groups / friend_group_members). Each owner's
@@ -204,6 +216,7 @@ def _registry_conn():
         _migrate_onboarding_column(conn)
         _migrate_auto_sync_column(conn)
         _migrate_privacy_column(conn)
+        _migrate_cardmarket_column(conn)
         _migrate_named_groups(conn)
         yield conn
         conn.commit()
@@ -680,6 +693,22 @@ def is_private(user_id: str) -> bool:
             "SELECT is_private FROM users WHERE user_id = ?", (user_id,)
         ).fetchone()
         return bool(row and row["is_private"])
+
+
+def set_cardmarket_url(user_id: str, url: str) -> None:
+    with _registry_conn() as conn:
+        conn.execute(
+            "UPDATE users SET cardmarket_url = ? WHERE user_id = ?",
+            (url.strip(), user_id),
+        )
+
+
+def get_cardmarket_url(user_id: str) -> str | None:
+    with _registry_conn() as conn:
+        row = conn.execute(
+            "SELECT cardmarket_url FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return row["cardmarket_url"] if row and row["cardmarket_url"] else None
 
 
 def list_profiles(viewer_is_admin: bool = False) -> list[dict]:
