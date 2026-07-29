@@ -10,6 +10,7 @@ from api.users import (
     add_package,
     create_group,
     delete_group,
+    get_cardmarket_url,
     get_profiles_by_ids,
     is_owner,
     is_private,
@@ -24,6 +25,7 @@ from api.users import (
     remove_package,
     rename_group,
     seconds_since_last_auto_sync,
+    set_cardmarket_url,
     set_formats,
     set_privacy,
     set_profile,
@@ -63,6 +65,10 @@ class ProfileIn(BaseModel):
 
 class PrivacyIn(BaseModel):
     is_private: bool
+
+
+class CardmarketIn(BaseModel):
+    cardmarket_url: str
 
 
 class GroupIn(BaseModel):
@@ -107,6 +113,7 @@ async def get_config(request: Request, cfg: Config = Depends(require_user)):
         "display_name": profile["display_name"],
         "icon": profile["icon"],
         "is_private": is_private(user_id),
+        "cardmarket_url": get_cardmarket_url(user_id),
         "groups": list_groups(user_id),
     }
 
@@ -177,6 +184,13 @@ async def set_config_profile(request: Request, body: ProfileIn, cfg: Config = De
 async def set_config_privacy(request: Request, body: PrivacyIn, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     set_privacy(user_id, body.is_private)
+    return {"ok": True}
+
+
+@router.post("/api/config/cardmarket")
+async def set_config_cardmarket(request: Request, body: CardmarketIn, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    set_cardmarket_url(user_id, body.cardmarket_url)
     return {"ok": True}
 
 

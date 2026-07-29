@@ -685,6 +685,21 @@ def test_privacy_defaults_to_public_and_can_be_set():
     assert is_private("google:alice@example.com") is True
 
 
+def test_cardmarket_url_defaults_to_none():
+    from api.users import ensure_user, get_cardmarket_url
+
+    ensure_user("user1")
+    assert get_cardmarket_url("user1") is None
+
+
+def test_set_and_get_cardmarket_url():
+    from api.users import ensure_user, get_cardmarket_url, set_cardmarket_url
+
+    ensure_user("user1")
+    set_cardmarket_url("user1", "https://www.cardmarket.com/en/Magic/Users/example")
+    assert get_cardmarket_url("user1") == "https://www.cardmarket.com/en/Magic/Users/example"
+
+
 def test_list_profiles_hides_private_users_unless_viewer_is_admin():
     from api.users import ensure_user, list_profiles, set_privacy
 
