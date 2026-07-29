@@ -456,7 +456,7 @@ function namedImgUrl(name) {
   return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=normal`;
 }
 
-function makeCard(name, set_code, collector_number, badgeText, badgeCls, overlayText) {
+function makeCard(name, set_code, collector_number, badgeText, badgeCls, overlayText, statusText) {
   const wrap = document.createElement('div');
   wrap.className = 'mtg-card';
 
@@ -495,10 +495,19 @@ function makeCard(name, set_code, collector_number, badgeText, badgeCls, overlay
     b.textContent = badgeText;
     frame.appendChild(b);
   }
-  const nameStrip = document.createElement('div');
-  nameStrip.className = 'mtg-card-name';
-  nameStrip.textContent = name;
-  frame.appendChild(nameStrip);
+  const plate = document.createElement('div');
+  plate.className = 'mtg-card-plate';
+  const plateName = document.createElement('div');
+  plateName.className = 'mtg-card-plate-name';
+  plateName.textContent = name;
+  plate.appendChild(plateName);
+  if (statusText) {
+    const plateStatus = document.createElement('div');
+    plateStatus.className = 'mtg-card-plate-status';
+    plateStatus.textContent = statusText;
+    plate.appendChild(plateStatus);
+  }
+  frame.appendChild(plate);
 
   wrap.appendChild(frame);
 
