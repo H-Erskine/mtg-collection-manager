@@ -509,12 +509,12 @@ function makeCard(name, set_code, collector_number, badgeText, badgeCls, overlay
     b.textContent = badgeText;
     frame.appendChild(b);
   }
-  wrap.appendChild(frame);
-
   const nameStrip = document.createElement('div');
   nameStrip.className = 'mtg-card-name';
   nameStrip.textContent = name;
-  wrap.appendChild(nameStrip);
+  frame.appendChild(nameStrip);
+
+  wrap.appendChild(frame);
 
   return wrap;
 }
@@ -546,7 +546,7 @@ function renderCollection(cards) {
       fill.className = 'mtg-card-deckbar-fill';
       fill.style.width = `${pct}%`;
       track.appendChild(fill);
-      el.insertBefore(track, el.querySelector('.mtg-card-name'));
+      el.appendChild(track);
 
       const label = document.createElement('div');
       label.className = 'mtg-card-deck-label';
