@@ -521,37 +521,59 @@ function renderCollection(cards) {
   document.getElementById('collection-content').style.display = 'block';
   const grid = document.getElementById('collection-grid');
   grid.innerHTML = '';
-  cards.forEach(c => {
-    const badge = c.foil ? `✦ ×${c.quantity}` : `×${c.quantity}`;
-    const el = makeCard(c.name, c.set_code, c.collector_number, badge, c.foil ? 'foil' : '', null);
-    if (c.owner_icon) {
-      const ownerBadge = document.createElement('div');
-      ownerBadge.className = 'mtg-card-owner';
-      ownerBadge.textContent = c.owner_icon;
-      el.querySelector('.mtg-card-frame').appendChild(ownerBadge);
+  for (const group of groupCollectionCards(cards)) {
+    grid.appendChild(makeGroupedCardTile(group));
+  }
+}
+
+function groupCollectionCards(cards) {
+  const byKey = new Map();
+  for (const c of cards) {
+    const key = c.name.toLowerCase() + '|' + (c.owner_user_id || '');
+    if (!byKey.has(key)) {
+      byKey.set(key, { name: c.name, owner_icon: c.owner_icon, quantity: 0, printings: [] });
     }
-    const entries = allocatedCards[c.name.toLowerCase()];
-    if (entries) {
-      const inDeckQty = entries.reduce((s, e) => s + e.quantity, 0);
-      const pct = Math.min(100, Math.round((inDeckQty / c.quantity) * 100));
+    const group = byKey.get(key);
+    group.quantity += c.quantity;
+    group.printings.push(c);
+  }
+  return Array.from(byKey.values());
+}
 
-      const track = document.createElement('div');
-      track.className = 'mtg-card-deckbar-track';
-      const fill = document.createElement('div');
-      fill.className = 'mtg-card-deckbar-fill';
-      fill.style.width = `${pct}%`;
-      track.appendChild(fill);
-      el.appendChild(track);
+function makeGroupedCardTile(group) {
+  const primary = group.printings[Math.floor(Math.random() * group.printings.length)];
+  const entries = allocatedCards[group.name.toLowerCase()];
+  let statusText;
+  let title = null;
+  if (entries) {
+    const inDeckQty = Math.min(entries.reduce((s, e) => s + e.quantity, 0), group.quantity);
+    statusText = `${inDeckQty}/${group.quantity} in deck`;
+    title = 'In deck: ' + entries.map(e => `${e.deckName} (×${e.quantity})`).join(', ');
+  } else {
+    statusText = `${group.quantity} owned`;
+  }
 
-      const label = document.createElement('div');
-      label.className = 'mtg-card-deck-label';
-      label.textContent = `${Math.min(inDeckQty, c.quantity)}/${c.quantity} in deck`;
-      el.appendChild(label);
+  const el = makeCard(group.name, primary.set_code, primary.collector_number, null, '', null, statusText);
+  if (title) el.title = title;
 
-      el.title = 'In deck: ' + entries.map(e => `${e.deckName} (×${e.quantity})`).join(', ');
-    }
-    grid.appendChild(el);
-  });
+  if (group.owner_icon) {
+    const ownerBadge = document.createElement('div');
+    ownerBadge.className = 'mtg-card-owner';
+    ownerBadge.textContent = group.owner_icon;
+    el.querySelector('.mtg-card-frame').appendChild(ownerBadge);
+  }
+
+  if (group.printings.length > 1) {
+    el.classList.add('stacked');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mtg-card-printings-btn';
+    btn.textContent = `▼ ${group.printings.length} printings`;
+    btn.onclick = (e) => { e.stopPropagation(); togglePrintings(group, el, btn); };
+    el.querySelector('.mtg-card-frame').appendChild(btn);
+  }
+
+  return el;
 }
 
 function setGroup(el) {
