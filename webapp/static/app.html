@@ -17,26 +17,18 @@
   .page.active { display: block; }
 
   /* COLLECTION */
-  .collection-header { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
-  .search { background: var(--surface); border: 1px solid var(--surface2); color: var(--text); padding: 8px 14px; border-radius: var(--radius); font-size: 0.9rem; width: 180px; flex-shrink: 0; }
-  .search:focus { outline: none; border-color: var(--accent); }
-  .stat { margin-left: auto; font-size: 0.85rem; color: var(--muted); }
-
-  .card-grid { display: flex; flex-wrap: wrap; gap: 10px; }
-  .mtg-card { position: relative; width: 130px; flex-shrink: 0; }
-  .mtg-card img { width: 130px; height: 181px; border-radius: 6px; display: block; object-fit: cover; }
-  .card-fallback { width: 130px; height: 181px; border-radius: 6px; background: var(--surface); border: 1px solid var(--surface2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
-  .card-fallback span { font-size: 0.65rem; color: var(--muted); text-align: center; padding: 0 6px; }
-  .badge { position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.85); color: var(--gold); font-size: 0.7rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
-  .badge.foil { background: linear-gradient(135deg, #b8860b, #daa520); color: #1a1a1a; }
-  .badge.green { color: var(--green); }
-  .overlay { position: absolute; inset: 0; border-radius: 6px; background: rgba(233,69,96,0.55); display: flex; align-items: center; justify-content: center; }
-  .overlay span { background: var(--red); color: white; font-size: 0.65rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.5px; }
-  .mtg-card.in-deck img,
-  .mtg-card.in-deck .card-fallback { box-shadow: var(--deck-glow); }
+  .collection-header { display: flex; flex-direction: column; }
+  .search-row { border-top: 2px solid var(--color-divider); padding: var(--space-2) 0; }
+  .counts-row { display: flex; border-bottom: 1px solid var(--color-divider); padding-bottom: var(--space-3); margin-bottom: var(--space-4); }
+  .count-cell { flex: 1; text-align: center; padding: 0 var(--space-2); border-left: 1px solid var(--color-divider); cursor: pointer; }
+  .count-cell:first-child { border-left: none; }
+  .count-num { font-family: var(--font-heading); font-weight: 800; font-size: 28px; line-height: 1; color: var(--color-text); }
+  .count-num.accent { color: var(--color-accent); }
+  .count-label { font-size: 11px; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-top: var(--space-1); }
+  .count-cell.active .count-num { color: var(--color-accent); }
 
   /* COLLECTION BODY */
-  #collection-body { display: flex; gap: 16px; align-items: flex-start; }
+  #collection-body { display: flex; gap: var(--space-4); align-items: flex-start; }
   #collection-grid-wrap { flex: 1; min-width: 0; }
 
   /* STATS BANNER */
@@ -60,7 +52,7 @@
   #sale-grid-wrap { flex: 1; min-width: 0; }
 
   /* PEOPLE SIDEBAR */
-  #people-sidebar, #sale-people-sidebar { width: 180px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 14px; }
+  #sale-people-sidebar { width: 180px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 14px; }
   .people-title { font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
   .person-tile { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; font-size: 0.85rem; }
   .person-tile:hover { background: var(--surface2); }
@@ -155,14 +147,12 @@
 <div id="page-collection" class="page active">
   <div class="loading" id="collection-loading">Loading collection…</div>
   <div id="collection-content" style="display:none">
-    <div class="collection-header">
-      <input class="search" id="col-search" placeholder="Search cards…" oninput="filterCollection()">
-      <div id="collection-stats" class="stats-banner"></div>
-      <div class="stat" id="col-stat"></div>
+    <div class="search-row">
+      <input class="input" id="col-search" placeholder="Search cards…" oninput="filterCollection()">
     </div>
+    <div class="counts-row" id="collection-stats"></div>
     <div id="collection-body">
-      <div id="people-sidebar">
-        <div class="people-title">View</div>
+      <div class="link-rail" id="people-sidebar">
         <div id="people-list"></div>
       </div>
       <div id="collection-grid-wrap">
@@ -349,28 +339,23 @@ function buildStatsBanner() {
   const banner = document.getElementById('collection-stats');
   banner.innerHTML = '';
 
-  function makeTile(dataGroup, icon, iconColor, count, numColor, bg, border, label, isActive) {
-    const tile = document.createElement('div');
-    tile.className = 'stat-tile' + (isActive ? ' active' : '');
-    tile.dataset.group = dataGroup;
-    tile.style.cssText = `background:${bg};border-color:${border}`;
-    const iconStyle = iconColor ? ` style="color:${iconColor}"` : '';
-    tile.innerHTML = `
-      <div class="stat-tile-icon"${iconStyle}>${icon}</div>
-      <div class="stat-tile-count" style="color:${numColor}">${count}</div>
-      <div class="stat-tile-label">${label}</div>`;
-    tile.onclick = () => setGroup(tile);
-    return tile;
+  function makeCell(dataGroup, count, label, accent, isActive) {
+    const cell = document.createElement('div');
+    cell.className = 'count-cell' + (isActive ? ' active' : '');
+    cell.dataset.group = dataGroup;
+    cell.innerHTML = `
+      <div class="count-num${accent ? ' accent' : ''}">${count}</div>
+      <div class="count-label">${label}</div>`;
+    cell.onclick = () => setGroup(cell);
+    return cell;
   }
 
-  banner.appendChild(makeTile('all', '✦', '#aaaaaa', totalQty, 'var(--text)', '#141420', '#28283e', 'All', activeGroup === 'all'));
-
+  banner.appendChild(makeCell('all', totalQty, 'All', true, activeGroup === 'all'));
   for (const t of COLOUR_TILES) {
     const qty = counts[t.group] || 0;
-    banner.appendChild(makeTile(t.group.toLowerCase(), t.icon, t.iconColor, qty, t.numColor, t.bg, t.border, t.label, activeGroup === t.group.toLowerCase()));
+    banner.appendChild(makeCell(t.group.toLowerCase(), qty, t.label, false, activeGroup === t.group.toLowerCase()));
   }
-
-  banner.appendChild(makeTile('in-deck', '🃏', null, inDeckQty, '#a88be0', '#1e1428', '#3e2a48', 'In Deck', activeGroup === 'in-deck'));
+  banner.appendChild(makeCell('in-deck', inDeckQty, 'In Deck', true, activeGroup === 'in-deck'));
 }
 
 // ─── Data loading ───────────────────────────────────────────────────────────
@@ -499,6 +484,9 @@ function makeCard(name, set_code, collector_number, badgeText, badgeCls, overlay
   const wrap = document.createElement('div');
   wrap.className = 'mtg-card';
 
+  const frame = document.createElement('div');
+  frame.className = 'mtg-card-frame';
+
   const hasSetCn = set_code && collector_number;
   const src = hasSetCn ? scryfallImgUrl(set_code, collector_number) : namedImgUrl(name);
   const img = document.createElement('img');
@@ -512,25 +500,32 @@ function makeCard(name, set_code, collector_number, badgeText, badgeCls, overlay
     } else {
       img.remove();
       const fb = document.createElement('div');
-      fb.className = 'card-fallback';
-      fb.innerHTML = `<span style="font-size:1.5rem">🃏</span><span>${name}</span>`;
-      wrap.prepend(fb);
+      fb.className = 'mtg-card-fallback';
+      fb.textContent = name;
+      frame.appendChild(fb);
     }
   };
-  wrap.appendChild(img);
+  frame.appendChild(img);
 
   if (overlayText) {
     const ov = document.createElement('div');
-    ov.className = 'overlay';
+    ov.className = 'mtg-card-overlay';
     ov.innerHTML = `<span>${overlayText}</span>`;
-    wrap.appendChild(ov);
+    frame.appendChild(ov);
   }
   if (badgeText) {
     const b = document.createElement('div');
-    b.className = `badge ${badgeCls || ''}`;
+    b.className = `mtg-card-badge ${badgeCls || ''}`;
     b.textContent = badgeText;
-    wrap.appendChild(b);
+    frame.appendChild(b);
   }
+  wrap.appendChild(frame);
+
+  const nameStrip = document.createElement('div');
+  nameStrip.className = 'mtg-card-name';
+  nameStrip.textContent = name;
+  wrap.appendChild(nameStrip);
+
   return wrap;
 }
 
@@ -546,36 +541,36 @@ function renderCollection(cards) {
     const el = makeCard(c.name, c.set_code, c.collector_number, badge, c.foil ? 'foil' : '', null);
     if (c.owner_icon) {
       const ownerBadge = document.createElement('div');
-      ownerBadge.className = 'owner-badge';
+      ownerBadge.className = 'mtg-card-owner';
       ownerBadge.textContent = c.owner_icon;
-      el.appendChild(ownerBadge);
+      el.querySelector('.mtg-card-frame').appendChild(ownerBadge);
     }
     const entries = allocatedCards[c.name.toLowerCase()];
     if (entries) {
-      el.classList.add('in-deck');
-      const shadows = [];
-      let spread = 2;
-      for (const e of entries) {
-        for (let i = 0; i < e.quantity; i++) {
-          shadows.push(`0 0 0 ${spread}px hsl(${e.color}, 75%, 65%)`);
-          spread += 2;
-          shadows.push(`0 0 0 ${spread}px #1a1a2e`);
-          spread += 2;
-        }
-      }
-      shadows.pop();
-      shadows.push(`0 0 12px hsla(${entries[entries.length - 1].color}, 75%, 65%, 0.35)`);
-      el.style.setProperty('--deck-glow', shadows.join(', '));
+      const inDeckQty = entries.reduce((s, e) => s + e.quantity, 0);
+      const pct = Math.min(100, Math.round((inDeckQty / c.quantity) * 100));
+
+      const track = document.createElement('div');
+      track.className = 'mtg-card-deckbar-track';
+      const fill = document.createElement('div');
+      fill.className = 'mtg-card-deckbar-fill';
+      fill.style.width = `${pct}%`;
+      track.appendChild(fill);
+      el.insertBefore(track, el.querySelector('.mtg-card-name'));
+
+      const label = document.createElement('div');
+      label.className = 'mtg-card-deck-label';
+      label.textContent = `${inDeckQty}/${c.quantity} in deck`;
+      el.appendChild(label);
+
       el.title = 'In deck: ' + entries.map(e => `${e.deckName} (×${e.quantity})`).join(', ');
     }
     grid.appendChild(el);
   });
-  document.getElementById('col-stat').textContent =
-    `${cards.reduce((s, c) => s + c.quantity, 0)} cards · ${cards.length} printings`;
 }
 
 function setGroup(el) {
-  document.querySelectorAll('#collection-stats .stat-tile').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('#collection-stats .count-cell').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   activeGroup = el.dataset.group;
   filterCollection();
@@ -607,27 +602,21 @@ function renderPeopleSidebar() {
   const list = document.getElementById('people-list');
   list.innerHTML = '';
 
-  function makeTile(scope, icon, label) {
-    const tile = document.createElement('div');
-    tile.className = 'person-tile' + (viewScope === scope ? ' active' : '');
-    const iconSpan = document.createElement('span');
-    iconSpan.className = 'person-icon';
-    iconSpan.textContent = icon;
-    const labelSpan = document.createElement('span');
-    labelSpan.textContent = label;
-    tile.append(iconSpan, labelSpan);
-    tile.onclick = () => setViewScope(scope);
-    return tile;
+  function makeItem(scope, label) {
+    const item = document.createElement('div');
+    item.className = 'link-rail-item' + (viewScope === scope ? ' active' : '');
+    item.textContent = label;
+    item.onclick = () => setViewScope(scope);
+    return item;
   }
 
-  list.appendChild(makeTile('me', '👤', 'Just Me'));
-  list.appendChild(makeTile('all', '✦', 'All'));
+  list.appendChild(makeItem('me', 'Just Me'));
+  list.appendChild(makeItem('all', 'All'));
 
   if (combinedData) {
     for (const p of combinedData.people) {
       const label = p.display_name || p.user_id;
-      const icon = p.icon || '🂠';
-      list.appendChild(makeTile(p.user_id, icon, label));
+      list.appendChild(makeItem(p.user_id, label));
     }
   }
 }
