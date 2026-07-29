@@ -41,24 +41,14 @@
   .stat-tile-label { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
 
   /* SALE */
-  .sale-section { margin-bottom: 36px; }
-  .sale-section-title { font-size: 0.75rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--surface2); }
-  .sale-header { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
-  .sale-toggle { display: flex; background: var(--surface); border: 1px solid var(--surface2); border-radius: 20px; padding: 2px; gap: 2px; flex-shrink: 0; }
-  .sale-toggle-btn { padding: 5px 14px; border-radius: 18px; font-size: 0.8rem; cursor: pointer; border: none; background: none; color: var(--muted); user-select: none; }
-  .sale-toggle-btn.active { background: var(--accent); color: white; }
-  .sale-disclaimer { font-size: 0.75rem; color: var(--muted); margin-bottom: 16px; font-style: italic; }
-  #sale-body { display: flex; gap: 16px; align-items: flex-start; }
+  .sale-section { margin-bottom: var(--space-8); }
+  .sale-section-title { font-family: var(--font-heading); font-weight: 800; font-size: 15px; color: var(--color-text); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-divider); }
+  .sale-header { display: flex; gap: var(--space-3); align-items: center; margin-bottom: var(--space-4); flex-wrap: wrap; }
+  .sale-disclaimer { font-size: 12px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-bottom: var(--space-4); font-style: italic; }
+  .cardmarket-link { margin-left: auto; font-size: 13px; color: var(--color-accent-700); text-decoration: none; }
+  .cardmarket-link:hover { text-decoration: underline; }
+  #sale-body { display: flex; gap: var(--space-4); align-items: flex-start; }
   #sale-grid-wrap { flex: 1; min-width: 0; }
-
-  /* PEOPLE SIDEBAR */
-  #sale-people-sidebar { width: 180px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 14px; }
-  .people-title { font-size: 0.75rem; font-weight: 700; color: var(--gold); margin-bottom: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
-  .person-tile { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; font-size: 0.85rem; }
-  .person-tile:hover { background: var(--surface2); }
-  .person-tile.active { background: var(--surface2); outline: 1px solid var(--accent); }
-  .person-icon { font-size: 1.1rem; }
-  .owner-badge { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.85); font-size: 0.9rem; border-radius: 4px; padding: 1px 4px; }
 
   /* DECKS */
   .box-section { margin-bottom: var(--space-8); }
@@ -227,16 +217,16 @@
   <div class="loading" id="sale-loading">Loading sale data…</div>
   <div id="sale-content" style="display:none">
     <div class="sale-header">
-      <div class="sale-toggle">
-        <button class="sale-toggle-btn active" onclick="setSaleView('for-sale', this)">For Sale</button>
-        <button class="sale-toggle-btn" onclick="setSaleView('wants', this)">Wants</button>
+      <div class="seg" id="sale-toggle">
+        <button class="seg-opt active" onclick="setSaleView('for-sale', this)">For Sale</button>
+        <button class="seg-opt" onclick="setSaleView('wants', this)">Wants</button>
       </div>
-      <input class="search" id="sale-search" placeholder="Search cards…" oninput="filterSale()">
-      <div id="sale-color-filter" class="stats-banner"></div>
+      <input class="input" style="width:auto;flex:1" id="sale-search" placeholder="Search cards…" oninput="filterSale()">
+      <a class="cardmarket-link" id="cardmarket-link" href="#" target="_blank" rel="noopener" style="display:none">CardMarket profile ↗</a>
     </div>
+    <div class="counts-row" id="sale-color-filter"></div>
     <div id="sale-body">
-      <div id="sale-people-sidebar">
-        <div class="people-title">View</div>
+      <div class="link-rail" id="sale-people-sidebar">
         <div id="sale-people-list"></div>
       </div>
       <div id="sale-grid-wrap">
@@ -245,24 +235,24 @@
           <div class="sale-section">
             <div class="sale-section-title">For Sale</div>
             <div class="card-grid" id="sale-forsale-grid"></div>
-            <p id="sale-forsale-empty" style="display:none;color:var(--muted);padding:20px 0">No cards listed for sale.</p>
+            <p id="sale-forsale-empty" style="display:none;color:color-mix(in srgb, var(--color-text) 55%, transparent);padding:20px 0">No cards listed for sale.</p>
           </div>
           <div class="sale-section">
             <div class="sale-section-title">Extras (own &gt;4 copies)</div>
             <div class="card-grid" id="sale-extras-grid"></div>
-            <p id="sale-extras-empty" style="display:none;color:var(--muted);padding:20px 0">No extras.</p>
+            <p id="sale-extras-empty" style="display:none;color:color-mix(in srgb, var(--color-text) 55%, transparent);padding:20px 0">No extras.</p>
           </div>
         </div>
         <div id="sale-view-wants" style="display:none">
           <div class="sale-section">
             <div class="sale-section-title">Wants — Specific Version</div>
             <div class="card-grid" id="wants-specific-grid"></div>
-            <p id="wants-specific-empty" style="display:none;color:var(--muted);padding:20px 0">No specific-version wants.</p>
+            <p id="wants-specific-empty" style="display:none;color:color-mix(in srgb, var(--color-text) 55%, transparent);padding:20px 0">No specific-version wants.</p>
           </div>
           <div class="sale-section">
             <div class="sale-section-title">Wants — Any Version</div>
             <div class="card-grid" id="wants-any-grid"></div>
-            <p id="wants-any-empty" style="display:none;color:var(--muted);padding:20px 0">No any-version wants.</p>
+            <p id="wants-any-empty" style="display:none;color:color-mix(in srgb, var(--color-text) 55%, transparent);padding:20px 0">No any-version wants.</p>
           </div>
         </div>
       </div>
@@ -403,8 +393,15 @@ async function init() {
     const colData = await colRes.json();
     const deckData = deckRes && deckRes.ok ? await deckRes.json() : { decks: [] };
     const saleData = saleRes.ok ? await saleRes.json() : { for_sale: [], extras: [], wants: [] };
-    myGroups = configRes && configRes.ok ? (await configRes.json()).groups : [];
+    const configData = configRes && configRes.ok ? await configRes.json() : null;
+    myGroups = configData ? configData.groups : [];
     populateGroupSelects();
+
+    const cardmarketLink = document.getElementById('cardmarket-link');
+    if (configData && configData.cardmarket_url) {
+      cardmarketLink.href = configData.cardmarket_url;
+      cardmarketLink.style.display = '';
+    }
 
     collectionCards = colData.cards;
 
@@ -724,29 +721,26 @@ function buildSaleFilterBanner() {
   for (const c of cards) counts[c.color_group] = (counts[c.color_group] || 0) + c.quantity;
   const totalQty = Object.values(counts).reduce((s, v) => s + v, 0);
 
-  function makeTile(dataGroup, icon, iconColor, count, numColor, bg, border, label, isActive) {
-    const tile = document.createElement('div');
-    tile.className = 'stat-tile' + (isActive ? ' active' : '');
-    tile.dataset.group = dataGroup;
-    tile.style.cssText = `background:${bg};border-color:${border}`;
-    const iconStyle = iconColor ? ` style="color:${iconColor}"` : '';
-    tile.innerHTML = `
-      <div class="stat-tile-icon"${iconStyle}>${icon}</div>
-      <div class="stat-tile-count" style="color:${numColor}">${count}</div>
-      <div class="stat-tile-label">${label}</div>`;
-    tile.onclick = () => setSaleGroup(tile);
-    return tile;
+  function makeCell(dataGroup, count, label, accent, isActive) {
+    const cell = document.createElement('div');
+    cell.className = 'count-cell' + (isActive ? ' active' : '');
+    cell.dataset.group = dataGroup;
+    cell.innerHTML = `
+      <div class="count-num${accent ? ' accent' : ''}">${count}</div>
+      <div class="count-label">${label}</div>`;
+    cell.onclick = () => setSaleGroup(cell);
+    return cell;
   }
 
-  container.appendChild(makeTile('all', '✦', '#aaaaaa', totalQty, 'var(--text)', '#141420', '#28283e', 'All', saleActiveGroup === 'all'));
+  container.appendChild(makeCell('all', totalQty, 'All', true, saleActiveGroup === 'all'));
   for (const t of COLOUR_TILES) {
     const qty = counts[t.group] || 0;
-    container.appendChild(makeTile(t.group.toLowerCase(), t.icon, t.iconColor, qty, t.numColor, t.bg, t.border, t.label, saleActiveGroup === t.group.toLowerCase()));
+    container.appendChild(makeCell(t.group.toLowerCase(), qty, t.label, false, saleActiveGroup === t.group.toLowerCase()));
   }
 }
 
 function setSaleGroup(el) {
-  document.querySelectorAll('#sale-color-filter .stat-tile').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('#sale-color-filter .count-cell').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   saleActiveGroup = el.dataset.group;
   filterSale();
@@ -754,7 +748,7 @@ function setSaleGroup(el) {
 
 function setSaleView(view, btnEl) {
   saleView = view;
-  document.querySelectorAll('.sale-toggle-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#sale-toggle .seg-opt').forEach(b => b.classList.remove('active'));
   btnEl.classList.add('active');
   document.getElementById('sale-view-forsale').style.display = view === 'for-sale' ? 'block' : 'none';
   document.getElementById('sale-view-wants').style.display = view === 'wants' ? 'block' : 'none';
@@ -767,27 +761,20 @@ function renderSalePeopleSidebar() {
   const list = document.getElementById('sale-people-list');
   list.innerHTML = '';
 
-  function makeTile(scope, icon, label) {
-    const tile = document.createElement('div');
-    tile.className = 'person-tile' + (saleViewScope === scope ? ' active' : '');
-    const iconSpan = document.createElement('span');
-    iconSpan.className = 'person-icon';
-    iconSpan.textContent = icon;
-    const labelSpan = document.createElement('span');
-    labelSpan.textContent = label;
-    tile.append(iconSpan, labelSpan);
-    tile.onclick = () => setSaleViewScope(scope);
-    return tile;
+  function makeItem(scope, label) {
+    const item = document.createElement('div');
+    item.className = 'link-rail-item' + (saleViewScope === scope ? ' active' : '');
+    item.textContent = label;
+    item.onclick = () => setSaleViewScope(scope);
+    return item;
   }
 
-  list.appendChild(makeTile('me', '👤', 'Just Me'));
-  list.appendChild(makeTile('all', '✦', 'All'));
+  list.appendChild(makeItem('me', 'Just Me'));
+  list.appendChild(makeItem('all', 'All'));
 
   if (combinedSaleData) {
     for (const p of combinedSaleData.people) {
-      const label = p.display_name || p.user_id;
-      const icon = p.icon || '🂠';
-      list.appendChild(makeTile(p.user_id, icon, label));
+      list.appendChild(makeItem(p.user_id, p.display_name));
     }
   }
 }
@@ -811,9 +798,9 @@ function makeSaleCard(c) {
   const el = makeCard(c.name, c.set_code, c.collector_number, badge, c.foil ? 'foil' : '', null);
   if (c.owner_icon) {
     const ownerBadge = document.createElement('div');
-    ownerBadge.className = 'owner-badge';
+    ownerBadge.className = 'mtg-card-owner';
     ownerBadge.textContent = c.owner_icon;
-    el.appendChild(ownerBadge);
+    el.querySelector('.mtg-card-frame').appendChild(ownerBadge);
   }
   return el;
 }
