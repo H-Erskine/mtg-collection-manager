@@ -105,10 +105,20 @@ textarea.input { min-height: 90px; resize: vertical; font-family: 'Courier New',
 .mtg-card-badge.foil { background: var(--color-accent); }
 .mtg-card-overlay { position: absolute; inset: 0; background: color-mix(in srgb, var(--color-accent) 55%, transparent); display: flex; align-items: center; justify-content: center; }
 .mtg-card-overlay span { background: var(--color-accent); color: #fff; font-size: 12px; font-weight: 700; padding: 3px 8px; }
-.mtg-card-name { position: absolute; left: 0; right: 0; bottom: 0; font-size: 13px; padding: 5px 6px; background: color-mix(in srgb, var(--color-text) 78%, transparent); color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mtg-card-plate { position: absolute; left: 0; right: 0; bottom: 0; background: var(--color-neutral-100); border-top: 3px solid var(--color-accent); padding: 6px 8px 7px; }
+.mtg-card-plate-name { font-size: 13px; font-weight: 700; line-height: 1.25; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mtg-card-plate-status { font-size: 12px; font-weight: 700; color: var(--color-accent-700); margin-top: 2px; }
 .mtg-card-owner { position: absolute; top: 6px; left: 6px; background: var(--color-text); color: #fff; font-size: 12px; padding: 2px 5px; }
 
-/* — in-deck proportion bar (replaces the old glow ring) — */
-.mtg-card-deckbar-track { height: 4px; background: var(--color-neutral-300); }
-.mtg-card-deckbar-fill { height: 4px; background: var(--color-accent); }
-.mtg-card-deck-label { font-size: 12px; color: var(--color-accent-700); padding: 3px 6px 0; }
+/* — multi-printing indicator (stacked edge + picker button) — */
+.mtg-card.stacked { position: relative; }
+.mtg-card.stacked::before,
+.mtg-card.stacked::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--color-divider); background: var(--color-neutral-300); z-index: -1; }
+.mtg-card.stacked::before { top: -3px; left: 3px; right: -3px; bottom: 3px; opacity: 0.55; }
+.mtg-card.stacked::after { top: -6px; left: 6px; right: -6px; bottom: 6px; opacity: 0.3; z-index: -2; }
+.mtg-card-printings-btn { position: absolute; top: 6px; right: 6px; z-index: 2; background: rgba(32,30,29,0.85); color: #fff; border: 0; font-family: inherit; font-size: 11px; font-weight: 700; padding: 3px 7px; cursor: pointer; letter-spacing: 0.02em; }
+.mtg-card-printings-btn:hover { background: var(--color-text); }
+.mtg-card-printings-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+
+/* — inline printings expansion row — */
+.mtg-card-printings-row { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--color-divider); }
