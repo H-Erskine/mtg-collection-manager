@@ -836,7 +836,7 @@ async function setSaleViewScope(scope) {
 }
 
 function makeSaleCard(c) {
-  const badge = c.price != null ? `£${c.price}` : `×${c.quantity}`;
+  const badge = `×${c.quantity}`;
   const el = makeCard(c.name, c.set_code, c.collector_number, badge, c.foil ? 'foil' : '', null);
   if (c.owner_icon) {
     const ownerBadge = document.createElement('div');
