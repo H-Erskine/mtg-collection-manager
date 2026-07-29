@@ -543,6 +543,7 @@ function groupCollectionCards(cards) {
 function makeGroupedCardTile(group) {
   const primary = group.printings[Math.floor(Math.random() * group.printings.length)];
   const entries = allocatedCards[group.name.toLowerCase()];
+  const allFoil = group.printings.every(p => p.foil);
   let statusText;
   let title = null;
   if (entries) {
@@ -552,6 +553,7 @@ function makeGroupedCardTile(group) {
   } else {
     statusText = `${group.quantity} owned`;
   }
+  if (allFoil) statusText += ' · ✦ Foil';
 
   const el = makeCard(group.name, primary.set_code, primary.collector_number, null, '', null, statusText);
   if (title) el.title = title;
@@ -565,10 +567,12 @@ function makeGroupedCardTile(group) {
 
   if (group.printings.length > 1) {
     el.classList.add('stacked');
+    const printingCount = new Set(group.printings.map(p => p.set_code + '|' + p.collector_number)).size;
+    group.printingCount = printingCount;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'mtg-card-printings-btn';
-    btn.textContent = `▼ ${group.printings.length} printings`;
+    btn.textContent = `▼ ${printingCount} printings`;
     btn.onclick = (e) => { e.stopPropagation(); togglePrintings(group, el, btn); };
     el.querySelector('.mtg-card-frame').appendChild(btn);
   }
@@ -577,10 +581,13 @@ function makeGroupedCardTile(group) {
 }
 
 function togglePrintings(group, groupEl, btn) {
+  const printingCount = group.printingCount != null
+    ? group.printingCount
+    : new Set(group.printings.map(p => p.set_code + '|' + p.collector_number)).size;
   const existing = groupEl.nextElementSibling;
   if (existing && existing.classList.contains('mtg-card-printings-row')) {
     existing.remove();
-    btn.textContent = `▼ ${group.printings.length} printings`;
+    btn.textContent = `▼ ${printingCount} printings`;
     return;
   }
 
