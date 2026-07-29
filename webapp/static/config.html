@@ -4,59 +4,40 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MTG Collection — Config</title>
+<link rel="stylesheet" href="/static/modernist.css">
 <style>
-  :root {
-    --bg: #1a1a2e;
-    --surface: #16213e;
-    --surface2: #0f3460;
-    --accent: #e94560;
-    --text: #eaeaea;
-    --muted: #888;
-    --green: #4caf50;
-    --red: #e94560;
-    --gold: #f0c040;
-    --radius: 8px;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+  .nav-link { padding: 0 var(--space-3); color: color-mix(in srgb, var(--color-text) 55%, transparent); text-decoration: none; font-size: 13px; height: 100%; display: flex; align-items: center; }
+  .nav-link:hover { color: var(--color-text); }
+  .nav-meta { margin-left: auto; font-size: 12px; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+  .nav-logout { color: var(--color-text); text-decoration: underline; cursor: pointer; margin-left: var(--space-2); }
+  .nav-logout:hover { color: var(--color-accent); }
 
-  nav { background: var(--surface); border-bottom: 2px solid var(--surface2); padding: 0 24px; display: flex; align-items: center; gap: 0; }
-  .nav-brand { font-weight: 700; font-size: 1.1rem; color: var(--gold); padding: 16px 24px 16px 0; border-right: 1px solid var(--surface2); margin-right: 8px; }
-  .nav-link { padding: 16px 20px; color: var(--muted); text-decoration: none; font-size: 0.95rem; }
-  .nav-link:hover { color: var(--text); }
-  .nav-meta { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
-  .nav-logout { color: var(--text); text-decoration: underline; cursor: pointer; margin-left: 8px; }
-  .nav-logout:hover { color: var(--accent); }
-
-  .page { padding: 24px; max-width: 800px; margin: 0 auto; }
-  section { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
-  h2 { font-size: 1rem; color: var(--gold); margin-bottom: 14px; }
-  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
-  input, select { background: var(--bg); border: 1px solid var(--surface2); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 0.9rem; margin-bottom: 10px; width: 100%; }
-  input:focus, select:focus { outline: none; border-color: var(--accent); }
-  .btn { padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-  .btn:hover { background: #c73652; }
-  .btn-secondary { padding: 6px 12px; background: var(--surface2); color: var(--text); border: none; border-radius: var(--radius); font-size: 0.82rem; cursor: pointer; }
-  .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--surface2); }
+  .page { padding: var(--space-6); max-width: 800px; margin: 0 auto; }
+  h2 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent-700); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-divider); }
+  label { display: block; font-size: 13px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-bottom: 4px; }
+  input, select { margin-bottom: var(--space-3); }
+  .row { display: flex; gap: var(--space-2); align-items: center; justify-content: space-between; padding: var(--space-2) 0; border-bottom: 1px solid var(--color-divider); }
   .row:last-child { border-bottom: none; }
-  .msg { font-size: 0.85rem; margin-top: 8px; }
-  .msg.ok { color: var(--green); }
-  .msg.err { color: var(--red); }
-  .inline-form { display: flex; gap: 8px; align-items: flex-end; }
+  .msg { font-size: 13px; margin-top: var(--space-2); }
+  .msg.ok { color: var(--color-text); }
+  .msg.err { color: var(--color-accent-700); }
+  .inline-form { display: flex; gap: var(--space-2); align-items: flex-end; }
   .inline-form input { margin-bottom: 0; }
-  .checkbox-row { display: flex; align-items: center; gap: 6px; }
+  .checkbox-row { display: flex; align-items: center; gap: var(--space-2); }
   .checkbox-row input { width: auto; margin-bottom: 0; }
-  .icon-palette { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-  .icon-option { font-size: 1.3rem; padding: 6px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--surface2); cursor: pointer; }
-  .icon-option:hover { background: var(--surface2); }
-  .icon-option.selected { border-color: var(--accent); background: var(--surface2); }
-  .muted { color: var(--muted); font-size: 0.85rem; margin-bottom: 10px; }
+  .icon-palette { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .icon-option { font-size: 20px; padding: 6px 10px; border: 1px solid var(--color-divider); cursor: pointer; }
+  .icon-option:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+  .icon-option.selected { border-color: var(--color-accent); background: var(--color-accent-100); }
+  .muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); font-size: 13px; margin-bottom: var(--space-2); }
+  .moxfield-link { color: var(--color-accent-700); text-decoration: none; margin-right: var(--space-3); }
+  .moxfield-link:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
 
-<nav>
-  <div class="nav-brand">⚔ MTG Collection</div>
+<nav class="nav">
+  <div class="nav-brand">MTG Collection</div>
   <a class="nav-link" href="/app#collection">Collection</a>
   <a class="nav-link" href="/app#decks">Decks</a>
   <a class="nav-link" href="/app#missing">Missing</a>
@@ -66,81 +47,89 @@
 </nav>
 
 <div class="page">
-  <section>
+  <div class="flush-section">
     <h2>Profile</h2>
     <label>Display name</label>
-    <input id="profile-name" placeholder="e.g. Alice">
+    <input class="input" id="profile-name" placeholder="e.g. Alice">
     <label>Icon</label>
     <div id="profile-icon-palette" class="icon-palette"></div>
     <input type="hidden" id="profile-icon">
-    <button class="btn" onclick="saveProfile()">Save</button>
+    <button class="btn btn-primary" onclick="saveProfile()">Save</button>
     <div id="profile-msg" class="msg"></div>
     <div class="checkbox-row" style="margin-top:14px">
       <input type="checkbox" id="profile-private" onchange="savePrivacy()">
       <label style="margin:0" for="profile-private">Private account (hide me from the directory and combined collection/for-sale views)</label>
     </div>
     <div id="privacy-msg" class="msg"></div>
-  </section>
+  </div>
 
-  <section>
+  <div class="flush-section">
     <h2>Moxfield Packages</h2>
     <div id="packages-list"></div>
     <div class="inline-form" style="margin-top:12px">
-      <div style="flex:1"><label>Color group</label><input id="pkg-color" placeholder="e.g. Red"></div>
-      <div style="flex:1"><label>Public ID</label><input id="pkg-id" placeholder="Moxfield deck slug"></div>
-      <button class="btn" onclick="addPackage()">Add</button>
+      <div style="flex:1"><label>Color group</label><input class="input" id="pkg-color" placeholder="e.g. Red"></div>
+      <div style="flex:1"><label>Public ID</label><input class="input" id="pkg-id" placeholder="Moxfield deck slug"></div>
+      <button class="btn btn-primary" onclick="addPackage()">Add</button>
     </div>
     <div id="pkg-msg" class="msg"></div>
-  </section>
+  </div>
 
-  <section>
+  <div class="flush-section">
+    <h2>CardMarket</h2>
+    <p class="muted">Link your CardMarket shop — shown as a profile link on your For Sale page.</p>
+    <label>CardMarket profile URL</label>
+    <input class="input" id="cardmarket-input" placeholder="https://www.cardmarket.com/en/Magic/Users/...">
+    <button class="btn btn-primary" onclick="saveCardmarket()">Save</button>
+    <div id="cardmarket-msg" class="msg"></div>
+  </div>
+
+  <div class="flush-section">
     <h2>My Groups</h2>
     <p class="muted">Organise friends/teammates into groups (e.g. "Cube Night", "Commander Pod") for "can my group complete this?" checks and combined collection views. This is private to you — adding someone doesn't change what they can see.</p>
     <div id="groups-list"></div>
     <div class="inline-form" style="margin-top:12px">
-      <div style="flex:1"><label>New group name</label><input id="new-group-name" placeholder="e.g. Cube Night"></div>
-      <button class="btn" onclick="createGroup()">Create group</button>
+      <div style="flex:1"><label>New group name</label><input class="input" id="new-group-name" placeholder="e.g. Cube Night"></div>
+      <button class="btn btn-primary" onclick="createGroup()">Create group</button>
     </div>
     <div id="group-msg" class="msg"></div>
 
     <label style="margin-top:16px">All users</label>
-    <input id="group-search" placeholder="Filter by name or email" oninput="renderDirectory()">
+    <input class="input" id="group-search" placeholder="Filter by name or email" oninput="renderDirectory()">
     <div id="group-search-results"></div>
-  </section>
+  </div>
 
-  <section>
+  <div class="flush-section">
     <h2>ManaBox Import</h2>
     <p class="muted">Upload a ManaBox collection export (CSV) as an alternative to Moxfield packages. Re-uploading replaces your previous ManaBox import.</p>
-    <input type="file" id="manabox-file" accept=".csv">
-    <button class="btn" onclick="uploadManaboxCsv()">Import CSV</button>
+    <input class="input" type="file" id="manabox-file" accept=".csv">
+    <button class="btn btn-primary" onclick="uploadManaboxCsv()">Import CSV</button>
     <div id="manabox-msg" class="msg"></div>
-  </section>
+  </div>
 
-  <section>
+  <div class="flush-section">
     <h2>Tracked Formats</h2>
     <label>Comma-separated (e.g. modern,legacy)</label>
-    <input id="formats-input">
-    <button class="btn" onclick="saveFormats()">Save</button>
+    <input class="input" id="formats-input">
+    <button class="btn btn-primary" onclick="saveFormats()">Save</button>
     <div id="formats-msg" class="msg"></div>
-  </section>
+  </div>
 
-  <section>
+  <div class="flush-section">
     <h2>Pick List Sort</h2>
-    <select id="sort-select">
-      <option value="colour">Colour</option>
-      <option value="alphabetical">Alphabetical</option>
-      <option value="set">Set</option>
-      <option value="cmc">CMC</option>
-    </select>
-    <button class="btn" onclick="saveSort()">Save</button>
+    <div class="seg" id="sort-seg">
+      <button class="seg-opt active" data-value="colour" onclick="setSort(this)">Colour</button>
+      <button class="seg-opt" data-value="alphabetical" onclick="setSort(this)">Alphabetical</button>
+      <button class="seg-opt" data-value="set" onclick="setSort(this)">Set</button>
+      <button class="seg-opt" data-value="cmc" onclick="setSort(this)">CMC</button>
+    </div>
     <div id="sort-msg" class="msg"></div>
-  </section>
+  </div>
 
-  <section>
+  <div class="flush-section">
     <h2>Sync</h2>
-    <button class="btn" onclick="syncNow()">Sync now</button>
+    <button class="btn btn-primary" onclick="syncNow()">Sync now</button>
     <div id="sync-msg" class="msg"></div>
-  </section>
+  </div>
 
 </div>
 
@@ -174,10 +163,13 @@ async function loadConfig() {
   renderGroups(data.groups);
   renderDirectory();
   document.getElementById('formats-input').value = data.formats.join(',');
-  document.getElementById('sort-select').value = data.pick_list_sort;
+  document.querySelectorAll('#sort-seg .seg-opt').forEach(b => {
+    b.classList.toggle('active', b.dataset.value === data.pick_list_sort);
+  });
   document.getElementById('profile-name').value = data.display_name || '';
   document.getElementById('profile-icon').value = data.icon || '';
   document.getElementById('profile-private').checked = !!data.is_private;
+  document.getElementById('cardmarket-input').value = data.cardmarket_url || '';
   renderIconPalette(data.icon || '');
 
   if (data.is_admin) {
@@ -189,18 +181,22 @@ function renderPackages(packages) {
   const list = document.getElementById('packages-list');
   list.innerHTML = '';
   if (!packages.length) {
-    list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No packages yet.</p>';
+    list.innerHTML = '<p class="muted">No packages yet.</p>';
     return;
   }
   for (const p of packages) {
     const row = document.createElement('div');
     row.className = 'row';
-    row.innerHTML = `<span>${p.color_group} → <code>${p.public_id}</code></span>`;
+    row.innerHTML = `
+      <span><strong>${p.color_group}</strong></span>
+      <span>
+        <a class="moxfield-link" href="https://www.moxfield.com/decks/${encodeURIComponent(p.public_id)}" target="_blank" rel="noopener">View on Moxfield ↗</a>
+      </span>`;
     const btn = document.createElement('button');
-    btn.className = 'btn-secondary';
+    btn.className = 'btn btn-secondary';
     btn.textContent = 'Remove';
     btn.onclick = () => removePackage(p.color_group);
-    row.appendChild(btn);
+    row.children[1].appendChild(btn);
     list.appendChild(row);
   }
 }
@@ -241,12 +237,12 @@ function renderGroups(groups) {
   const list = document.getElementById('groups-list');
   list.innerHTML = '';
   if (!groups.length) {
-    list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No groups yet — create one below.</p>';
+    list.innerHTML = '<p class="muted">No groups yet — create one below.</p>';
     return;
   }
   for (const group of groups) {
     const box = document.createElement('div');
-    box.style.cssText = 'border:1px solid var(--surface2);border-radius:var(--radius);padding:10px;margin-bottom:10px';
+    box.style.cssText = 'border:1px solid var(--color-divider);padding:10px;margin-bottom:10px';
 
     const header = document.createElement('div');
     header.className = 'row';
@@ -258,13 +254,13 @@ function renderGroups(groups) {
 
     const btns = document.createElement('span');
     const renameBtn = document.createElement('button');
-    renameBtn.className = 'btn-secondary';
+    renameBtn.className = 'btn btn-secondary';
     renameBtn.textContent = 'Rename';
     renameBtn.style.marginRight = '6px';
     renameBtn.onclick = () => renameGroupPrompt(group.id, group.name);
     btns.appendChild(renameBtn);
     const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'btn-secondary';
+    deleteBtn.className = 'btn btn-secondary';
     deleteBtn.textContent = 'Delete';
     deleteBtn.onclick = () => deleteGroup(group.id);
     btns.appendChild(deleteBtn);
@@ -273,7 +269,8 @@ function renderGroups(groups) {
 
     if (!group.members.length) {
       const empty = document.createElement('p');
-      empty.style.cssText = 'color:var(--muted);font-size:0.85rem;margin:4px 0 0';
+      empty.className = 'muted';
+      empty.style.margin = '4px 0 0';
       empty.textContent = 'No members yet.';
       box.appendChild(empty);
     }
@@ -284,7 +281,7 @@ function renderGroups(groups) {
       label.textContent = `${member.icon} ${member.display_name}`;
       row.appendChild(label);
       const removeBtn = document.createElement('button');
-      removeBtn.className = 'btn-secondary';
+      removeBtn.className = 'btn btn-secondary';
       removeBtn.textContent = 'Remove';
       removeBtn.onclick = () => removeGroupMember(group.id, member.user_id);
       row.appendChild(removeBtn);
@@ -351,7 +348,7 @@ async function renderDirectory() {
 
   resultsEl.innerHTML = '';
   if (!people.length) {
-    resultsEl.innerHTML = '<p style="color:var(--muted);font-size:0.85rem">No users found.</p>';
+    resultsEl.innerHTML = '<p class="muted">No users found.</p>';
     return;
   }
   for (const person of people) {
@@ -376,13 +373,14 @@ async function renderDirectory() {
       }
       controls.appendChild(select);
       const addBtn = document.createElement('button');
-      addBtn.className = 'btn-secondary';
+      addBtn.className = 'btn btn-secondary';
       addBtn.textContent = 'Add';
       addBtn.onclick = () => addGroupMember(select.value, person.user_id);
       controls.appendChild(addBtn);
     } else {
       const hint = document.createElement('span');
-      hint.style.cssText = 'color:var(--muted);font-size:0.8rem';
+      hint.className = 'muted';
+      hint.style.marginBottom = '0';
       hint.textContent = 'Create a group first';
       controls.appendChild(hint);
     }
@@ -458,6 +456,18 @@ async function saveFormats() {
   msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
 }
 
+async function saveCardmarket() {
+  const cardmarket_url = document.getElementById('cardmarket-input').value.trim();
+  const res = await fetch('/api/config/cardmarket', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cardmarket_url }),
+  });
+  const msg = document.getElementById('cardmarket-msg');
+  msg.textContent = res.ok ? 'Saved.' : 'Failed to save.';
+  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+}
+
 async function saveProfile() {
   const display_name = document.getElementById('profile-name').value.trim();
   const icon = document.getElementById('profile-icon').value.trim();
@@ -471,8 +481,13 @@ async function saveProfile() {
   msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
 }
 
-async function saveSort() {
-  const sort_mode = document.getElementById('sort-select').value;
+function setSort(btnEl) {
+  document.querySelectorAll('#sort-seg .seg-opt').forEach(b => b.classList.remove('active'));
+  btnEl.classList.add('active');
+  saveSort(btnEl.dataset.value);
+}
+
+async function saveSort(sort_mode) {
   const res = await fetch('/api/config/sort', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
