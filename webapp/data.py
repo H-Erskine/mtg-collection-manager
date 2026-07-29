@@ -190,11 +190,15 @@ async def pick_art_card(names: list[str]) -> dict:
         return {"name": None, "set_code": None, "collector_number": None}
 
     identifiers = [{"name": name} for name in names[:75]]
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.scryfall.com/cards/collection",
-            json={"identifiers": identifiers},
-        )
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.scryfall.com/cards/collection",
+                json={"identifiers": identifiers},
+                headers={"User-Agent": "mtg-manager/1.0 (personal collection site)"},
+            )
+    except httpx.HTTPError:
+        return {"name": None, "set_code": None, "collector_number": None}
     if resp.status_code != 200:
         return {"name": None, "set_code": None, "collector_number": None}
 

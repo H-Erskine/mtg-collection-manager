@@ -25,7 +25,7 @@ async def test_pick_art_card_prefers_highest_cmc_creature(monkeypatch):
         "not_found": [],
     }
 
-    async def fake_post(self, url, json):
+    async def fake_post(self, url, json, headers=None):
         return _FakeResponse(fake_collection_response)
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
@@ -41,7 +41,7 @@ async def test_pick_art_card_returns_none_when_no_candidates(monkeypatch):
         "not_found": [],
     }
 
-    async def fake_post(self, url, json):
+    async def fake_post(self, url, json, headers=None):
         return _FakeResponse(fake_collection_response)
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)

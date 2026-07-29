@@ -56,7 +56,7 @@ async def _log_requests(request: Request, call_next):
 
 
 _STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+app.mount("/static/assets", StaticFiles(directory=_STATIC_DIR / "assets"), name="static")
 
 
 @app.exception_handler(NotAuthenticated)

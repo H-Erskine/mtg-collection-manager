@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MTG Collection</title>
-<link rel="stylesheet" href="/static/modernist.css">
+<link rel="stylesheet" href="/static/assets/modernist.css">
 <style>
   .load-error { border: 1px solid var(--color-accent); padding: var(--space-6); margin: 40px auto; max-width: 500px; text-align: center; }
   .load-error h3 { color: var(--color-accent-700); margin-bottom: var(--space-2); }
@@ -30,15 +30,6 @@
   /* COLLECTION BODY */
   #collection-body { display: flex; gap: var(--space-4); align-items: flex-start; }
   #collection-grid-wrap { flex: 1; min-width: 0; }
-
-  /* STATS BANNER */
-  .stats-banner { display: flex; gap: 6px; flex-wrap: wrap; }
-  .stat-tile { border-radius: var(--radius); padding: 10px 14px; text-align: center; min-width: 68px; border: 1px solid; cursor: pointer; transition: filter 0.15s; }
-  .stat-tile:hover { filter: brightness(1.25); }
-  .stat-tile.active { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .stat-tile-icon { font-size: 1.2rem; line-height: 1; margin-bottom: 2px; }
-  .stat-tile-count { font-size: 1.1rem; font-weight: 700; line-height: 1.2; }
-  .stat-tile-label { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
 
   /* SALE */
   .sale-section { margin-bottom: var(--space-8); }
@@ -181,7 +172,7 @@
 <!-- META -->
 <div id="page-meta" class="page">
   <div class="auth-gate" id="meta-auth-gate" style="display:none">Log in to view meta decks.</div>
-  <label>Can this group complete this?
+  <label id="meta-group-check-label">Can this group complete this?
     <select class="input" id="meta-group-check" onchange="onMetaGroupCheckToggled()" style="width:auto;display:inline-block"><option value="">— off —</option></select>
   </label>
   <div class="meta-format-tabs" id="meta-format-tabs"></div>
@@ -369,8 +360,11 @@ function applyAuthState(whoamiData) {
   document.getElementById('decks-loading').style.display = 'none';
   document.getElementById('decks-auth-gate').style.display = 'block';
   document.getElementById('missing-auth-gate').style.display = 'block';
+  document.querySelector('.missing-layout').style.display = 'none';
   document.getElementById('meta-loading').style.display = 'none';
   document.getElementById('meta-auth-gate').style.display = 'block';
+  document.getElementById('meta-group-check-label').style.display = 'none';
+  document.getElementById('meta-format-tabs').style.display = 'none';
 
   const peopleSidebar = document.getElementById('people-sidebar');
   if (peopleSidebar) peopleSidebar.style.display = 'none';
@@ -405,19 +399,11 @@ async function init() {
 
     collectionCards = colData.cards;
 
-    const deckColorMap = {};
     for (const deck of deckData.decks) {
-      if (!deckColorMap[deck.deck_name]) {
-        deckColorMap[deck.deck_name] = Math.floor(Math.random() * 360);
-      }
-    }
-
-    for (const deck of deckData.decks) {
-      const color = deckColorMap[deck.deck_name];
       for (const card of deck.cards) {
         const key = card.name.toLowerCase();
         if (!allocatedCards[key]) allocatedCards[key] = [];
-        allocatedCards[key].push({ deckName: deck.deck_name, color, quantity: card.quantity });
+        allocatedCards[key].push({ deckName: deck.deck_name, quantity: card.quantity });
       }
     }
 
@@ -550,7 +536,7 @@ function renderCollection(cards) {
 
       const label = document.createElement('div');
       label.className = 'mtg-card-deck-label';
-      label.textContent = `${inDeckQty}/${c.quantity} in deck`;
+      label.textContent = `${Math.min(inDeckQty, c.quantity)}/${c.quantity} in deck`;
       el.appendChild(label);
 
       el.title = 'In deck: ' + entries.map(e => `${e.deckName} (×${e.quantity})`).join(', ');
@@ -774,7 +760,7 @@ function renderSalePeopleSidebar() {
 
   if (combinedSaleData) {
     for (const p of combinedSaleData.people) {
-      list.appendChild(makeItem(p.user_id, p.display_name));
+      list.appendChild(makeItem(p.user_id, p.display_name || p.user_id));
     }
   }
 }
@@ -947,8 +933,6 @@ function _metaDeckMissingCount(deck) {
 
 function _makeMetaDeckSidebarItem(deck, fmt) {
   const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
-  const missingCount = _metaDeckMissingCount(deck);
-  const barColor = missingCount === 0 ? 'var(--green)' : missingCount <= 10 ? 'var(--gold)' : 'var(--red)';
 
   const item = document.createElement('div');
   item.className = 'meta-deck-item';
@@ -967,7 +951,6 @@ function _makeMetaDeckSidebarItem(deck, fmt) {
   const barFill = document.createElement('div');
   barFill.className = 'meta-bar-fill';
   barFill.style.width = `${pct}%`;
-  barFill.style.background = barColor;
   barBg.appendChild(barFill);
 
   item.appendChild(nameEl);
@@ -988,18 +971,18 @@ function renderMetaSidebar(fmt) {
   const close = annotated.filter(d => d.missingCount >= 1 && d.missingCount <= 10);
   const far = annotated.filter(d => d.missingCount > 10);
 
-  function appendGroup(label, cls, items) {
+  function appendGroup(label, items) {
     if (!items.length) return;
     const hdr = document.createElement('div');
-    hdr.className = `meta-section-header ${cls}`;
+    hdr.className = 'meta-section-header';
     hdr.textContent = label;
     sidebar.appendChild(hdr);
     for (const { deck } of items) sidebar.appendChild(_makeMetaDeckSidebarItem(deck, fmt));
   }
 
-  appendGroup(`✓ Can Build (${buildable.length})`, 'can-build', buildable);
-  appendGroup(`1–10 missing (${close.length})`, 'close', close);
-  appendGroup(`10+ missing (${far.length})`, 'far', far);
+  appendGroup(`✓ Can Build (${buildable.length})`, buildable);
+  appendGroup(`1–10 missing (${close.length})`, close);
+  appendGroup(`10+ missing (${far.length})`, far);
 }
 
 async function selectMetaDeck(itemEl, fmt, deck) {
@@ -1015,12 +998,12 @@ async function renderMetaDeckView(fmt, deck) {
 
   const artBar = document.getElementById('meta-art-bar');
   artBar.innerHTML = '';
-  const artRes = await fetch('/api/meta/art-pick', {
+  fetch('/api/meta/art-pick', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ names: deck.cards.map(c => c.name) }),
-  });
-  if (artRes.ok) {
+  }).then(async artRes => {
+    if (!artRes.ok) return;
     const art = await artRes.json();
     if (art.name) {
       const img = document.createElement('img');
@@ -1030,7 +1013,7 @@ async function renderMetaDeckView(fmt, deck) {
       img.alt = art.name;
       artBar.appendChild(img);
     }
-  }
+  });
 
   const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
   const missing = deck.cards.filter(c => c.owned < c.quantity);
@@ -1131,7 +1114,7 @@ async function checkMissing() {
   const og = document.getElementById('owned-grid');
   og.innerHTML = '';
   for (const c of owned) {
-    og.appendChild(makeCard(c.name, c.set_code, c.collector_number, `×${c.qty}`, 'green', null));
+    og.appendChild(makeCard(c.name, c.set_code, c.collector_number, `×${c.qty}`, '', null));
   }
 }
 
