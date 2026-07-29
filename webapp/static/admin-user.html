@@ -1,93 +1,77 @@
-<!DOCTYPE html>
+!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MTG Collection — Admin — User</title>
+<title>MTG Collection â€” Admin â€” User</title>
+<link rel="stylesheet" href="/static/modernist.css">
 <style>
-  :root {
-    --bg: #1a1a2e;
-    --surface: #16213e;
-    --surface2: #0f3460;
-    --accent: #e94560;
-    --text: #eaeaea;
-    --muted: #888;
-    --green: #4caf50;
-    --red: #e94560;
-    --gold: #f0c040;
-    --radius: 8px;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+  .nav-link { padding: 0 var(--space-3); color: color-mix(in srgb, var(--color-text) 55%, transparent); text-decoration: none; font-size: 13px; height: 100%; display: flex; align-items: center; }
+  .nav-link:hover { color: var(--color-text); }
+  .nav-meta { margin-left: auto; font-size: 12px; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+  .nav-logout { color: var(--color-text); text-decoration: underline; cursor: pointer; margin-left: var(--space-2); }
+  .nav-logout:hover { color: var(--color-accent); }
 
-  nav { background: var(--surface); border-bottom: 2px solid var(--surface2); padding: 0 24px; display: flex; align-items: center; gap: 0; }
-  .nav-brand { font-weight: 700; font-size: 1.1rem; color: var(--gold); padding: 16px 24px 16px 0; border-right: 1px solid var(--surface2); margin-right: 8px; }
-  .nav-link { padding: 16px 20px; color: var(--muted); text-decoration: none; font-size: 0.95rem; }
-  .nav-link:hover { color: var(--text); }
-  .nav-meta { margin-left: auto; font-size: 0.8rem; color: var(--muted); }
-  .nav-logout { color: var(--text); text-decoration: underline; cursor: pointer; margin-left: 8px; }
-  .nav-logout:hover { color: var(--accent); }
-
-  .page { padding: 24px; max-width: 1000px; margin: 0 auto; }
-  section { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
-  h1 { font-size: 1.2rem; margin-bottom: 16px; }
-  h2 { font-size: 1rem; color: var(--gold); margin-bottom: 14px; }
-  .btn { padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-  .btn:hover { background: #c73652; }
-  .btn:disabled { opacity: 0.6; cursor: default; }
-  .msg { font-size: 0.85rem; margin-top: 8px; }
-  .msg.ok { color: var(--green); }
-  .msg.err { color: var(--red); }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--surface2); }
-  th { color: var(--muted); font-weight: 600; }
-  .empty { color: var(--muted); font-size: 0.85rem; }
-  .back-link { display: inline-block; margin-bottom: 16px; color: var(--muted); text-decoration: none; font-size: 0.85rem; }
-  .back-link:hover { color: var(--text); }
+  .page { padding: var(--space-6); max-width: 1000px; margin: 0 auto; }
+  h2 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent-700); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-divider); }
+  label { display: block; font-size: 13px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-bottom: 4px; }
+  .row { display: flex; gap: var(--space-2); align-items: center; justify-content: space-between; padding: var(--space-2) 0; border-bottom: 1px solid var(--color-divider); }
+  .row:last-child { border-bottom: none; }
+  .msg { font-size: 13px; margin-top: var(--space-2); }
+  .msg.ok { color: var(--color-text); }
+  .msg.err { color: var(--color-accent-700); }
+  .inline-form { display: flex; gap: var(--space-2); align-items: flex-end; }
+  .inline-form input { margin-bottom: 0; }
+  .checkbox-row { display: flex; align-items: center; gap: var(--space-2); }
+  .checkbox-row input { width: auto; margin-bottom: 0; }
+  .empty { color: color-mix(in srgb, var(--color-text) 55%, transparent); font-size: 13px; }
+  .back-link { display: inline-block; margin-bottom: var(--space-4); color: color-mix(in srgb, var(--color-text) 55%, transparent); text-decoration: none; font-size: 13px; }
+  .back-link:hover { color: var(--color-text); }
+  h1 { font-size: 20px; margin-bottom: var(--space-4); }
 </style>
 </head>
 <body>
 
-<nav>
-  <div class="nav-brand">⚔ MTG Collection</div>
+<nav class="nav">
+  <div class="nav-brand">âš” MTG Collection</div>
   <a class="nav-link" href="/app#collection">Collection</a>
   <a class="nav-link" href="/app#decks">Decks</a>
   <a class="nav-link" href="/app#missing">Missing</a>
   <a class="nav-link" href="/config">Config</a>
   <a class="nav-link" href="/admin">Admin</a>
-  <div class="nav-meta" id="nav-identity">Loading…</div>
+  <div class="nav-meta" id="nav-identity">Loadingâ€¦</div>
 </nav>
 
 <div class="page">
-  <a class="back-link" href="/admin">← Back to Admin</a>
-  <h1 id="page-title">Loading…</h1>
+  <a class="back-link" href="/admin">â† Back to Admin</a>
+  <h1 id="page-title">Loadingâ€¦</h1>
 
   <div id="not-found" class="empty" style="display:none">User not found.</div>
 
   <div id="user-content" style="display:none">
-    <section>
+    <div class="flush-section">
       <h2>Moxfield packages</h2>
-      <table id="packages-table">
+      <table class="table" id="packages-table">
         <thead><tr><th>Color group</th><th>Public ID</th></tr></thead>
         <tbody></tbody>
       </table>
       <div id="packages-empty" class="empty" style="display:none">No packages configured.</div>
-    </section>
+    </div>
 
-    <section>
+    <div class="flush-section">
       <h2>Sync</h2>
-      <button class="btn" id="sync-btn" onclick="syncUser()">Sync now</button>
+      <button class="btn btn-primary" id="sync-btn" onclick="syncUser()">Sync now</button>
       <div id="sync-msg" class="msg"></div>
-    </section>
+    </div>
 
-    <section>
+    <div class="flush-section">
       <h2>Activity</h2>
-      <table id="activity-table">
+      <table class="table" id="activity-table">
         <thead><tr><th>Time</th><th>Action</th><th>Status</th></tr></thead>
         <tbody></tbody>
       </table>
       <div id="activity-empty" class="empty" style="display:none">No activity recorded.</div>
-    </section>
+    </div>
   </div>
 </div>
 
@@ -195,7 +179,7 @@ async function loadWhoami() {
     const data = await res.json();
     const el = document.getElementById('nav-identity');
     el.innerHTML = '';
-    el.append(data.email + ' · ');
+    el.append(data.email + ' Â· ');
     const logout = document.createElement('span');
     logout.className = 'nav-logout';
     logout.textContent = 'Logout';
@@ -209,3 +193,4 @@ loadWhoami();
 </script>
 </body>
 </html>
+
