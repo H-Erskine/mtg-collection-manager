@@ -86,35 +86,33 @@
   .placeholder-text { display: flex; align-items: center; justify-content: center; color: color-mix(in srgb, var(--color-text) 55%, transparent); font-size: 14px; min-height: 200px; }
 
   /* META */
-  #page-meta > label { display: block; margin-bottom: 16px; font-size: 0.9rem; }
-  .meta-format-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
-  .meta-fmt-tab { padding: 6px 16px; border-radius: 20px; font-size: 0.82rem; cursor: pointer; border: 1px solid var(--surface2); background: var(--surface); color: var(--muted); }
-  .meta-fmt-tab:hover { color: var(--text); background: var(--surface2); }
-  .meta-fmt-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+  #page-meta > label { display: block; margin-bottom: var(--space-4); font-size: 14px; }
+  .meta-format-tabs { display: flex; gap: var(--space-4); border-bottom: 1px solid var(--color-divider); margin-bottom: var(--space-4); }
+  .meta-fmt-tab { padding: var(--space-2) 0; font-size: 13px; cursor: pointer; color: color-mix(in srgb, var(--color-text) 55%, transparent); border-bottom: 2px solid transparent; }
+  .meta-fmt-tab:hover { color: var(--color-text); }
+  .meta-fmt-tab.active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
 
-  .meta-layout { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
+  .meta-layout { display: grid; grid-template-columns: 230px 1fr; gap: var(--space-6); align-items: start; }
   @media (max-width: 800px) { .meta-layout { grid-template-columns: 1fr; } }
-  .meta-sidebar { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); overflow: hidden; position: sticky; top: 20px; max-height: calc(100vh - 80px); overflow-y: auto; }
-  .meta-section-header { font-size: 0.68rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px 4px; background: var(--bg); border-bottom: 1px solid var(--surface2); position: sticky; top: 0; z-index: 1; }
-  .meta-section-header.can-build { color: var(--green); }
-  .meta-section-header.close { color: var(--gold); }
-  .meta-section-header.far { color: var(--red); }
-  .meta-deck-item { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--surface2); user-select: none; border-left: 3px solid transparent; }
-  .meta-deck-item:last-child { border-bottom: none; }
-  .meta-deck-item:hover { background: var(--surface2); }
-  .meta-deck-item.active { background: var(--surface2); border-left-color: var(--accent); }
-  .meta-deck-name { font-size: 0.88rem; font-weight: 600; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .meta-deck-frac { font-size: 0.75rem; color: var(--muted); margin-bottom: 5px; }
-  .meta-bar-bg { height: 3px; background: var(--surface2); border-radius: 2px; }
-  .meta-bar-fill { height: 3px; border-radius: 2px; }
+  .meta-sidebar { max-height: calc(100vh - 160px); overflow-y: auto; }
+  .meta-section-header { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: var(--space-2) 0 var(--space-1); border-bottom: 1px solid var(--color-divider); color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+  .meta-deck-item { padding: var(--space-2) 0; cursor: pointer; border-bottom: 1px solid var(--color-divider); user-select: none; border-left: 3px solid transparent; padding-left: var(--space-2); }
+  .meta-deck-item:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+  .meta-deck-item.active { border-left-color: var(--color-accent); }
+  .meta-deck-name { font-size: 13px; font-weight: 600; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta-deck-frac { font-size: 11px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-bottom: 4px; }
+  .meta-bar-bg { height: 3px; background: var(--color-neutral-300); }
+  .meta-bar-fill { height: 3px; background: var(--color-accent); }
   .meta-panel { min-height: 300px; }
-  .meta-deck-header { margin-bottom: 20px; }
-  .meta-deck-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
-  .meta-deck-subtitle { font-size: 0.82rem; color: var(--muted); display: flex; align-items: center; gap: 12px; }
-  .meta-deck-link { color: #6ab0f5; text-decoration: none; }
+  .meta-deck-header { display: flex; align-items: stretch; gap: var(--space-3); margin-bottom: var(--space-4); }
+  .meta-deck-info { flex-shrink: 0; }
+  .meta-deck-title { font-size: 17px; font-weight: 800; margin-bottom: 4px; }
+  .meta-deck-subtitle { font-size: 12px; color: color-mix(in srgb, var(--color-text) 55%, transparent); display: flex; align-items: center; gap: var(--space-3); }
+  .meta-deck-link { color: var(--color-accent-700); text-decoration: none; }
   .meta-deck-link:hover { text-decoration: underline; }
-  .group-owners { font-size: 0.65rem; color: var(--muted); position: absolute; bottom: -18px; left: 0; width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .meta-panel .mtg-card { margin-bottom: 18px; }
+  .meta-art-bar { flex: 1; border: 1px solid var(--color-divider); background: var(--color-neutral-100); overflow: hidden; }
+  .meta-art-bar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .group-owners { font-size: 10px; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
 </style>
 </head>
 <body>
@@ -194,7 +192,7 @@
 <div id="page-meta" class="page">
   <div class="auth-gate" id="meta-auth-gate" style="display:none">Log in to view meta decks.</div>
   <label>Can this group complete this?
-    <select id="meta-group-check" onchange="onMetaGroupCheckToggled()"><option value="">— off —</option></select>
+    <select class="input" id="meta-group-check" onchange="onMetaGroupCheckToggled()" style="width:auto;display:inline-block"><option value="">— off —</option></select>
   </label>
   <div class="meta-format-tabs" id="meta-format-tabs"></div>
   <div class="loading" id="meta-loading">Loading meta…</div>
@@ -204,16 +202,19 @@
       <div class="placeholder-text" id="meta-placeholder">Select a deck to see its cards</div>
       <div id="meta-deck-view" style="display:none">
         <div class="meta-deck-header">
-          <div class="meta-deck-title" id="meta-deck-title"></div>
-          <div class="meta-deck-subtitle">
-            <span id="meta-deck-stats"></span>
-            <a class="meta-deck-link" id="meta-deck-link" href="#" target="_blank" rel="noopener">View decklist ↗</a>
+          <div class="meta-deck-info">
+            <div class="meta-deck-title" id="meta-deck-title"></div>
+            <div class="meta-deck-subtitle">
+              <span id="meta-deck-stats"></span>
+              <a class="meta-deck-link" id="meta-deck-link" href="#" target="_blank" rel="noopener">View decklist ↗</a>
+            </div>
           </div>
+          <div class="meta-art-bar" id="meta-art-bar"></div>
         </div>
         <div class="section-label">Missing / Insufficient</div>
         <div class="card-grid" id="meta-missing-grid"></div>
-        <p id="meta-missing-empty" style="display:none;color:var(--green);padding:8px 0;font-size:0.85rem">✓ You own all cards in this deck</p>
-        <div class="section-label" style="margin-top:24px">Owned</div>
+        <p id="meta-missing-empty" style="display:none;color:var(--color-text);padding:8px 0;font-size:13px">You own all cards in this deck</p>
+        <div class="section-label" style="margin-top:var(--space-6)">Owned</div>
         <div class="card-grid" id="meta-owned-grid"></div>
       </div>
     </div>
@@ -1025,6 +1026,25 @@ async function renderMetaDeckView(fmt, deck) {
   document.getElementById('meta-placeholder').style.display = 'none';
   document.getElementById('meta-deck-view').style.display = 'block';
 
+  const artBar = document.getElementById('meta-art-bar');
+  artBar.innerHTML = '';
+  const artRes = await fetch('/api/meta/art-pick', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ names: deck.cards.map(c => c.name) }),
+  });
+  if (artRes.ok) {
+    const art = await artRes.json();
+    if (art.name) {
+      const img = document.createElement('img');
+      img.src = art.set_code && art.collector_number
+        ? scryfallImgUrl(art.set_code, art.collector_number)
+        : namedImgUrl(art.name);
+      img.alt = art.name;
+      artBar.appendChild(img);
+    }
+  }
+
   const pct = deck.total_slots ? Math.round(deck.owned_slots / deck.total_slots * 100) : 0;
   const missing = deck.cards.filter(c => c.owned < c.quantity);
   const owned = deck.cards.filter(c => c.owned >= c.quantity);
@@ -1054,7 +1074,7 @@ async function renderMetaDeckView(fmt, deck) {
   const og = document.getElementById('meta-owned-grid');
   og.innerHTML = '';
   for (const c of owned) {
-    og.appendChild(makeCard(c.name, c.set_code, c.collector_number, `×${c.quantity}`, 'green', null));
+    og.appendChild(makeCard(c.name, c.set_code, c.collector_number, `×${c.quantity}`, '', null));
   }
 }
 
