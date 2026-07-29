@@ -61,19 +61,18 @@
   .owner-badge { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.85); font-size: 0.9rem; border-radius: 4px; padding: 1px 4px; }
 
   /* DECKS */
-  .box-section { margin-bottom: 32px; }
-  .box-title { font-size: 1rem; font-weight: 700; color: var(--gold); margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--surface2); }
-  .deck-item { background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--radius); overflow: hidden; margin-bottom: 10px; }
-  .deck-header { padding: 12px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
-  .deck-header:hover { background: var(--surface2); }
-  .deck-name { font-weight: 600; font-size: 0.95rem; }
-  .deck-meta { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
-  .deck-url { font-size: 0.78rem; color: #6ab0f5; text-decoration: none; margin-left: auto; flex-shrink: 0; }
+  .box-section { margin-bottom: var(--space-8); }
+  .box-title { font-family: var(--font-heading); font-weight: 800; font-size: 15px; margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-divider); }
+  .deck-item { border-bottom: 1px solid var(--color-divider); }
+  .deck-header { padding: var(--space-3) 0; display: flex; align-items: center; gap: var(--space-3); cursor: pointer; user-select: none; }
+  .deck-name { font-weight: 600; font-size: 14px; }
+  .deck-meta { font-size: 12px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-top: 2px; }
+  .deck-url { font-size: 12px; color: var(--color-accent-700); text-decoration: none; margin-left: auto; flex-shrink: 0; }
   .deck-url:hover { text-decoration: underline; }
-  .chevron { color: var(--muted); font-size: 0.75rem; transition: transform 0.2s; flex-shrink: 0; }
+  .chevron { color: color-mix(in srgb, var(--color-text) 55%, transparent); font-size: 11px; transition: transform 0.15s; flex-shrink: 0; }
   .deck-item.open .chevron { transform: rotate(90deg); }
-  .deck-cards { display: none; padding: 12px 16px 16px; border-top: 1px solid var(--surface2); flex-wrap: wrap; gap: 8px; }
-  .deck-item.open .deck-cards { display: flex; }
+  .deck-cards { display: none; padding: 0 0 var(--space-4) 24px; }
+  .deck-item.open .deck-cards { display: block; }
 
   /* MISSING */
   .missing-layout { display: grid; grid-template-columns: 320px 1fr; gap: 24px; align-items: start; }
@@ -648,7 +647,7 @@ function renderDecks(decks) {
   container.innerHTML = '';
 
   if (!decks.length) {
-    container.innerHTML = '<p style="color:var(--muted);padding:40px 0">No decks built yet.</p>';
+    container.innerHTML = '<p style="color:var(--color-text);opacity:0.55;padding:40px 0">No decks built yet.</p>';
     return;
   }
 
@@ -660,7 +659,7 @@ function renderDecks(decks) {
   for (const [boxName, boxDecks] of Object.entries(byBox)) {
     const section = document.createElement('div');
     section.className = 'box-section';
-    section.innerHTML = `<div class="box-title">📦 ${boxName}</div>`;
+    section.innerHTML = `<div class="box-title">${boxName}</div>`;
 
     for (const deck of boxDecks) {
       const total = deck.cards.reduce((s, c) => s + c.quantity, 0);
@@ -672,16 +671,16 @@ function renderDecks(decks) {
       item.className = 'deck-item';
       item.innerHTML = `
         <div class="deck-header" onclick="toggleDeck(this)">
-          <span class="chevron">▶</span>
+          <span class="chevron">&#9656;</span>
           <div>
             <div class="deck-name">${deck.deck_name}</div>
             <div class="deck-meta">Built ${builtDate} · ${total} cards${proxyNote}</div>
           </div>
           <a class="deck-url" href="${deck.deck_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">View list ↗</a>
         </div>
-        <div class="deck-cards"></div>`;
+        <div class="deck-cards"><div class="card-grid"></div></div>`;
 
-      const cardsDiv = item.querySelector('.deck-cards');
+      const cardsDiv = item.querySelector('.card-grid');
       for (const c of deck.cards) {
         const overlay = c.is_proxy ? 'PROXY' : null;
         cardsDiv.appendChild(makeCard(c.name, c.set_code, c.collector_number, `×${c.quantity}`, '', overlay));
