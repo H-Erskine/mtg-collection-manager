@@ -1,9 +1,9 @@
-!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MTG Collection â€” Admin â€” User</title>
+<title>MTG Collection — Admin — User</title>
 <link rel="stylesheet" href="/static/modernist.css">
 <style>
   .nav-link { padding: 0 var(--space-3); color: color-mix(in srgb, var(--color-text) 55%, transparent); text-decoration: none; font-size: 13px; height: 100%; display: flex; align-items: center; }
@@ -33,18 +33,18 @@
 <body>
 
 <nav class="nav">
-  <div class="nav-brand">âš” MTG Collection</div>
+  <div class="nav-brand">MTG Collection</div>
   <a class="nav-link" href="/app#collection">Collection</a>
   <a class="nav-link" href="/app#decks">Decks</a>
   <a class="nav-link" href="/app#missing">Missing</a>
   <a class="nav-link" href="/config">Config</a>
   <a class="nav-link" href="/admin">Admin</a>
-  <div class="nav-meta" id="nav-identity">Loadingâ€¦</div>
+  <div class="nav-meta" id="nav-identity">Loading…</div>
 </nav>
 
 <div class="page">
-  <a class="back-link" href="/admin">â† Back to Admin</a>
-  <h1 id="page-title">Loadingâ€¦</h1>
+  <a class="back-link" href="/admin">← Back to Admin</a>
+  <h1 id="page-title">Loading…</h1>
 
   <div id="not-found" class="empty" style="display:none">User not found.</div>
 
@@ -179,7 +179,7 @@ async function loadWhoami() {
     const data = await res.json();
     const el = document.getElementById('nav-identity');
     el.innerHTML = '';
-    el.append(data.email + ' Â· ');
+    el.append(data.email + ' · ');
     const logout = document.createElement('span');
     logout.className = 'nav-logout';
     logout.textContent = 'Logout';
@@ -193,4 +193,3 @@ loadWhoami();
 </script>
 </body>
 </html>
-
