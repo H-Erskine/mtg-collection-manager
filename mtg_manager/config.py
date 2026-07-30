@@ -9,6 +9,13 @@ class MoxfieldPackage:
     public_id: str
 
 
+@dataclass
+class SalePackage:
+    color_group: str
+    public_id: str
+    price: float
+
+
 PICK_LIST_SORT_OPTIONS = ("colour", "alphabetical", "set", "cmc")
 
 
@@ -22,6 +29,9 @@ class Config:
     pick_list_sort: str = "colour"
     formats: list[str] = field(default_factory=list)
     web_static_dir: Path | None = None
+    sale_packages: list[SalePackage] = field(default_factory=list)
+    wants_packages: list[MoxfieldPackage] = field(default_factory=list)
+    deck_packages: list[MoxfieldPackage] = field(default_factory=list)
 
 
 DEFAULT_CONFIG = Path("~/.mtg_manager/config.toml").expanduser()

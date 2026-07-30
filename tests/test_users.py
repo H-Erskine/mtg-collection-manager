@@ -40,7 +40,7 @@ def test_get_user_config_returns_none_for_unknown():
 
 def test_get_user_config_returns_config_for_known(tmp_path):
     users_mod.ensure_user("discord:222")
-    users_mod.add_package("discord:222", "Red", "abc123")
+    users_mod.add_package("discord:222", "collection", "Red", "abc123")
     cfg = users_mod.get_user_config("discord:222")
     assert cfg is not None
     assert len(cfg.packages) == 1
@@ -50,38 +50,81 @@ def test_get_user_config_returns_config_for_known(tmp_path):
 
 def test_add_and_list_packages():
     users_mod.ensure_user("discord:333")
-    users_mod.add_package("discord:333", "White", "w1")
-    users_mod.add_package("discord:333", "Blue", "u1")
+    users_mod.add_package("discord:333", "collection", "White", "w1")
+    users_mod.add_package("discord:333", "collection", "Blue", "u1")
     pkgs = users_mod.list_packages("discord:333")
-    assert ("Blue", "u1") in pkgs
-    assert ("White", "w1") in pkgs
+    color_groups = {p["color_group"] for p in pkgs}
+    assert color_groups == {"White", "Blue"}
 
 
-def test_add_package_upserts():
+def test_add_package_allows_duplicate_labels_in_same_section():
+    """Any number of packages per section — duplicate labels must not collide or overwrite."""
     users_mod.ensure_user("discord:333")
-    users_mod.add_package("discord:333", "White", "w1")
-    users_mod.add_package("discord:333", "White", "w2")  # update
-    pkgs = dict(users_mod.list_packages("discord:333"))
-    assert pkgs["White"] == "w2"
+    id1 = users_mod.add_package("discord:333", "collection", "White", "w1")
+    id2 = users_mod.add_package("discord:333", "collection", "White", "w2")
+    assert id1 != id2
+    pkgs = users_mod.list_packages("discord:333", section="collection")
+    assert {p["public_id"] for p in pkgs} == {"w1", "w2"}
+
+
+def test_add_package_rejects_invalid_section():
+    users_mod.ensure_user("discord:333")
+    with pytest.raises(ValueError):
+        users_mod.add_package("discord:333", "bogus", "White", "w1")
+
+
+def test_add_sale_package_stores_price():
+    users_mod.ensure_user("discord:333")
+    users_mod.add_package("discord:333", "sale", "Binder A", "s1", price=5.0)
+    pkgs = users_mod.list_packages("discord:333", section="sale")
+    assert pkgs[0]["price"] == 5.0
+
+
+def test_list_packages_filters_by_section():
+    users_mod.ensure_user("discord:333")
+    users_mod.add_package("discord:333", "collection", "White", "w1")
+    users_mod.add_package("discord:333", "sale", "Binder A", "s1", price=5.0)
+    users_mod.add_package("discord:333", "wants", "Wants", "n1")
+    users_mod.add_package("discord:333", "decks", "Burn", "d1")
+
+    assert len(users_mod.list_packages("discord:333", section="collection")) == 1
+    assert len(users_mod.list_packages("discord:333", section="sale")) == 1
+    assert len(users_mod.list_packages("discord:333", section="wants")) == 1
+    assert len(users_mod.list_packages("discord:333", section="decks")) == 1
+    assert len(users_mod.list_packages("discord:333")) == 4
 
 
 def test_remove_package():
     users_mod.ensure_user("discord:444")
-    users_mod.add_package("discord:444", "Green", "g1")
-    removed = users_mod.remove_package("discord:444", "Green")
+    pkg_id = users_mod.add_package("discord:444", "collection", "Green", "g1")
+    removed = users_mod.remove_package("discord:444", pkg_id)
     assert removed
     assert users_mod.list_packages("discord:444") == []
 
 
-def test_remove_package_case_insensitive():
-    users_mod.ensure_user("discord:444")
-    users_mod.add_package("discord:444", "Green", "g1")
-    assert users_mod.remove_package("discord:444", "green")
-
-
 def test_remove_nonexistent_package_returns_false():
     users_mod.ensure_user("discord:444")
-    assert not users_mod.remove_package("discord:444", "Nonexistent")
+    assert not users_mod.remove_package("discord:444", 999999)
+
+
+def test_get_user_config_splits_packages_by_section():
+    users_mod.ensure_user("discord:222")
+    users_mod.add_package("discord:222", "collection", "Red", "c1")
+    users_mod.add_package("discord:222", "sale", "Binder A", "s1", price=7.5)
+    users_mod.add_package("discord:222", "wants", "Wants", "n1")
+    users_mod.add_package("discord:222", "decks", "Burn", "d1")
+
+    cfg = users_mod.get_user_config("discord:222")
+
+    assert len(cfg.packages) == 1
+    assert cfg.packages[0].color_group == "Red"
+    assert len(cfg.sale_packages) == 1
+    assert cfg.sale_packages[0].color_group == "Binder A"
+    assert cfg.sale_packages[0].price == 7.5
+    assert len(cfg.wants_packages) == 1
+    assert cfg.wants_packages[0].color_group == "Wants"
+    assert len(cfg.deck_packages) == 1
+    assert cfg.deck_packages[0].color_group == "Burn"
 
 
 def test_set_sort_valid():
@@ -259,7 +302,7 @@ def test_get_user_config_google_owner_uses_registry_packages(tmp_path, monkeypat
     monkeypatch.setattr("mtg_manager.config.DEFAULT_CONFIG", toml)
 
     users_mod.ensure_user("google:owner@example.com")
-    users_mod.add_package("google:owner@example.com", "Blue", "registry-package")
+    users_mod.add_package("google:owner@example.com", "collection", "Blue", "registry-package")
 
     cfg = users_mod.get_user_config("google:owner@example.com")
     assert cfg is not None
@@ -355,7 +398,7 @@ def test_profile_migration_safe_on_fresh_registry(tmp_path, monkeypatch):
 def test_remove_whitelisted_user_deletes_everything(tmp_path, monkeypatch):
     monkeypatch.setattr(users_mod, "_USERS_DIR", tmp_path / "users")
     users_mod.ensure_user("google:alice@example.com")
-    users_mod.add_package("google:alice@example.com", "Red", "abc123")
+    users_mod.add_package("google:alice@example.com", "collection", "Red", "abc123")
     users_mod.add_whitelisted_email("alice@example.com")
 
     # Force creation of alice's per-user db file on disk

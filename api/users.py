@@ -19,7 +19,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from mtg_manager.config import Config, MoxfieldPackage, load_config
+from mtg_manager.config import Config, MoxfieldPackage, SalePackage, load_config
 
 _REGISTRY_PATH = Path("~/mtg_data/registry.sqlite").expanduser()
 _USERS_DIR = Path("~/mtg_data/users").expanduser()
@@ -35,10 +35,13 @@ CREATE TABLE IF NOT EXISTS users (
     onboarded      INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS user_packages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    section     TEXT NOT NULL CHECK (section IN ('collection','sale','wants','decks')),
     color_group TEXT NOT NULL,
     public_id   TEXT NOT NULL,
-    PRIMARY KEY (user_id, color_group)
+    price       REAL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS friend_groups (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,6 +79,7 @@ CREATE INDEX IF NOT EXISTS idx_failed_logins_created_at ON failed_logins(created
 """
 
 VALID_SORT_OPTIONS = ("colour", "alphabetical", "set", "cmc")
+VALID_PACKAGE_SECTIONS = ("collection", "sale", "wants", "decks")
 
 
 def _safe_filename(user_id: str) -> str:
@@ -203,6 +207,69 @@ def _migrate_named_groups(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE user_groups")
 
 
+def _migrate_package_sections(conn: sqlite3.Connection) -> None:
+    """One-time migration of the old (user_id, color_group) keyed user_packages
+    table to the new id-keyed, sectioned schema. Classifies each existing row
+    into collection/sale/wants using the same name-sniffing rules the old
+    runtime code used ($-prefixed name = sale, name == 'Wants' = wants,
+    otherwise collection), so existing users see no behavior change until
+    they manually re-file a package into a different section.
+    """
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "user_packages" not in tables:
+        return
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(user_packages)").fetchall()}
+    if "section" in cols:
+        return  # already migrated
+
+    old_rows = conn.execute(
+        "SELECT user_id, color_group, public_id FROM user_packages"
+    ).fetchall()
+
+    conn.execute("ALTER TABLE user_packages RENAME TO user_packages_old")
+    conn.execute("""
+        CREATE TABLE user_packages (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            section     TEXT NOT NULL CHECK (section IN ('collection','sale','wants','decks')),
+            color_group TEXT NOT NULL,
+            public_id   TEXT NOT NULL,
+            price       REAL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+    from mtg_manager.moxfield import fetch_package_cards
+    from mtg_manager.config import MoxfieldPackage
+    import re as _re
+    price_re = _re.compile(r"^\$(\d+(?:\.\d+)?)")
+
+    for row in old_rows:
+        section = "collection"
+        price = None
+        try:
+            _cards, pkg_name = fetch_package_cards(
+                MoxfieldPackage(color_group=row["color_group"], public_id=row["public_id"])
+            )
+            if pkg_name.startswith("$"):
+                section = "sale"
+                m = price_re.match(pkg_name)
+                price = float(m.group(1)) if m else 0.0
+            elif pkg_name.strip() == "Wants":
+                section = "wants"
+        except Exception:
+            pass  # network/API failure during migration — default to collection, same as an unrecognized name
+        conn.execute(
+            "INSERT INTO user_packages (user_id, section, color_group, public_id, price) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (row["user_id"], section, row["color_group"], row["public_id"], price),
+        )
+
+    conn.execute("DROP TABLE user_packages_old")
+
+
 @contextmanager
 def _registry_conn():
     _REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -211,6 +278,7 @@ def _registry_conn():
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         _migrate_legacy_discord_id(conn)
+        _migrate_package_sections(conn)
         conn.executescript(REGISTRY_SCHEMA)
         _migrate_profile_columns(conn)
         _migrate_onboarding_column(conn)
@@ -294,14 +362,26 @@ def get_user_config(user_id: str) -> Config | None:
             return None
 
         pkg_rows = conn.execute(
-            "SELECT color_group, public_id FROM user_packages "
-            "WHERE user_id = ? ORDER BY color_group",
+            "SELECT section, color_group, public_id, price FROM user_packages "
+            "WHERE user_id = ? ORDER BY section, color_group",
             (user_id,),
         ).fetchall()
 
     packages = [
         MoxfieldPackage(color_group=r["color_group"], public_id=r["public_id"])
-        for r in pkg_rows
+        for r in pkg_rows if r["section"] == "collection"
+    ]
+    sale_packages = [
+        SalePackage(color_group=r["color_group"], public_id=r["public_id"], price=r["price"] or 0.0)
+        for r in pkg_rows if r["section"] == "sale"
+    ]
+    wants_packages = [
+        MoxfieldPackage(color_group=r["color_group"], public_id=r["public_id"])
+        for r in pkg_rows if r["section"] == "wants"
+    ]
+    deck_packages = [
+        MoxfieldPackage(color_group=r["color_group"], public_id=r["public_id"])
+        for r in pkg_rows if r["section"] == "decks"
     ]
     formats = (
         [f.strip() for f in user["formats"].split(",") if f.strip()]
@@ -321,6 +401,9 @@ def get_user_config(user_id: str) -> Config | None:
 
     return Config(
         packages=packages,
+        sale_packages=sale_packages,
+        wants_packages=wants_packages,
+        deck_packages=deck_packages,
         moxfield_delay=1.0,
         mtgtop8_delay=1.5,
         mtgtop8_cache_ttl=24,
@@ -330,39 +413,67 @@ def get_user_config(user_id: str) -> Config | None:
     )
 
 
-def add_package(user_id: str, color_group: str, public_id: str) -> None:
-    """Add or update a Moxfield package for the user."""
-    with _registry_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO user_packages (user_id, color_group, public_id)
-            VALUES (?, ?, ?)
-            ON CONFLICT (user_id, color_group)
-            DO UPDATE SET public_id = excluded.public_id
-            """,
-            (user_id, color_group.strip(), public_id.strip()),
+def add_package(
+    user_id: str,
+    section: str,
+    color_group: str,
+    public_id: str,
+    price: float | None = None,
+) -> int:
+    """Add a new Moxfield package to one of this user's sections. Returns the new row's id.
+
+    Unlike the old color_group-keyed table, this never overwrites an existing
+    row — any number of packages per section is supported.
+    """
+    if section not in VALID_PACKAGE_SECTIONS:
+        raise ValueError(
+            f"Invalid section '{section}'. Must be one of: {', '.join(VALID_PACKAGE_SECTIONS)}"
         )
+    with _registry_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO user_packages (user_id, section, color_group, public_id, price)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, section, color_group.strip(), public_id.strip(), price),
+        )
+        return cur.lastrowid
 
 
-def remove_package(user_id: str, color_group: str) -> bool:
-    """Remove a package by color_group. Returns True if a row was deleted."""
+def remove_package(user_id: str, package_id: int) -> bool:
+    """Remove a package by id. Returns True if a row was deleted."""
     with _registry_conn() as conn:
         conn.execute(
-            "DELETE FROM user_packages WHERE user_id = ? AND LOWER(color_group) = LOWER(?)",
-            (user_id, color_group.strip()),
+            "DELETE FROM user_packages WHERE user_id = ? AND id = ?",
+            (user_id, package_id),
         )
         return conn.total_changes > 0
 
 
-def list_packages(user_id: str) -> list[tuple[str, str]]:
-    """Return [(color_group, public_id), ...] sorted by color_group."""
+def list_packages(user_id: str, section: str | None = None) -> list[dict]:
+    """Return [{"id", "section", "color_group", "public_id", "price"}, ...],
+    optionally filtered to one section, ordered by section then color_group."""
     with _registry_conn() as conn:
-        rows = conn.execute(
-            "SELECT color_group, public_id FROM user_packages "
-            "WHERE user_id = ? ORDER BY color_group",
-            (user_id,),
-        ).fetchall()
-        return [(r["color_group"], r["public_id"]) for r in rows]
+        query = (
+            "SELECT id, section, color_group, public_id, price FROM user_packages "
+            "WHERE user_id = ?"
+        )
+        params: list = [user_id]
+        if section is not None:
+            query += " AND section = ?"
+            params.append(section)
+        query += " ORDER BY section, color_group"
+        rows = conn.execute(query, params).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "section": r["section"],
+                "color_group": r["color_group"],
+                "public_id": r["public_id"],
+                "price": r["price"],
+            }
+            for r in rows
+        ]
 
 
 def _owns_group(conn: sqlite3.Connection, owner_user_id: str, group_id: int) -> bool:
