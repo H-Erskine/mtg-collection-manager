@@ -110,7 +110,7 @@ async function addPackage() {
   const res = await fetch('/api/config/packages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ color_group, public_id }),
+    body: JSON.stringify({ section: 'collection', color_group, public_id }),
   });
   const msg = document.getElementById('pkg-msg');
   msg.textContent = res.ok ? 'Added.' : 'Failed to add package.';
@@ -126,7 +126,7 @@ async function loadPackages() {
   const res = await fetch('/api/config');
   if (!res.ok) return;
   const data = await res.json();
-  packages = data.packages;
+  packages = data.packages.collection;
   renderPackages();
 }
 

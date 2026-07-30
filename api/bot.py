@@ -231,7 +231,7 @@ async def cmd_addpackage(
     section: app_commands.Choice[str],
     color_group: str,
     public_id: str,
-    price: float = None,
+    price: float | None = None,
 ):
     await interaction.response.defer(ephemeral=True)
     discord_id = f"discord:{interaction.user.id}"
