@@ -29,8 +29,8 @@ def _card(name="Lightning Bolt", qty=4, color_group="Red") -> OwnedCard:
 def test_multiple_sale_packages_do_not_wipe_each_other(tmp_path):
     from api.handlers import handle_sync
 
-    pkg_a = SalePackage(color_group="Binder A", public_id="a1", price=5.0)
-    pkg_b = SalePackage(color_group="Binder B", public_id="b1", price=10.0)
+    pkg_a = SalePackage(color_group="Binder A", public_id="a1")
+    pkg_b = SalePackage(color_group="Binder B", public_id="b1")
     cfg = _cfg(tmp_path, sale_packages=[pkg_a, pkg_b])
 
     def fake_fetch(pkg, delay=1.0):
@@ -51,7 +51,7 @@ def test_multiple_sale_packages_do_not_wipe_each_other(tmp_path):
 def test_sale_cards_also_populate_collection(tmp_path):
     from api.handlers import handle_sync
 
-    pkg = SalePackage(color_group="Binder A", public_id="a1", price=5.0)
+    pkg = SalePackage(color_group="Binder A", public_id="a1")
     cfg = _cfg(tmp_path, sale_packages=[pkg])
 
     with patch("api.handlers.fetch_package_cards", return_value=([_card("Lightning Bolt")], "$5")):
@@ -62,7 +62,7 @@ def test_sale_cards_also_populate_collection(tmp_path):
         for_sale = list_for_sale_cards(conn)
 
     assert owned == 4
-    assert for_sale[0]["price"] == 5.0
+    assert for_sale[0]["name"] == "Lightning Bolt"
 
 
 def test_multiple_wants_packages_do_not_wipe_each_other(tmp_path):
@@ -240,7 +240,7 @@ def test_sale_package_fetch_failure_does_not_wipe_existing_sale_data(tmp_path):
     only happen after a successful fetch, never unconditionally up front."""
     from api.handlers import handle_sync
 
-    pkg = SalePackage(color_group="Binder A", public_id="a1", price=5.0)
+    pkg = SalePackage(color_group="Binder A", public_id="a1")
     cfg = _cfg(tmp_path, sale_packages=[pkg])
 
     with patch("api.handlers.fetch_package_cards", return_value=([_card("Lightning Bolt")], "$5")):
@@ -296,7 +296,6 @@ def test_legacy_cli_style_config_routes_dollar_and_wants_packages_correctly(tmp_
         goblin_owned = get_owned_quantity(conn, "Goblin Guide")
 
     assert {r["name"] for r in for_sale} == {"Lightning Bolt"}
-    assert for_sale[0]["price"] == 5.0
     assert {r["name"] for r in wants} == {"Brainstorm"}
     assert bolt_owned == 4  # sale cards also populate the collection
     assert brainstorm_owned == 0  # wants cards never populate the collection

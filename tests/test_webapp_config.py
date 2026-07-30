@@ -126,7 +126,7 @@ def test_add_package_extracts_slug_from_full_url(tmp_path, monkeypatch):
     assert collection[0]["public_id"] == "abc123"
 
 
-def test_add_sale_package_requires_price(tmp_path, monkeypatch):
+def test_add_sale_package(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:alice@example.com")
 
@@ -137,25 +137,11 @@ def test_add_sale_package_requires_price(tmp_path, monkeypatch):
             "/api/config/packages",
             json={"section": "sale", "color_group": "Binder A", "public_id": "s1"},
         )
-
-    assert response.status_code == 400
-
-
-def test_add_sale_package_with_price(tmp_path, monkeypatch):
-    client = _client(tmp_path, monkeypatch)
-    ensure_user("google:alice@example.com")
-
-    with client as c:
-        with c.session_transaction() as session:
-            session["user_id"] = "google:alice@example.com"
-        c.post(
-            "/api/config/packages",
-            json={"section": "sale", "color_group": "Binder A", "public_id": "s1", "price": 5.0},
-        )
         get_response = c.get("/api/config")
 
+    assert response.status_code == 200
     sale = get_response.json()["packages"]["sale"]
-    assert sale[0]["price"] == 5.0
+    assert sale[0]["color_group"] == "Binder A"
 
 
 def test_remove_package(tmp_path, monkeypatch):

@@ -49,7 +49,6 @@ class PackageIn(BaseModel):
     section: str
     color_group: str
     public_id: str
-    price: float | None = None
 
 
 class SortIn(BaseModel):
@@ -107,7 +106,7 @@ async def get_config(request: Request, cfg: Config = Depends(require_user)):
     by_section: dict[str, list[dict]] = {"collection": [], "sale": [], "wants": [], "decks": []}
     for p in all_pkgs:
         by_section[p["section"]].append(
-            {"id": p["id"], "color_group": p["color_group"], "public_id": p["public_id"], "price": p["price"]}
+            {"id": p["id"], "color_group": p["color_group"], "public_id": p["public_id"]}
         )
     own = get_profiles_by_ids({user_id})
     profile = own[0] if own else {"display_name": user_id, "icon": "🂠"}
@@ -128,11 +127,9 @@ async def get_config(request: Request, cfg: Config = Depends(require_user)):
 @router.post("/api/config/packages")
 def add_config_package(request: Request, body: PackageIn, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
-    if body.section == "sale" and body.price is None:
-        raise HTTPException(status_code=400, detail="Sale packages require a price.")
     public_id = public_id_from_url(body.public_id) or body.public_id.strip()
     try:
-        package_id = add_package(user_id, body.section, body.color_group, public_id, body.price)
+        package_id = add_package(user_id, body.section, body.color_group, public_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "id": package_id, "auto_sync": _trigger_auto_sync(user_id)}

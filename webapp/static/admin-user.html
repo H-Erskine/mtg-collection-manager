@@ -46,7 +46,7 @@
     <div class="flush-section">
       <h2>Moxfield packages</h2>
       <table class="table" id="packages-table">
-        <thead><tr><th>Section</th><th>Color group</th><th>Public ID</th><th>Price</th></tr></thead>
+        <thead><tr><th>Section</th><th>Color group</th><th>Public ID</th></tr></thead>
         <tbody></tbody>
       </table>
       <div id="packages-empty" class="empty" style="display:none">No packages configured.</div>
@@ -120,7 +120,7 @@ function renderPackages(packages) {
   document.getElementById('packages-empty').style.display = packages.length ? 'none' : 'block';
   for (const p of packages) {
     const tr = document.createElement('tr');
-    const cells = [p.section, p.color_group, p.public_id, p.price != null ? p.price : '—'];
+    const cells = [p.section, p.color_group, p.public_id];
     for (const value of cells) {
       const td = document.createElement('td');
       td.textContent = value;

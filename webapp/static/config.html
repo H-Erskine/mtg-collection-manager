@@ -77,7 +77,6 @@
     <div class="inline-form">
       <input class="input" id="pkg-sale-color" placeholder="Label (e.g. Binder A)">
       <input class="input" id="pkg-sale-id" placeholder="Moxfield URL or public_id">
-      <input class="input" id="pkg-sale-price" type="number" step="0.01" placeholder="Price">
       <button class="btn btn-primary" onclick="addPackage('sale')">Add</button>
     </div>
   </div>
@@ -220,9 +219,8 @@ function renderPackageSection(section, packages) {
   for (const p of packages) {
     const row = document.createElement('div');
     row.className = 'row';
-    const priceLabel = section === 'sale' ? ` — €${p.price ?? 0}` : '';
     row.innerHTML = `
-      <span><strong>${p.color_group}</strong>${priceLabel}</span>
+      <span><strong>${p.color_group}</strong></span>
       <span>
         <a class="moxfield-link" href="https://www.moxfield.com/decks/${encodeURIComponent(p.public_id)}" target="_blank" rel="noopener">View on Moxfield ↗</a>
       </span>
@@ -243,11 +241,6 @@ async function addPackage(section) {
   if ((section !== 'decks' && !color_group) || !public_id) return;
 
   const body = { section, color_group, public_id };
-  if (section === 'sale') {
-    const priceInput = document.getElementById('pkg-sale-price');
-    body.price = parseFloat(priceInput.value);
-    if (!Number.isFinite(body.price)) return;
-  }
 
   const res = await fetch('/api/config/packages', {
     method: 'POST',
@@ -261,9 +254,6 @@ async function addPackage(section) {
   if (res.ok) {
     if (colorInput) colorInput.value = '';
     document.getElementById(`pkg-${section}-id`).value = '';
-    if (section === 'sale') {
-      document.getElementById('pkg-sale-price').value = '';
-    }
     loadConfig();
     showAutoSyncStatus(data.auto_sync);
   }

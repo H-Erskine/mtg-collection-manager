@@ -13,7 +13,6 @@ class MoxfieldPackage:
 class SalePackage:
     color_group: str
     public_id: str
-    price: float
 
 
 PICK_LIST_SORT_OPTIONS = ("colour", "alphabetical", "set", "cmc")

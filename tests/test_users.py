@@ -95,17 +95,10 @@ def test_add_package_rejects_invalid_section():
         users_mod.add_package("discord:333", "bogus", "White", "w1")
 
 
-def test_add_sale_package_stores_price():
-    users_mod.ensure_user("discord:333")
-    users_mod.add_package("discord:333", "sale", "Binder A", "s1", price=5.0)
-    pkgs = users_mod.list_packages("discord:333", section="sale")
-    assert pkgs[0]["price"] == 5.0
-
-
 def test_list_packages_filters_by_section():
     users_mod.ensure_user("discord:333")
     users_mod.add_package("discord:333", "collection", "White", "w1")
-    users_mod.add_package("discord:333", "sale", "Binder A", "s1", price=5.0)
+    users_mod.add_package("discord:333", "sale", "Binder A", "s1")
     users_mod.add_package("discord:333", "wants", "Wants", "n1")
     users_mod.add_package("discord:333", "decks", "Burn", "d1")
 
@@ -132,7 +125,7 @@ def test_remove_nonexistent_package_returns_false():
 def test_get_user_config_splits_packages_by_section():
     users_mod.ensure_user("discord:222")
     users_mod.add_package("discord:222", "collection", "Red", "c1")
-    users_mod.add_package("discord:222", "sale", "Binder A", "s1", price=7.5)
+    users_mod.add_package("discord:222", "sale", "Binder A", "s1")
     users_mod.add_package("discord:222", "wants", "Wants", "n1")
     users_mod.add_package("discord:222", "decks", "Burn", "d1")
 
@@ -142,7 +135,6 @@ def test_get_user_config_splits_packages_by_section():
     assert cfg.packages[0].color_group == "Red"
     assert len(cfg.sale_packages) == 1
     assert cfg.sale_packages[0].color_group == "Binder A"
-    assert cfg.sale_packages[0].price == 7.5
     assert len(cfg.wants_packages) == 1
     assert cfg.wants_packages[0].color_group == "Wants"
     assert len(cfg.deck_packages) == 1

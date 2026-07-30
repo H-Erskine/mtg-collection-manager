@@ -357,7 +357,7 @@ def get_user_config(user_id: str) -> Config | None:
         for r in pkg_rows if r["section"] == "collection"
     ]
     sale_packages = [
-        SalePackage(color_group=r["color_group"], public_id=r["public_id"], price=r["price"] or 0.0)
+        SalePackage(color_group=r["color_group"], public_id=r["public_id"])
         for r in pkg_rows if r["section"] == "sale"
     ]
     wants_packages = [

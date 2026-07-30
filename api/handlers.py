@@ -11,7 +11,6 @@ does not call these handlers.
 from __future__ import annotations
 
 import logging
-import re
 from collections import defaultdict
 from uuid import uuid4
 
@@ -82,9 +81,6 @@ def _format_card_tag(foil: bool, set_code: str, basic: bool = False) -> str:
     return "".join(parts)
 
 
-_LEGACY_PRICE_RE = re.compile(r"^\$(\d+(?:\.\d+)?)")
-
-
 def _classify_legacy_packages(
     cfg: Config, delay: float
 ) -> tuple[list, list, list, dict[str, tuple[list, str]], list[str]]:
@@ -125,9 +121,7 @@ def _classify_legacy_packages(
 
         prefetched[pkg.public_id] = (cards, name)
         if name.startswith("$"):
-            m = _LEGACY_PRICE_RE.match(name)
-            price = float(m.group(1)) if m else 0.0
-            sale.append(SalePackage(color_group=pkg.color_group, public_id=pkg.public_id, price=price))
+            sale.append(SalePackage(color_group=pkg.color_group, public_id=pkg.public_id))
         elif name.strip() == "Wants":
             wants.append(MoxfieldPackage(color_group=pkg.color_group, public_id=pkg.public_id))
         else:
@@ -208,7 +202,9 @@ def _auto_sync(cfg: Config, conn) -> list[str]:
                 clear_color_group(conn, pkg.color_group)
                 cleared_labels.add(pkg.color_group)
             upsert_cards(conn, cards)
-            upsert_for_sale_cards(conn, cards, pkg.price)
+            # Seed price at 0.0 — the CardMarket price sync right after this loop
+            # overwrites it with the real market price for every for-sale card.
+            upsert_for_sale_cards(conn, cards, 0.0)
     # else: sale_pkgs is non-empty but every fetch failed this run — leave the
     # existing for_sale_cards data untouched rather than truncating it.
 
@@ -356,7 +352,9 @@ def handle_sync(cfg: Config, is_owner: bool = False, color_group: str | None = N
                         clear_color_group(conn, pkg.color_group)
                         cleared_labels.add(pkg.color_group)
                     upsert_cards(conn, cards)
-                    upsert_for_sale_cards(conn, cards, pkg.price)
+                    # Seed price at 0.0 — the CardMarket price sync right after this loop
+                    # overwrites it with the real market price for every for-sale card.
+                    upsert_for_sale_cards(conn, cards, 0.0)
                     lines.append(f"{pkg.color_group} [for sale]: {sum(c.quantity for c in cards)} cards ({len(cards)} unique)")
             # else: sale_pkgs configured but every fetch failed — leave existing
             # for_sale_cards data untouched rather than truncating it.

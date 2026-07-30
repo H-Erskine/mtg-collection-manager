@@ -218,7 +218,6 @@ async def cmd_setup(interaction: discord.Interaction):
     section="Which section this package belongs to",
     color_group="Label for this package (e.g. White, Blue, Multicolour)",
     public_id="The slug at the end of your Moxfield deck URL",
-    price="Sale price for all cards in this package (required for section=sale)",
 )
 @app_commands.choices(section=[
     app_commands.Choice(name="Collection", value="collection"),
@@ -231,7 +230,6 @@ async def cmd_addpackage(
     section: app_commands.Choice[str],
     color_group: str,
     public_id: str,
-    price: float | None = None,
 ):
     await interaction.response.defer(ephemeral=True)
     discord_id = f"discord:{interaction.user.id}"
@@ -244,12 +242,8 @@ async def cmd_addpackage(
         await _send_embed(interaction, "Run `/setup` first.", title="Not Registered", color=COLOR_ERROR)
         return
 
-    if section.value == "sale" and price is None:
-        await _send_embed(interaction, "Sale packages require a `price`.", title="Missing Price", color=COLOR_ERROR)
-        return
-
     await asyncio.get_event_loop().run_in_executor(
-        None, users.add_package, discord_id, section.value, color_group, public_id, price
+        None, users.add_package, discord_id, section.value, color_group, public_id
     )
     pkgs = await asyncio.get_event_loop().run_in_executor(None, users.list_packages, discord_id)
     pkg_lines = "\n".join(f"  [{p['section']}] {p['color_group']} → `{p['public_id']}`" for p in pkgs)
