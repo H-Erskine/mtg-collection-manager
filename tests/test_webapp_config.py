@@ -80,7 +80,7 @@ def test_get_config_returns_defaults_for_new_user(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["packages"] == []
+    assert data["packages"] == {"collection": [], "sale": [], "wants": [], "decks": []}
     assert data["formats"] == []
     assert data["pick_list_sort"] == "colour"
     assert data["is_admin"] is False
@@ -93,11 +93,17 @@ def test_add_and_list_package(tmp_path, monkeypatch):
     with client as c:
         with c.session_transaction() as session:
             session["user_id"] = "google:alice@example.com"
-        add_response = c.post("/api/config/packages", json={"color_group": "Red", "public_id": "abc123"})
+        add_response = c.post(
+            "/api/config/packages",
+            json={"section": "collection", "color_group": "Red", "public_id": "abc123"},
+        )
         get_response = c.get("/api/config")
 
     assert add_response.status_code == 200
-    assert get_response.json()["packages"] == [{"color_group": "Red", "public_id": "abc123"}]
+    collection = get_response.json()["packages"]["collection"]
+    assert len(collection) == 1
+    assert collection[0]["color_group"] == "Red"
+    assert collection[0]["public_id"] == "abc123"
 
 
 def test_add_package_extracts_slug_from_full_url(tmp_path, monkeypatch):
@@ -109,12 +115,47 @@ def test_add_package_extracts_slug_from_full_url(tmp_path, monkeypatch):
             session["user_id"] = "google:alice@example.com"
         add_response = c.post(
             "/api/config/packages",
-            json={"color_group": "Red", "public_id": "https://www.moxfield.com/decks/abc123"},
+            json={"section": "collection", "color_group": "Red", "public_id": "https://www.moxfield.com/decks/abc123"},
         )
         get_response = c.get("/api/config")
 
     assert add_response.status_code == 200
-    assert get_response.json()["packages"] == [{"color_group": "Red", "public_id": "abc123"}]
+    collection = get_response.json()["packages"]["collection"]
+    assert len(collection) == 1
+    assert collection[0]["color_group"] == "Red"
+    assert collection[0]["public_id"] == "abc123"
+
+
+def test_add_sale_package_requires_price(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        response = c.post(
+            "/api/config/packages",
+            json={"section": "sale", "color_group": "Binder A", "public_id": "s1"},
+        )
+
+    assert response.status_code == 400
+
+
+def test_add_sale_package_with_price(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ensure_user("google:alice@example.com")
+
+    with client as c:
+        with c.session_transaction() as session:
+            session["user_id"] = "google:alice@example.com"
+        c.post(
+            "/api/config/packages",
+            json={"section": "sale", "color_group": "Binder A", "public_id": "s1", "price": 5.0},
+        )
+        get_response = c.get("/api/config")
+
+    sale = get_response.json()["packages"]["sale"]
+    assert sale[0]["price"] == 5.0
 
 
 def test_remove_package(tmp_path, monkeypatch):
@@ -124,12 +165,16 @@ def test_remove_package(tmp_path, monkeypatch):
     with client as c:
         with c.session_transaction() as session:
             session["user_id"] = "google:alice@example.com"
-        c.post("/api/config/packages", json={"color_group": "Red", "public_id": "abc123"})
-        remove_response = c.delete("/api/config/packages/Red")
+        add_response = c.post(
+            "/api/config/packages",
+            json={"section": "collection", "color_group": "Red", "public_id": "abc123"},
+        )
+        package_id = add_response.json()["id"]
+        remove_response = c.delete(f"/api/config/packages/{package_id}")
         get_response = c.get("/api/config")
 
     assert remove_response.status_code == 200
-    assert get_response.json()["packages"] == []
+    assert get_response.json()["packages"]["collection"] == []
 
 
 def test_set_sort_valid(tmp_path, monkeypatch):
@@ -191,7 +236,7 @@ def test_set_profile(tmp_path, monkeypatch):
 def test_sync_calls_handle_sync_and_marks_synced(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:alice@example.com")
-    add_package("google:alice@example.com", "Red", "some-package-id")
+    add_package("google:alice@example.com", "collection", "Red", "some-package-id")
 
     with patch.object(config_mod, "handle_sync", return_value="Synced 3 cards.") as mock_sync:
         with client as c:
@@ -222,7 +267,7 @@ def test_sync_rejects_when_no_packages_configured(tmp_path, monkeypatch):
 def test_sync_throttled_returns_429(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:alice@example.com")
-    add_package("google:alice@example.com", "Red", "some-package-id")
+    add_package("google:alice@example.com", "collection", "Red", "some-package-id")
 
     from api.users import mark_synced
     mark_synced("google:alice@example.com")
@@ -241,7 +286,7 @@ def test_sync_skips_throttle_for_owner(tmp_path, monkeypatch):
     monkeypatch.setenv("OWNER_GOOGLE_EMAIL", "owner@example.com")
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:owner@example.com")
-    add_package("google:owner@example.com", "Red", "some-package-id")
+    add_package("google:owner@example.com", "collection", "Red", "some-package-id")
 
     from api.users import mark_synced
     mark_synced("google:owner@example.com")  # just synced 0 minutes ago
@@ -285,7 +330,7 @@ def test_sync_still_throttles_non_owner(tmp_path, monkeypatch):
     monkeypatch.delenv("OWNER_GOOGLE_EMAIL", raising=False)
     client = _client(tmp_path, monkeypatch)
     ensure_user("google:alice@example.com")
-    add_package("google:alice@example.com", "Red", "some-package-id")
+    add_package("google:alice@example.com", "collection", "Red", "some-package-id")
 
     from api.users import mark_synced
     mark_synced("google:alice@example.com")
@@ -309,7 +354,10 @@ def test_add_package_triggers_auto_sync(tmp_path, monkeypatch):
         with client as c:
             with c.session_transaction() as session:
                 session["user_id"] = "google:alice@example.com"
-            response = c.post("/api/config/packages", json={"color_group": "Red", "public_id": "some-id"})
+            response = c.post(
+                "/api/config/packages",
+                json={"section": "collection", "color_group": "Red", "public_id": "some-id"},
+            )
 
     assert response.status_code == 200
     assert response.json()["auto_sync"] == {"synced": True, "message": "Synced."}
@@ -326,7 +374,10 @@ def test_add_package_auto_sync_throttled_within_60_seconds(tmp_path, monkeypatch
         with client as c:
             with c.session_transaction() as session:
                 session["user_id"] = "google:alice@example.com"
-            response = c.post("/api/config/packages", json={"color_group": "Blue", "public_id": "another-id"})
+            response = c.post(
+                "/api/config/packages",
+                json={"section": "collection", "color_group": "Blue", "public_id": "another-id"},
+            )
 
     assert response.status_code == 200
     body = response.json()["auto_sync"]
@@ -339,13 +390,13 @@ def test_remove_package_triggers_auto_sync(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     from api.users import add_package, ensure_user
     ensure_user("google:alice@example.com")
-    add_package("google:alice@example.com", "Red", "some-id")
+    package_id = add_package("google:alice@example.com", "collection", "Red", "some-id")
 
     with patch.object(config_mod, "handle_sync", return_value="Synced.") as mock_sync:
         with client as c:
             with c.session_transaction() as session:
                 session["user_id"] = "google:alice@example.com"
-            response = c.delete("/api/config/packages/Red")
+            response = c.delete(f"/api/config/packages/{package_id}")
 
     assert response.status_code == 200
     assert response.json()["auto_sync"]["synced"] is True

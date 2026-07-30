@@ -46,8 +46,10 @@ AUTO_SYNC_THROTTLE_SECONDS = 60
 
 
 class PackageIn(BaseModel):
+    section: str
     color_group: str
     public_id: str
+    price: float | None = None
 
 
 class SortIn(BaseModel):
@@ -101,11 +103,16 @@ def _trigger_auto_sync(user_id: str) -> dict:
 @router.get("/api/config")
 async def get_config(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
-    pkgs = list_packages(user_id)
+    all_pkgs = list_packages(user_id)
+    by_section: dict[str, list[dict]] = {"collection": [], "sale": [], "wants": [], "decks": []}
+    for p in all_pkgs:
+        by_section[p["section"]].append(
+            {"id": p["id"], "color_group": p["color_group"], "public_id": p["public_id"], "price": p["price"]}
+        )
     own = get_profiles_by_ids({user_id})
     profile = own[0] if own else {"display_name": user_id, "icon": "🂠"}
     return {
-        "packages": [{"color_group": cg, "public_id": pid} for cg, pid in pkgs],
+        "packages": by_section,
         "formats": cfg.formats,
         "pick_list_sort": cfg.pick_list_sort,
         "minutes_since_last_sync": minutes_since_last_sync(user_id),
@@ -121,15 +128,20 @@ async def get_config(request: Request, cfg: Config = Depends(require_user)):
 @router.post("/api/config/packages")
 def add_config_package(request: Request, body: PackageIn, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
+    if body.section == "sale" and body.price is None:
+        raise HTTPException(status_code=400, detail="Sale packages require a price.")
     public_id = public_id_from_url(body.public_id) or body.public_id.strip()
-    add_package(user_id, body.color_group, public_id)
-    return {"ok": True, "auto_sync": _trigger_auto_sync(user_id)}
+    try:
+        package_id = add_package(user_id, body.section, body.color_group, public_id, body.price)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "id": package_id, "auto_sync": _trigger_auto_sync(user_id)}
 
 
-@router.delete("/api/config/packages/{color_group}")
-def remove_config_package(request: Request, color_group: str, cfg: Config = Depends(require_user)):
+@router.delete("/api/config/packages/{package_id}")
+def remove_config_package(request: Request, package_id: int, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
-    remove_package(user_id, color_group)
+    remove_package(user_id, package_id)
     return {"ok": True, "auto_sync": _trigger_auto_sync(user_id)}
 
 
@@ -199,7 +211,7 @@ def sync_now(request: Request, cfg: Config = Depends(require_user)):
     user_id = request.session["user_id"]
     owner = is_owner(user_id)
 
-    if not cfg.packages:
+    if not (cfg.packages or cfg.sale_packages or cfg.wants_packages or cfg.deck_packages):
         raise HTTPException(
             status_code=400,
             detail="No Moxfield packages added yet. Add at least one package before syncing.",
