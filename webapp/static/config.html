@@ -64,7 +64,7 @@
 
     <h3>Collection</h3>
     <div id="packages-list-collection"></div>
-    <div class="add-row">
+    <div class="inline-form">
       <input id="pkg-collection-color" placeholder="Label (e.g. White)">
       <input id="pkg-collection-id" placeholder="Moxfield URL or public_id">
       <button onclick="addPackage('collection')">Add</button>
@@ -74,7 +74,7 @@
   <div class="flush-section">
     <h3>Sale</h3>
     <div id="packages-list-sale"></div>
-    <div class="add-row">
+    <div class="inline-form">
       <input id="pkg-sale-color" placeholder="Label (e.g. Binder A)">
       <input id="pkg-sale-id" placeholder="Moxfield URL or public_id">
       <input id="pkg-sale-price" type="number" step="0.01" placeholder="Price">
@@ -85,7 +85,7 @@
   <div class="flush-section">
     <h3>Wants</h3>
     <div id="packages-list-wants"></div>
-    <div class="add-row">
+    <div class="inline-form">
       <input id="pkg-wants-color" placeholder="Label (e.g. Wants)">
       <input id="pkg-wants-id" placeholder="Moxfield URL or public_id">
       <button onclick="addPackage('wants')">Add</button>
@@ -95,7 +95,7 @@
   <div class="flush-section">
     <h3>Decks</h3>
     <div id="packages-list-decks"></div>
-    <div class="add-row">
+    <div class="inline-form">
       <input id="pkg-decks-id" placeholder="Moxfield deck URL or public_id">
       <button onclick="addPackage('decks')">Add</button>
     </div>
@@ -219,7 +219,7 @@ function renderPackageSection(section, packages) {
   }
   for (const p of packages) {
     const row = document.createElement('div');
-    row.className = 'package-row';
+    row.className = 'row';
     const priceLabel = section === 'sale' ? ` — €${p.price ?? 0}` : '';
     row.innerHTML = `
       <span><strong>${p.color_group}</strong>${priceLabel}</span>
