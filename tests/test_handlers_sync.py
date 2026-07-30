@@ -100,3 +100,29 @@ def test_wants_cards_do_not_populate_collection(tmp_path):
         owned = get_owned_quantity(conn, "Lightning Bolt")
 
     assert owned == 0
+
+
+def test_auto_sync_failed_fetch_does_not_wipe_existing_collection(tmp_path):
+    """A transient fetch failure in _auto_sync must not clear existing owned_cards
+    for that color group — only fetch-then-clear-then-upsert should ever wipe data."""
+    from api.handlers import _auto_sync
+    from mtg_manager.db import upsert_cards
+
+    pkg = MoxfieldPackage(color_group="Red", public_id="r1")
+    cfg = _cfg(tmp_path, packages=[pkg])
+
+    with get_conn(cfg.db_path) as conn:
+        upsert_cards(conn, [_card("Lightning Bolt", color_group="Red")])
+        owned_before = get_owned_quantity(conn, "Lightning Bolt")
+    assert owned_before == 4
+
+    with patch("api.handlers.fetch_package_cards", side_effect=Exception("boom")):
+        with get_conn(cfg.db_path) as conn:
+            warnings = _auto_sync(cfg, conn)
+
+    assert any("Red" in w for w in warnings)
+
+    with get_conn(cfg.db_path) as conn:
+        owned_after = get_owned_quantity(conn, "Lightning Bolt")
+
+    assert owned_after == 4

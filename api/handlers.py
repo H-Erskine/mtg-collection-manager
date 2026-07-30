@@ -105,16 +105,16 @@ def _auto_sync(cfg: Config, conn) -> list[str]:
 
     for pkg in cfg.packages:
         try:
-            clear_color_group(conn, pkg.color_group)
             cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+            clear_color_group(conn, pkg.color_group)
             upsert_cards(conn, cards)
         except Exception as e:
             warnings.append(f"Sync warning ({pkg.color_group}): {e}")
 
     for pkg in cfg.sale_packages:
         try:
-            clear_color_group(conn, pkg.color_group)
             cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+            clear_color_group(conn, pkg.color_group)
             upsert_cards(conn, cards)
             upsert_for_sale_cards(conn, cards, pkg.price)
         except Exception as e:
