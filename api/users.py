@@ -209,11 +209,20 @@ def _migrate_named_groups(conn: sqlite3.Connection) -> None:
 
 def _migrate_package_sections(conn: sqlite3.Connection) -> None:
     """One-time migration of the old (user_id, color_group) keyed user_packages
-    table to the new id-keyed, sectioned schema. Classifies each existing row
-    into collection/sale/wants using the same name-sniffing rules the old
-    runtime code used ($-prefixed name = sale, name == 'Wants' = wants,
-    otherwise collection), so existing users see no behavior change until
-    they manually re-file a package into a different section.
+    table to the new id-keyed, sectioned schema. Every existing row is filed
+    under section='collection' with no price — purely local DDL+DML, no
+    network calls, so it cannot partially fail in a way that loses data.
+
+    (An earlier version of this migration made a live Moxfield API call per
+    row to reclassify sale/wants packages by name. That made the migration
+    slow, network-dependent, and non-atomic: the rename+create is auto-committed
+    DDL, so a crash partway through the classification loop stranded the
+    original data in user_packages_old with the new table only partially
+    populated, and the next startup would see the already-migrated schema and
+    skip re-running, silently losing whatever hadn't been copied yet. Filing
+    everything as 'collection' is a deliberate, safe default — existing sale/
+    wants packages just need to be manually re-filed into the right section
+    once via the config UI.)
     """
     tables = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
@@ -223,10 +232,6 @@ def _migrate_package_sections(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(user_packages)").fetchall()}
     if "section" in cols:
         return  # already migrated
-
-    old_rows = conn.execute(
-        "SELECT user_id, color_group, public_id FROM user_packages"
-    ).fetchall()
 
     conn.execute("ALTER TABLE user_packages RENAME TO user_packages_old")
     conn.execute("""
@@ -241,31 +246,11 @@ def _migrate_package_sections(conn: sqlite3.Connection) -> None:
         )
     """)
 
-    from mtg_manager.moxfield import fetch_package_cards
-    from mtg_manager.config import MoxfieldPackage
-    import re as _re
-    price_re = _re.compile(r"^\$(\d+(?:\.\d+)?)")
-
-    for row in old_rows:
-        section = "collection"
-        price = None
-        try:
-            _cards, pkg_name = fetch_package_cards(
-                MoxfieldPackage(color_group=row["color_group"], public_id=row["public_id"])
-            )
-            if pkg_name.startswith("$"):
-                section = "sale"
-                m = price_re.match(pkg_name)
-                price = float(m.group(1)) if m else 0.0
-            elif pkg_name.strip() == "Wants":
-                section = "wants"
-        except Exception:
-            pass  # network/API failure during migration — default to collection, same as an unrecognized name
-        conn.execute(
-            "INSERT INTO user_packages (user_id, section, color_group, public_id, price) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (row["user_id"], section, row["color_group"], row["public_id"], price),
-        )
+    conn.execute("""
+        INSERT INTO user_packages (user_id, section, color_group, public_id, price)
+        SELECT user_id, 'collection', color_group, public_id, NULL
+        FROM user_packages_old
+    """)
 
     conn.execute("DROP TABLE user_packages_old")
 

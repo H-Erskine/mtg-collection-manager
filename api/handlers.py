@@ -11,12 +11,13 @@ does not call these handlers.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 from uuid import uuid4
 
 log = logging.getLogger(__name__)
 
-from mtg_manager.config import Config
+from mtg_manager.config import Config, MoxfieldPackage, SalePackage
 from mtg_manager.db import (
     add_card_tag,
     add_moxfield_tag,
@@ -81,6 +82,60 @@ def _format_card_tag(foil: bool, set_code: str, basic: bool = False) -> str:
     return "".join(parts)
 
 
+_LEGACY_PRICE_RE = re.compile(r"^\$(\d+(?:\.\d+)?)")
+
+
+def _classify_legacy_packages(
+    cfg: Config, delay: float
+) -> tuple[list, list, list, dict[str, tuple[list, str]], list[str]]:
+    """Fallback classifier for the untouched CLI-style Config shape.
+
+    The Discord owner's Config always comes from mtg_manager.config.load_config(),
+    which only ever populates cfg.packages (a single flat list) using the CLI's old
+    convention: package names starting with '$<price>' are for-sale stock and a
+    package named exactly 'Wants' is the wants list — everything else is a plain
+    collection package. cfg.sale_packages/wants_packages/deck_packages are always
+    empty for this Config shape since load_config() never populates them.
+
+    This is only ever invoked when that shape is detected (empty section lists +
+    non-empty flat packages) — see the guard at the top of _auto_sync/handle_sync.
+    Normal registry-backed Configs (api/users.py get_user_config) always populate
+    the section lists directly (even if empty on purpose) and never hit this path.
+
+    Returns (collection, sale, wants, prefetched, warnings) where prefetched maps
+    public_id -> (cards, name) for packages already fetched here during
+    classification, so callers can skip re-fetching them.
+    """
+    collection: list = []
+    sale: list = []
+    wants: list = []
+    prefetched: dict[str, tuple[list, str]] = {}
+    warnings: list[str] = []
+
+    for pkg in cfg.packages:
+        try:
+            cards, name = fetch_package_cards(pkg, delay=delay)
+        except Exception as e:
+            warnings.append(f"Sync warning ({pkg.color_group}): {e}")
+            # Unknown classification on fetch failure — leave it in collection so
+            # the main loop attempts (and reports) the fetch again rather than
+            # silently dropping the package for this run.
+            collection.append(pkg)
+            continue
+
+        prefetched[pkg.public_id] = (cards, name)
+        if name.startswith("$"):
+            m = _LEGACY_PRICE_RE.match(name)
+            price = float(m.group(1)) if m else 0.0
+            sale.append(SalePackage(color_group=pkg.color_group, public_id=pkg.public_id, price=price))
+        elif name.strip() == "Wants":
+            wants.append(MoxfieldPackage(color_group=pkg.color_group, public_id=pkg.public_id))
+        else:
+            collection.append(pkg)
+
+    return collection, sale, wants, prefetched, warnings
+
+
 def _sync_sale_prices(conn, sale_rows: list) -> None:
     try:
         price_map = fetch_cardmarket_prices(sale_rows)
@@ -101,32 +156,81 @@ def _auto_sync(cfg: Config, conn) -> list[str]:
     Returns a list of warning strings."""
     warnings = []
 
-    clear_all_for_sale_cards(conn)
-    clear_wants_cards(conn)
+    collection_pkgs = cfg.packages
+    sale_pkgs = cfg.sale_packages
+    wants_pkgs = cfg.wants_packages
+    prefetched: dict[str, tuple[list, str]] = {}
 
-    for pkg in cfg.packages:
+    if not cfg.sale_packages and not cfg.wants_packages and not cfg.deck_packages and cfg.packages:
+        collection_pkgs, sale_pkgs, wants_pkgs, prefetched, classify_warnings = (
+            _classify_legacy_packages(cfg, cfg.moxfield_delay)
+        )
+        warnings.extend(classify_warnings)
+
+    # Labels cleared this run — a label is cleared exactly once, the first time
+    # it's seen, whether that's in the collection or the sale loop, so multiple
+    # packages sharing a label (within or across sections) all survive.
+    cleared_labels: set[str] = set()
+
+    for pkg in collection_pkgs:
         try:
-            cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
-            clear_color_group(conn, pkg.color_group)
+            if pkg.public_id in prefetched:
+                cards, _name = prefetched[pkg.public_id]
+            else:
+                cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+            if pkg.color_group not in cleared_labels:
+                clear_color_group(conn, pkg.color_group)
+                cleared_labels.add(pkg.color_group)
             upsert_cards(conn, cards)
         except Exception as e:
             warnings.append(f"Sync warning ({pkg.color_group}): {e}")
 
-    for pkg in cfg.sale_packages:
+    # Sale section — fetch everything first so a fetch failure can't wipe data
+    # that a previous successful sync populated. Only clear the table (and each
+    # package's label) once at least one fetch has succeeded.
+    sale_results: list[tuple] = []
+    for pkg in sale_pkgs:
         try:
-            cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
-            clear_color_group(conn, pkg.color_group)
+            if pkg.public_id in prefetched:
+                cards, _name = prefetched[pkg.public_id]
+            else:
+                cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+            sale_results.append((pkg, cards))
+        except Exception as e:
+            warnings.append(f"Sync warning ({pkg.color_group}): {e}")
+
+    if not sale_pkgs:
+        clear_all_for_sale_cards(conn)
+    elif sale_results:
+        clear_all_for_sale_cards(conn)
+        for pkg, cards in sale_results:
+            if pkg.color_group not in cleared_labels:
+                clear_color_group(conn, pkg.color_group)
+                cleared_labels.add(pkg.color_group)
             upsert_cards(conn, cards)
             upsert_for_sale_cards(conn, cards, pkg.price)
+    # else: sale_pkgs is non-empty but every fetch failed this run — leave the
+    # existing for_sale_cards data untouched rather than truncating it.
+
+    wants_results: list[tuple] = []
+    for pkg in wants_pkgs:
+        try:
+            if pkg.public_id in prefetched:
+                cards, _name = prefetched[pkg.public_id]
+            else:
+                cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+            wants_results.append((pkg, cards))
         except Exception as e:
             warnings.append(f"Sync warning ({pkg.color_group}): {e}")
 
-    for pkg in cfg.wants_packages:
-        try:
-            cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+    if not wants_pkgs:
+        clear_wants_cards(conn)
+    elif wants_results:
+        clear_wants_cards(conn)
+        for pkg, cards in wants_results:
             upsert_wants_cards(conn, cards)
-        except Exception as e:
-            warnings.append(f"Sync warning ({pkg.color_group}): {e}")
+    # else: wants_pkgs is non-empty but every fetch failed — leave existing
+    # wants_cards data untouched.
 
     try:
         sale_rows = list_for_sale_cards(conn)
@@ -190,53 +294,98 @@ def _auto_build_deck_packages(cfg: Config, conn) -> list[str]:
 
 
 def handle_sync(cfg: Config, is_owner: bool = False, color_group: str | None = None) -> str:
-    packages = cfg.packages
+    collection_pkgs = cfg.packages
+    sale_pkgs = cfg.sale_packages
+    wants_pkgs = cfg.wants_packages
+    prefetched: dict[str, tuple[list, str]] = {}
+    lines: list[str] = []
+
+    if not cfg.sale_packages and not cfg.wants_packages and not cfg.deck_packages and cfg.packages:
+        collection_pkgs, sale_pkgs, wants_pkgs, prefetched, classify_warnings = (
+            _classify_legacy_packages(cfg, cfg.moxfield_delay)
+        )
+        lines.extend(classify_warnings)
+
+    packages = collection_pkgs
     if color_group:
         packages = [p for p in packages if p.color_group.lower() == color_group.lower()]
         if not packages:
             return f"No package found for color group '{color_group}'."
 
-    lines = []
-    with get_conn(cfg.db_path) as conn:
-        if not color_group:
-            clear_all_for_sale_cards(conn)
-            clear_wants_cards(conn)
+    # Labels cleared this run — cleared exactly once, the first time seen, across
+    # both the collection and sale loops, so packages sharing a label all survive.
+    cleared_labels: set[str] = set()
 
+    with get_conn(cfg.db_path) as conn:
         for pkg in packages:
             try:
-                cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+                if pkg.public_id in prefetched:
+                    cards, _name = prefetched[pkg.public_id]
+                else:
+                    cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
             except Exception as e:
                 lines.append(f"Failed to fetch {pkg.color_group}: {e}")
                 continue
-            clear_color_group(conn, pkg.color_group)
+            if pkg.color_group not in cleared_labels:
+                clear_color_group(conn, pkg.color_group)
+                cleared_labels.add(pkg.color_group)
             upsert_cards(conn, cards)
             lines.append(f"{pkg.color_group}: {sum(c.quantity for c in cards)} cards ({len(cards)} unique)")
 
         if not color_group:
-            for pkg in cfg.sale_packages:
+            # Sale section — fetch everything first so a fetch failure can't wipe
+            # data a previous successful sync populated. Clear only once at least
+            # one fetch in this section has succeeded.
+            sale_results: list[tuple] = []
+            for pkg in sale_pkgs:
                 try:
-                    cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+                    if pkg.public_id in prefetched:
+                        cards, _name = prefetched[pkg.public_id]
+                    else:
+                        cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+                    sale_results.append((pkg, cards))
                 except Exception as e:
                     lines.append(f"Failed to fetch {pkg.color_group}: {e}")
-                    continue
-                clear_color_group(conn, pkg.color_group)
-                upsert_cards(conn, cards)
-                upsert_for_sale_cards(conn, cards, pkg.price)
-                lines.append(f"{pkg.color_group} [for sale]: {sum(c.quantity for c in cards)} cards ({len(cards)} unique)")
 
-            for pkg in cfg.wants_packages:
+            if not sale_pkgs:
+                clear_all_for_sale_cards(conn)
+            elif sale_results:
+                clear_all_for_sale_cards(conn)
+                for pkg, cards in sale_results:
+                    if pkg.color_group not in cleared_labels:
+                        clear_color_group(conn, pkg.color_group)
+                        cleared_labels.add(pkg.color_group)
+                    upsert_cards(conn, cards)
+                    upsert_for_sale_cards(conn, cards, pkg.price)
+                    lines.append(f"{pkg.color_group} [for sale]: {sum(c.quantity for c in cards)} cards ({len(cards)} unique)")
+            # else: sale_pkgs configured but every fetch failed — leave existing
+            # for_sale_cards data untouched rather than truncating it.
+
+            wants_results: list[tuple] = []
+            for pkg in wants_pkgs:
                 try:
-                    cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+                    if pkg.public_id in prefetched:
+                        cards, _name = prefetched[pkg.public_id]
+                    else:
+                        cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+                    wants_results.append((pkg, cards))
                 except Exception as e:
                     lines.append(f"Failed to fetch {pkg.color_group}: {e}")
-                    continue
-                upsert_wants_cards(conn, cards)
-                lines.append(f"{pkg.color_group} [wants]: {sum(c.quantity for c in cards)} cards ({len(cards)} unique)")
+
+            if not wants_pkgs:
+                clear_wants_cards(conn)
+            elif wants_results:
+                clear_wants_cards(conn)
+                for pkg, cards in wants_results:
+                    upsert_wants_cards(conn, cards)
+                    lines.append(f"{pkg.color_group} [wants]: {sum(c.quantity for c in cards)} cards ({len(cards)} unique)")
+            # else: wants_pkgs configured but every fetch failed — leave existing
+            # wants_cards data untouched.
 
             deck_lines = _auto_build_deck_packages(cfg, conn)
             lines.extend(deck_lines)
 
-        if cfg.sale_packages and not color_group:
+        if sale_pkgs and not color_group:
             try:
                 sale_rows = list_for_sale_cards(conn)
                 price_map = fetch_cardmarket_prices(sale_rows)

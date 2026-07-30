@@ -206,3 +206,103 @@ def test_deck_package_is_idempotent_across_syncs(tmp_path):
         decks = list_built_decks(conn)
 
     assert len(decks) == 1
+
+
+def test_two_collection_packages_with_same_label_both_survive(tmp_path):
+    """Two packages sharing a color_group label must each contribute their own
+    cards -- the second package's clear_color_group must not wipe the first
+    package's just-upserted rows within the same sync run."""
+    from api.handlers import handle_sync
+
+    pkg_a = MoxfieldPackage(color_group="White", public_id="w1")
+    pkg_b = MoxfieldPackage(color_group="White", public_id="w2")
+    cfg = _cfg(tmp_path, packages=[pkg_a, pkg_b])
+
+    def fake_fetch(pkg, delay=1.0):
+        if pkg.public_id == "w1":
+            return [_card("Swords to Plowshares", color_group="White")], "White"
+        return [_card("Path to Exile", color_group="White")], "White"
+
+    with patch("api.handlers.fetch_package_cards", side_effect=fake_fetch):
+        handle_sync(cfg)
+
+    with get_conn(cfg.db_path) as conn:
+        stp = get_owned_quantity(conn, "Swords to Plowshares")
+        pte = get_owned_quantity(conn, "Path to Exile")
+
+    assert stp == 4
+    assert pte == 4
+
+
+def test_sale_package_fetch_failure_does_not_wipe_existing_sale_data(tmp_path):
+    """If a sale package's fetch fails on a later sync, previously-synced
+    for_sale_cards/wants_cards data must survive -- the section-level clear must
+    only happen after a successful fetch, never unconditionally up front."""
+    from api.handlers import handle_sync
+
+    pkg = SalePackage(color_group="Binder A", public_id="a1", price=5.0)
+    cfg = _cfg(tmp_path, sale_packages=[pkg])
+
+    with patch("api.handlers.fetch_package_cards", return_value=([_card("Lightning Bolt")], "$5")):
+        handle_sync(cfg)
+
+    with get_conn(cfg.db_path) as conn:
+        rows_before = list_for_sale_cards(conn)
+    assert {r["name"] for r in rows_before} == {"Lightning Bolt"}
+
+    with patch("api.handlers.fetch_package_cards", side_effect=Exception("boom")):
+        handle_sync(cfg)
+
+    with get_conn(cfg.db_path) as conn:
+        rows_after = list_for_sale_cards(conn)
+    assert {r["name"] for r in rows_after} == {"Lightning Bolt"}
+
+
+def test_legacy_cli_style_config_routes_dollar_and_wants_packages_correctly(tmp_path):
+    """A Config shaped like the untouched CLI/Discord-owner config (only
+    cfg.packages populated, sale_packages/wants_packages/deck_packages all
+    empty) must still classify $-prefixed and 'Wants'-named packages by their
+    Moxfield name at sync time, routing them to for_sale_cards/wants_cards
+    instead of silently truncating those tables and dumping everything (sale
+    and wants included) into owned_cards as if it were a plain collection."""
+    from api.handlers import handle_sync
+    from mtg_manager.db import list_wants_cards
+
+    sale_pkg = MoxfieldPackage(color_group="Binder A", public_id="sale-1")
+    wants_pkg = MoxfieldPackage(color_group="Wants", public_id="wants-1")
+    normal_pkg = MoxfieldPackage(color_group="Red", public_id="red-1")
+
+    # Mimic the untouched CLI Config shape: only `packages` populated.
+    cfg = _cfg(tmp_path, packages=[sale_pkg, wants_pkg, normal_pkg])
+    assert cfg.sale_packages == []
+    assert cfg.wants_packages == []
+    assert cfg.deck_packages == []
+
+    def fake_fetch(pkg, delay=1.0):
+        if pkg.public_id == "sale-1":
+            return [_card("Lightning Bolt", color_group="Binder A")], "$5"
+        if pkg.public_id == "wants-1":
+            return [_card("Brainstorm", color_group="Wants")], "Wants"
+        return [_card("Goblin Guide", color_group="Red")], "Red"
+
+    with patch("api.handlers.fetch_package_cards", side_effect=fake_fetch):
+        handle_sync(cfg)
+
+    with get_conn(cfg.db_path) as conn:
+        for_sale = list_for_sale_cards(conn)
+        wants = list_wants_cards(conn)
+        bolt_owned = get_owned_quantity(conn, "Lightning Bolt")
+        brainstorm_owned = get_owned_quantity(conn, "Brainstorm")
+        goblin_owned = get_owned_quantity(conn, "Goblin Guide")
+
+    assert {r["name"] for r in for_sale} == {"Lightning Bolt"}
+    assert for_sale[0]["price"] == 5.0
+    assert {r["name"] for r in wants} == {"Brainstorm"}
+    assert bolt_owned == 4  # sale cards also populate the collection
+    assert brainstorm_owned == 0  # wants cards never populate the collection
+    assert goblin_owned == 4  # ordinary package stays a plain collection package
+
+    # for_sale_cards/wants_cards must not have been wiped-and-left-empty --
+    # they were populated by this same run, not by a previous one.
+    assert len(for_sale) == 1
+    assert len(wants) == 1

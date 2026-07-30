@@ -777,3 +777,57 @@ def test_list_profiles_hides_private_users_unless_viewer_is_admin():
 
     assert public_ids == {"google:alice@example.com"}
     assert admin_ids == {"google:alice@example.com", "google:bob@example.com"}
+
+
+def test_migrate_package_sections_preserves_all_rows_as_collection(tmp_path, monkeypatch):
+    """The old (user_id, color_group)-keyed user_packages table must migrate to
+    the new sectioned schema with zero network calls and zero data loss --
+    every row lands in section='collection' regardless of its old name/label.
+    (An earlier version of this migration made a live Moxfield API call per row
+    to reclassify sale/wants packages, which made a crash mid-migration strand
+    the original data in user_packages_old with only the new table's schema
+    change (already-committed DDL) visible on restart.)"""
+    import api.users as u
+
+    registry_path = tmp_path / "registry.sqlite"
+    monkeypatch.setattr(u, "_REGISTRY_PATH", registry_path)
+    monkeypatch.setattr(u, "_USERS_DIR", tmp_path / "users")
+
+    # Build a pre-existing old-schema registry file directly (no 'section' column).
+    conn = sqlite3.connect(registry_path)
+    conn.execute("""
+        CREATE TABLE users (
+            user_id TEXT PRIMARY KEY,
+            pick_list_sort TEXT NOT NULL DEFAULT 'colour',
+            formats TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_synced_at TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE user_packages (
+            user_id     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+            color_group TEXT NOT NULL,
+            public_id   TEXT NOT NULL,
+            PRIMARY KEY (user_id, color_group)
+        )
+    """)
+    conn.execute("INSERT INTO users (user_id) VALUES ('discord:1')")
+    conn.executemany(
+        "INSERT INTO user_packages (user_id, color_group, public_id) VALUES (?, ?, ?)",
+        [
+            ("discord:1", "White", "pub-white"),
+            ("discord:1", "$5", "pub-sale"),
+            ("discord:1", "Wants", "pub-wants"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    packages = users_mod.list_packages("discord:1")
+
+    assert len(packages) == 3
+    assert {p["public_id"] for p in packages} == {"pub-white", "pub-sale", "pub-wants"}
+    assert all(p["section"] == "collection" for p in packages)
+    assert all(p["price"] is None for p in packages)
