@@ -126,3 +126,83 @@ def test_auto_sync_failed_fetch_does_not_wipe_existing_collection(tmp_path):
         owned_after = get_owned_quantity(conn, "Lightning Bolt")
 
     assert owned_after == 4
+
+
+def test_deck_package_builds_deck_and_allocates_cards(tmp_path):
+    from api.handlers import handle_sync
+    from mtg_manager.db import get_conn, upsert_cards, list_built_decks, get_available_quantity
+    from mtg_manager.models import Decklist, DeckCard
+
+    pkg = MoxfieldPackage(color_group="Burn", public_id="d1")
+    cfg = _cfg(tmp_path, deck_packages=[pkg])
+
+    # Pre-populate the collection so the deck can be fully allocated (not proxied).
+    with get_conn(cfg.db_path) as conn:
+        upsert_cards(conn, [_card("Lightning Bolt", qty=4)])
+
+    decklist = Decklist(
+        deck_id="d1", name="Mono Red Burn",
+        url="https://www.moxfield.com/decks/d1",
+        cards=[DeckCard(name="Lightning Bolt", quantity=4, is_sideboard=False)],
+    )
+
+    with patch("api.handlers.fetch_decklists", return_value=[decklist]):
+        handle_sync(cfg)
+
+    with get_conn(cfg.db_path) as conn:
+        decks = list_built_decks(conn)
+        remaining = get_available_quantity(conn, "Lightning Bolt")
+
+    assert len(decks) == 1
+    assert decks[0]["deck_name"] == "Mono Red Burn"
+    assert decks[0]["deck_id"] == "d1"
+    assert remaining == 0  # all 4 copies allocated to the deck
+
+
+def test_deck_package_only_populates_decks_not_collection_or_wants(tmp_path):
+    from api.handlers import handle_sync
+    from mtg_manager.db import get_conn, list_wants_cards, get_owned_quantity
+    from mtg_manager.models import Decklist, DeckCard
+
+    pkg = MoxfieldPackage(color_group="Burn", public_id="d1")
+    cfg = _cfg(tmp_path, deck_packages=[pkg])
+
+    decklist = Decklist(
+        deck_id="d1", name="Mono Red Burn",
+        url="https://www.moxfield.com/decks/d1",
+        cards=[DeckCard(name="Lightning Bolt", quantity=4, is_sideboard=False)],
+    )
+
+    with patch("api.handlers.fetch_decklists", return_value=[decklist]):
+        handle_sync(cfg)
+
+    with get_conn(cfg.db_path) as conn:
+        owned = get_owned_quantity(conn, "Lightning Bolt")
+        wants = list_wants_cards(conn)
+
+    assert owned == 0  # proxied, not owned — deck packages never write owned_cards
+    assert wants == []
+
+
+def test_deck_package_is_idempotent_across_syncs(tmp_path):
+    from api.handlers import handle_sync
+    from mtg_manager.db import get_conn, list_built_decks
+    from mtg_manager.models import Decklist, DeckCard
+
+    pkg = MoxfieldPackage(color_group="Burn", public_id="d1")
+    cfg = _cfg(tmp_path, deck_packages=[pkg])
+
+    decklist = Decklist(
+        deck_id="d1", name="Mono Red Burn",
+        url="https://www.moxfield.com/decks/d1",
+        cards=[DeckCard(name="Lightning Bolt", quantity=4, is_sideboard=False)],
+    )
+
+    with patch("api.handlers.fetch_decklists", return_value=[decklist]):
+        handle_sync(cfg)
+        handle_sync(cfg)  # second sync must not rebuild or duplicate
+
+    with get_conn(cfg.db_path) as conn:
+        decks = list_built_decks(conn)
+
+    assert len(decks) == 1

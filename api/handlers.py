@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from uuid import uuid4
 
 log = logging.getLogger(__name__)
 
@@ -141,8 +142,51 @@ def _auto_sync(cfg: Config, conn) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _auto_build_deck_packages(cfg: Config, conn) -> list[str]:
-    """Placeholder — real implementation lands in Task 4 of the package-sections plan."""
-    return []
+    """Auto-build every configured deck package into a freshly UUID-boxed deck.
+    Idempotent by deck_id — a deck already built is skipped. Only touches
+    built_decks/allocated_cards, never owned_cards/for_sale_cards/wants_cards."""
+    lines = []
+    for pkg in cfg.deck_packages:
+        url = f"https://www.moxfield.com/decks/{pkg.public_id}"
+        try:
+            decklists = fetch_decklists(url, delay=cfg.moxfield_delay)
+        except Exception as e:
+            lines.append(f"Deck package '{pkg.color_group}' failed to fetch: {e}")
+            continue
+        if not decklists:
+            lines.append(f"Deck package '{pkg.color_group}': no deck found.")
+            continue
+
+        dl = decklists[0]
+        existing = get_deck_by_url(conn, url) or get_deck(conn, dl.deck_id)
+        if existing:
+            lines.append(f"Deck package '{pkg.color_group}' ({dl.name}): already built, skipped.")
+            continue
+
+        needed: dict[str, int] = defaultdict(int)
+        for card in dl.cards:
+            needed[card.name] += card.quantity
+
+        card_entries: list[tuple[str, int, bool]] = []
+        for name, qty in sorted(needed.items()):
+            available = get_available_quantity(conn, name)
+            is_proxy = available < qty
+            card_entries.append((name, qty, is_proxy))
+
+        insert_built_deck(
+            conn,
+            deck_id=dl.deck_id,
+            deck_name=dl.name,
+            deck_url=url,
+            box_name=str(uuid4()),
+            cards=card_entries,
+        )
+        proxy_count = sum(1 for _, _, p in card_entries if p)
+        lines.append(
+            f"Deck package '{pkg.color_group}': built '{dl.name}'"
+            + (f" ({proxy_count} card(s) proxied)" if proxy_count else "")
+        )
+    return lines
 
 
 def handle_sync(cfg: Config, is_owner: bool = False, color_group: str | None = None) -> str:
