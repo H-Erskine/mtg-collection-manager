@@ -205,7 +205,7 @@ def test_admin_user_detail_returns_packages_and_activity(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     admin_email = _as_admin(client)
     ensure_user("google:friend@example.com")
-    add_package("google:friend@example.com", "red", "abc123")
+    add_package("google:friend@example.com", "collection", "red", "abc123")
     log_request("google:friend@example.com", "GET", "/api/config", 200)
     log_request("google:someone-else@example.com", "GET", "/api/config", 200)
 
@@ -217,7 +217,10 @@ def test_admin_user_detail_returns_packages_and_activity(tmp_path, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["user_id"] == "google:friend@example.com"
-    assert body["packages"] == [{"color_group": "red", "public_id": "abc123"}]
+    data = response.json()
+    assert data["packages"] == [
+        {"id": data["packages"][0]["id"], "section": "collection", "color_group": "red", "public_id": "abc123", "price": None}
+    ]
     paths = [row["path"] for row in body["activity"]]
     assert paths == ["/api/config"]  # only friend's row, not someone-else's
 
@@ -228,7 +231,7 @@ def test_admin_sync_bypasses_self_service_throttle(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     admin_email = _as_admin(client)
     ensure_user("google:friend@example.com")
-    add_package("google:friend@example.com", "red", "abc123")
+    add_package("google:friend@example.com", "collection", "red", "abc123")
     mark_synced("google:friend@example.com")  # simulate "just synced" -- would block self-service
 
     monkeypatch.setattr(admin_mod, "handle_sync", lambda cfg, is_owner: "Synced 1 package.")

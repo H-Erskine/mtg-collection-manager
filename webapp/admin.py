@@ -80,7 +80,7 @@ async def get_user_detail(user_id: str, cfg: Config = Depends(require_admin)):
     packages = list_packages(user_id)
     return {
         "user_id": user_id,
-        "packages": [{"color_group": cg, "public_id": pid} for cg, pid in packages],
+        "packages": packages,
         "activity": list_request_log(limit=200, user_id=user_id),
     }
 
