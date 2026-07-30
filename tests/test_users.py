@@ -19,6 +19,28 @@ def isolated_registry(tmp_path, monkeypatch):
 import api.users as users_mod
 
 
+def test_load_config_cli_path_unaffected_by_new_package_sections(tmp_path, monkeypatch):
+    """The CLI's load_config() must keep working with zero changes to config.toml —
+    the new section fields just default to empty lists."""
+    from mtg_manager.config import load_config
+
+    toml = tmp_path / "config.toml"
+    toml.write_text(
+        "[moxfield]\n"
+        "packages = [{color_group = 'Red', public_id = 'toml-package'}]\n"
+        "request_delay_seconds = 1.0\n"
+        "[mtgtop8]\nrequest_delay_seconds = 1.5\ncache_ttl_hours = 24\n"
+        f"[database]\npath = '{(tmp_path / 'collection.db').as_posix()}'\n"
+    )
+
+    cfg = load_config(toml)
+
+    assert len(cfg.packages) == 1
+    assert cfg.sale_packages == []
+    assert cfg.wants_packages == []
+    assert cfg.deck_packages == []
+
+
 def test_ensure_user_creates_row():
     users_mod.ensure_user("discord:111")
     assert users_mod.is_registered("discord:111")
