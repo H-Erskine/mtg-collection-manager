@@ -60,13 +60,45 @@
 
   <div class="flush-section">
     <h2>Moxfield Packages</h2>
-    <div id="packages-list"></div>
-    <div class="inline-form" style="margin-top:12px">
-      <div style="flex:1"><label>Color group</label><input class="input" id="pkg-color" placeholder="e.g. Red"></div>
-      <div style="flex:1"><label>Public ID</label><input class="input" id="pkg-id" placeholder="Moxfield deck slug"></div>
-      <button class="btn btn-primary" onclick="addPackage()">Add</button>
-    </div>
     <div id="pkg-msg" class="msg"></div>
+
+    <h3>Collection</h3>
+    <div id="packages-list-collection"></div>
+    <div class="add-row">
+      <input id="pkg-collection-color" placeholder="Label (e.g. White)">
+      <input id="pkg-collection-id" placeholder="Moxfield URL or public_id">
+      <button onclick="addPackage('collection')">Add</button>
+    </div>
+  </div>
+
+  <div class="flush-section">
+    <h3>Sale</h3>
+    <div id="packages-list-sale"></div>
+    <div class="add-row">
+      <input id="pkg-sale-color" placeholder="Label (e.g. Binder A)">
+      <input id="pkg-sale-id" placeholder="Moxfield URL or public_id">
+      <input id="pkg-sale-price" type="number" step="0.01" placeholder="Price">
+      <button onclick="addPackage('sale')">Add</button>
+    </div>
+  </div>
+
+  <div class="flush-section">
+    <h3>Wants</h3>
+    <div id="packages-list-wants"></div>
+    <div class="add-row">
+      <input id="pkg-wants-color" placeholder="Label (e.g. Wants)">
+      <input id="pkg-wants-id" placeholder="Moxfield URL or public_id">
+      <button onclick="addPackage('wants')">Add</button>
+    </div>
+  </div>
+
+  <div class="flush-section">
+    <h3>Decks</h3>
+    <div id="packages-list-decks"></div>
+    <div class="add-row">
+      <input id="pkg-decks-id" placeholder="Moxfield deck URL or public_id">
+      <button onclick="addPackage('decks')">Add</button>
+    </div>
   </div>
 
   <div class="flush-section">
@@ -153,7 +185,7 @@ async function loadConfig() {
   if (!res.ok) { location.href = '/login'; return; }
   const data = await res.json();
 
-  renderPackages(data.packages);
+  renderAllPackages(data.packages);
   currentGroups = data.groups;
   renderGroups(data.groups);
   renderDirectory();
@@ -172,8 +204,14 @@ async function loadConfig() {
   }
 }
 
-function renderPackages(packages) {
-  const list = document.getElementById('packages-list');
+function renderAllPackages(packagesBySection) {
+  for (const section of ['collection', 'sale', 'wants', 'decks']) {
+    renderPackageSection(section, packagesBySection[section] || []);
+  }
+}
+
+function renderPackageSection(section, packages) {
+  const list = document.getElementById(`packages-list-${section}`);
   list.innerHTML = '';
   if (!packages.length) {
     list.innerHTML = '<p class="muted">No packages yet.</p>';
@@ -181,45 +219,56 @@ function renderPackages(packages) {
   }
   for (const p of packages) {
     const row = document.createElement('div');
-    row.className = 'row';
+    row.className = 'package-row';
+    const priceLabel = section === 'sale' ? ` — €${p.price ?? 0}` : '';
     row.innerHTML = `
-      <span><strong>${p.color_group}</strong></span>
+      <span><strong>${p.color_group}</strong>${priceLabel}</span>
       <span>
         <a class="moxfield-link" href="https://www.moxfield.com/decks/${encodeURIComponent(p.public_id)}" target="_blank" rel="noopener">View on Moxfield ↗</a>
-      </span>`;
+      </span>
+    `;
     const btn = document.createElement('button');
-    btn.className = 'btn btn-secondary';
     btn.textContent = 'Remove';
-    btn.onclick = () => removePackage(p.color_group);
-    row.children[1].appendChild(btn);
+    btn.onclick = () => removePackage(p.id);
+    row.appendChild(btn);
     list.appendChild(row);
   }
 }
 
-async function addPackage() {
-  const color_group = document.getElementById('pkg-color').value.trim();
-  const public_id = document.getElementById('pkg-id').value.trim();
-  if (!color_group || !public_id) return;
+async function addPackage(section) {
+  const colorInput = document.getElementById(`pkg-${section}-color`);
+  const color_group = section === 'decks' ? 'Deck' : (colorInput ? colorInput.value.trim() : '');
+  const public_id = document.getElementById(`pkg-${section}-id`).value.trim();
+  if ((section !== 'decks' && !color_group) || !public_id) return;
+
+  const body = { section, color_group, public_id };
+  if (section === 'sale') {
+    const priceInput = document.getElementById('pkg-sale-price');
+    body.price = parseFloat(priceInput.value);
+    if (!Number.isFinite(body.price)) return;
+  }
+
   const res = await fetch('/api/config/packages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ color_group, public_id }),
+    body: JSON.stringify(body),
   });
   const msg = document.getElementById('pkg-msg');
   const data = await res.json().catch(() => ({}));
   msg.textContent = res.ok ? 'Added.' : 'Failed to add package.';
   msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
   if (res.ok) {
-    document.getElementById('pkg-color').value = '';
-    document.getElementById('pkg-id').value = '';
     loadConfig();
     showAutoSyncStatus(data.auto_sync);
   }
 }
 
-async function removePackage(color_group) {
-  const res = await fetch(`/api/config/packages/${encodeURIComponent(color_group)}`, { method: 'DELETE' });
+async function removePackage(packageId) {
+  const res = await fetch(`/api/config/packages/${packageId}`, { method: 'DELETE' });
+  const msg = document.getElementById('pkg-msg');
   const data = await res.json().catch(() => ({}));
+  msg.textContent = res.ok ? 'Removed.' : 'Failed to remove package.';
+  msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
   loadConfig();
   if (res.ok) {
     showAutoSyncStatus(data.auto_sync);
