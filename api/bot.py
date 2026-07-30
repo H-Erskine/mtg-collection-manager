@@ -172,7 +172,7 @@ async def _resolve_user(interaction: discord.Interaction, require_packages: bool
     if require_packages and not cfg.packages:
         await _send_embed(
             interaction,
-            "No Moxfield packages added yet.\nUse `/addpackage <color_group> <public_id>` to add your collection, then `/sync`.",
+            "No Moxfield packages added yet.\nUse `/addpackage` to add your collection, then `/sync`.",
             title="No Packages",
             color=COLOR_WARNING,
         )
@@ -203,7 +203,7 @@ async def cmd_setup(interaction: discord.Interaction):
     await _send_embed(
         interaction,
         "Account created! Next steps:\n"
-        "1. `/addpackage <color_group> <public_id>` — add each Moxfield package\n"
+        "1. `/addpackage` — add each Moxfield package (choose a section: collection, sale, wants, or decks)\n"
         "   (find the public_id in your Moxfield deck URL)\n"
         "2. `/sync` — fetch your collection\n"
         "3. `/missing <url>` — check what you need for a deck\n\n"
@@ -215,10 +215,24 @@ async def cmd_setup(interaction: discord.Interaction):
 
 @tree.command(name="addpackage", description="Add a Moxfield package to your account")
 @app_commands.describe(
+    section="Which section this package belongs to",
     color_group="Label for this package (e.g. White, Blue, Multicolour)",
     public_id="The slug at the end of your Moxfield deck URL",
+    price="Sale price for all cards in this package (required for section=sale)",
 )
-async def cmd_addpackage(interaction: discord.Interaction, color_group: str, public_id: str):
+@app_commands.choices(section=[
+    app_commands.Choice(name="Collection", value="collection"),
+    app_commands.Choice(name="Sale", value="sale"),
+    app_commands.Choice(name="Wants", value="wants"),
+    app_commands.Choice(name="Decks", value="decks"),
+])
+async def cmd_addpackage(
+    interaction: discord.Interaction,
+    section: app_commands.Choice[str],
+    color_group: str,
+    public_id: str,
+    price: float = None,
+):
     await interaction.response.defer(ephemeral=True)
     discord_id = f"discord:{interaction.user.id}"
 
@@ -230,22 +244,26 @@ async def cmd_addpackage(interaction: discord.Interaction, color_group: str, pub
         await _send_embed(interaction, "Run `/setup` first.", title="Not Registered", color=COLOR_ERROR)
         return
 
+    if section.value == "sale" and price is None:
+        await _send_embed(interaction, "Sale packages require a `price`.", title="Missing Price", color=COLOR_ERROR)
+        return
+
     await asyncio.get_event_loop().run_in_executor(
-        None, users.add_package, discord_id, color_group, public_id
+        None, users.add_package, discord_id, section.value, color_group, public_id, price
     )
     pkgs = await asyncio.get_event_loop().run_in_executor(None, users.list_packages, discord_id)
-    pkg_lines = "\n".join(f"  {cg} → `{pid}`" for cg, pid in pkgs)
+    pkg_lines = "\n".join(f"  [{p['section']}] {p['color_group']} → `{p['public_id']}`" for p in pkgs)
     await _send_embed(
         interaction,
-        f"Added **{color_group}** (`{public_id}`).\n\nYour packages:\n{pkg_lines}\n\nRun `/sync` to fetch your collection.",
+        f"Added **{color_group}** (`{public_id}`) to **{section.value}**.\n\nYour packages:\n{pkg_lines}\n\nRun `/sync` to fetch your collection.",
         title="Package Added",
         color=COLOR_SUCCESS,
     )
 
 
 @tree.command(name="removepackage", description="Remove a Moxfield package from your account")
-@app_commands.describe(color_group="The color_group label to remove")
-async def cmd_removepackage(interaction: discord.Interaction, color_group: str):
+@app_commands.describe(package_id="The package id shown by /listpackages")
+async def cmd_removepackage(interaction: discord.Interaction, package_id: int):
     await interaction.response.defer(ephemeral=True)
     discord_id = f"discord:{interaction.user.id}"
 
@@ -258,17 +276,17 @@ async def cmd_removepackage(interaction: discord.Interaction, color_group: str):
         return
 
     removed = await asyncio.get_event_loop().run_in_executor(
-        None, users.remove_package, discord_id, color_group
+        None, users.remove_package, discord_id, package_id
     )
     if not removed:
-        await _send_embed(interaction, f"No package named '{color_group}' found.", title="Not Found", color=COLOR_WARNING)
+        await _send_embed(interaction, f"No package with id {package_id} found.", title="Not Found", color=COLOR_WARNING)
         return
 
     pkgs = await asyncio.get_event_loop().run_in_executor(None, users.list_packages, discord_id)
-    remaining = "\n".join(f"  {cg} → `{pid}`" for cg, pid in pkgs) if pkgs else "  (none)"
+    remaining = "\n".join(f"  [{p['section']}] {p['color_group']} → `{p['public_id']}`" for p in pkgs) if pkgs else "  (none)"
     await _send_embed(
         interaction,
-        f"Removed **{color_group}**.\n\nRemaining packages:\n{remaining}",
+        f"Removed package {package_id}.\n\nRemaining packages:\n{remaining}",
         title="Package Removed",
         color=COLOR_SUCCESS,
     )
@@ -291,7 +309,10 @@ async def cmd_listpackages(interaction: discord.Interaction):
     if not pkgs:
         body = "No packages yet. Use `/addpackage` to add one."
     else:
-        body = "\n".join(f"  {cg} → `{pid}`" for cg, pid in pkgs)
+        by_section: dict[str, list[str]] = {}
+        for p in pkgs:
+            by_section.setdefault(p["section"], []).append(f"  (id {p['id']}) {p['color_group']} → `{p['public_id']}`")
+        body = "\n\n".join(f"**{section}**\n" + "\n".join(lines) for section, lines in by_section.items())
     await _send_embed(interaction, body, title="Your Packages", color=COLOR_INFO)
 
 
