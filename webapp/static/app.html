@@ -303,12 +303,13 @@ function selectTabFromHash() {
 // ─── Stats banner ────────────────────────────────────────────────────────────
 
 function buildStatsBanner() {
+  const cards = currentBaseCards();
   const counts = {};
-  for (const c of collectionCards) {
+  for (const c of cards) {
     counts[c.color_group] = (counts[c.color_group] || 0) + c.quantity;
   }
   const totalQty = Object.values(counts).reduce((s, v) => s + v, 0);
-  const inDeckQty = collectionCards.filter(c => !!allocatedCards[c.name.toLowerCase()]).reduce((s, c) => s + c.quantity, 0);
+  const inDeckQty = cards.filter(c => !!allocatedCards[c.name.toLowerCase()]).reduce((s, c) => s + c.quantity, 0);
 
   const banner = document.getElementById('collection-stats');
   banner.innerHTML = '';
@@ -662,6 +663,7 @@ async function setViewScope(scope) {
   }
 
   renderPeopleSidebar();
+  buildStatsBanner();
 
   if (scope === 'me') {
     renderCollection(collectionCards);
