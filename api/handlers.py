@@ -80,22 +80,6 @@ def _format_card_tag(foil: bool, set_code: str, basic: bool = False) -> str:
     return "".join(parts)
 
 
-_SALE_PRICE_RE = __import__("re").compile(r"^\$(\d+(?:\.\d+)?)")
-
-
-def _is_sale_package(package_name: str) -> bool:
-    return package_name.startswith("$")
-
-
-def _is_wants_package(package_name: str) -> bool:
-    return package_name.strip() == "Wants"
-
-
-def _parse_sale_price(package_name: str) -> float:
-    m = _SALE_PRICE_RE.match(package_name)
-    return float(m.group(1)) if m else 0.0
-
-
 def _sync_sale_prices(conn, sale_rows: list) -> None:
     try:
         price_map = fetch_cardmarket_prices(sale_rows)
@@ -111,25 +95,38 @@ def _sync_sale_prices(conn, sale_rows: list) -> None:
 
 
 def _auto_sync(cfg: Config, conn) -> list[str]:
-    """Silently re-fetch all Moxfield packages. Only touches owned_cards/for_sale_cards/wants_cards, never box tables. Returns list of warning strings."""
+    """Silently re-fetch every configured package across all sections.
+    Only touches owned_cards/for_sale_cards/wants_cards — never box tables.
+    Returns a list of warning strings."""
     warnings = []
-    sale_rows: list = []
+
+    clear_all_for_sale_cards(conn)
+    clear_wants_cards(conn)
+
     for pkg in cfg.packages:
         try:
-            cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
-            if _is_sale_package(pkg_name):
-                clear_color_group(conn, pkg.color_group)
-                clear_all_for_sale_cards(conn)
-                upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
-            elif _is_wants_package(pkg_name):
-                # Only one "Wants" package per user — safe to clear the whole table
-                clear_wants_cards(conn)
-                upsert_wants_cards(conn, cards)
-            else:
-                clear_color_group(conn, pkg.color_group)
-                upsert_cards(conn, cards)
+            clear_color_group(conn, pkg.color_group)
+            cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+            upsert_cards(conn, cards)
         except Exception as e:
             warnings.append(f"Sync warning ({pkg.color_group}): {e}")
+
+    for pkg in cfg.sale_packages:
+        try:
+            clear_color_group(conn, pkg.color_group)
+            cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+            upsert_cards(conn, cards)
+            upsert_for_sale_cards(conn, cards, pkg.price)
+        except Exception as e:
+            warnings.append(f"Sync warning ({pkg.color_group}): {e}")
+
+    for pkg in cfg.wants_packages:
+        try:
+            cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+            upsert_wants_cards(conn, cards)
+        except Exception as e:
+            warnings.append(f"Sync warning ({pkg.color_group}): {e}")
+
     try:
         sale_rows = list_for_sale_cards(conn)
         if sale_rows:
@@ -143,6 +140,11 @@ def _auto_sync(cfg: Config, conn) -> list[str]:
 # sync
 # ---------------------------------------------------------------------------
 
+def _auto_build_deck_packages(cfg: Config, conn) -> list[str]:
+    """Placeholder — real implementation lands in Task 4 of the package-sections plan."""
+    return []
+
+
 def handle_sync(cfg: Config, is_owner: bool = False, color_group: str | None = None) -> str:
     packages = cfg.packages
     if color_group:
@@ -151,31 +153,46 @@ def handle_sync(cfg: Config, is_owner: bool = False, color_group: str | None = N
             return f"No package found for color group '{color_group}'."
 
     lines = []
-    synced_sale = False
     with get_conn(cfg.db_path) as conn:
+        if not color_group:
+            clear_all_for_sale_cards(conn)
+            clear_wants_cards(conn)
+
         for pkg in packages:
             try:
-                cards, pkg_name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+                cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
             except Exception as e:
                 lines.append(f"Failed to fetch {pkg.color_group}: {e}")
                 continue
-            qty = sum(c.quantity for c in cards)
-            if _is_sale_package(pkg_name):
-                clear_color_group(conn, pkg.color_group)
-                clear_all_for_sale_cards(conn)
-                upsert_for_sale_cards(conn, cards, _parse_sale_price(pkg_name))
-                lines.append(f"{pkg.color_group} [for sale]: {qty} cards ({len(cards)} unique)")
-                synced_sale = True
-            elif _is_wants_package(pkg_name):
-                clear_wants_cards(conn)
-                upsert_wants_cards(conn, cards)
-                lines.append(f"{pkg.color_group} [wants]: {qty} cards ({len(cards)} unique)")
-            else:
+            clear_color_group(conn, pkg.color_group)
+            upsert_cards(conn, cards)
+            lines.append(f"{pkg.color_group}: {sum(c.quantity for c in cards)} cards ({len(cards)} unique)")
+
+        if not color_group:
+            for pkg in cfg.sale_packages:
+                try:
+                    cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+                except Exception as e:
+                    lines.append(f"Failed to fetch {pkg.color_group}: {e}")
+                    continue
                 clear_color_group(conn, pkg.color_group)
                 upsert_cards(conn, cards)
-                lines.append(f"{pkg.color_group}: {qty} cards ({len(cards)} unique)")
+                upsert_for_sale_cards(conn, cards, pkg.price)
+                lines.append(f"{pkg.color_group} [for sale]: {sum(c.quantity for c in cards)} cards ({len(cards)} unique)")
 
-        if synced_sale:
+            for pkg in cfg.wants_packages:
+                try:
+                    cards, _name = fetch_package_cards(pkg, delay=cfg.moxfield_delay)
+                except Exception as e:
+                    lines.append(f"Failed to fetch {pkg.color_group}: {e}")
+                    continue
+                upsert_wants_cards(conn, cards)
+                lines.append(f"{pkg.color_group} [wants]: {sum(c.quantity for c in cards)} cards ({len(cards)} unique)")
+
+            deck_lines = _auto_build_deck_packages(cfg, conn)
+            lines.extend(deck_lines)
+
+        if cfg.sale_packages and not color_group:
             try:
                 sale_rows = list_for_sale_cards(conn)
                 price_map = fetch_cardmarket_prices(sale_rows)
