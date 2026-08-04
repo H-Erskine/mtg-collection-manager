@@ -449,12 +449,13 @@ function doLogout() {
 
 // ─── Image helpers ───────────────────────────────────────────────────────────
 
-function scryfallImgUrl(set_code, collector_number) {
-  return `/images/${encodeURIComponent(set_code)}/${encodeURIComponent(collector_number)}`;
+function scryfallImgUrl(set_code, collector_number, version) {
+  const v = version ? `?version=${encodeURIComponent(version)}` : '';
+  return `/images/${encodeURIComponent(set_code)}/${encodeURIComponent(collector_number)}${v}`;
 }
 
-function namedImgUrl(name) {
-  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=normal`;
+function namedImgUrl(name, version) {
+  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=${encodeURIComponent(version || 'normal')}`;
 }
 
 function makeCard(name, set_code, collector_number, badgeText, badgeCls, overlayText, statusText) {
@@ -1066,8 +1067,8 @@ async function renderMetaDeckView(fmt, deck) {
     if (art.name) {
       const img = document.createElement('img');
       img.src = art.set_code && art.collector_number
-        ? scryfallImgUrl(art.set_code, art.collector_number)
-        : namedImgUrl(art.name);
+        ? scryfallImgUrl(art.set_code, art.collector_number, 'art_crop')
+        : namedImgUrl(art.name, 'art_crop');
       img.alt = art.name;
       artBar.appendChild(img);
     }
