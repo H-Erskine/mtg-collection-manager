@@ -18,7 +18,7 @@ from mtg_manager.config import Config
 from webapp.admin import router as admin_router
 from webapp.auth import router as auth_router
 from webapp.config import router as config_router
-from webapp.data import get_all_collections, get_all_sale, get_collection, get_decks, get_group_collections, get_group_ownership, get_meta, get_sale, pick_art_card
+from webapp.data import get_all_collections, get_all_sale, get_collection, get_decks, get_group_collections, get_group_decks, get_group_ownership, get_meta, get_sale, pick_art_card
 from webapp.deps import NotAuthenticated, is_admin_user, require_admin, require_user, require_user_or_owner
 from webapp.images import router as images_router
 
@@ -77,6 +77,12 @@ async def api_collection(cfg: Config = Depends(require_user_or_owner)):
 @app.get("/api/decks")
 async def api_decks(cfg: Config = Depends(require_user)):
     return get_decks(cfg)
+
+
+@app.get("/api/decks/group")
+async def api_decks_group(request: Request, cfg: Config = Depends(require_user)):
+    user_id = request.session["user_id"]
+    return get_group_decks(user_id, viewer_is_admin=is_admin_user(user_id))
 
 
 @app.get("/api/meta")

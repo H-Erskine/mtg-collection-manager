@@ -280,3 +280,39 @@ def get_group_collections(user_id: str) -> dict:
         "people": people,
         "cards": cards,
     }
+
+
+def get_group_decks(user_id: str, viewer_is_admin: bool = False) -> dict:
+    """Combined decks view scoped to the caller plus the union of members
+    across all of their groups, same as get_group_collections. Admins instead
+    see every registered user's decks (including private accounts), matching
+    the admin override on get_all_sale/list_profiles."""
+    if viewer_is_admin:
+        people = list_profiles(viewer_is_admin=True)
+    else:
+        member_ids = {user_id} | all_group_member_ids(user_id)
+        people = get_profiles_by_ids(member_ids)
+    decks: list[dict] = []
+
+    for person in people:
+        cfg = get_user_config(person["user_id"])
+        if cfg is None:
+            continue
+        try:
+            with get_conn(cfg.db_path) as conn:
+                person_decks = get_decks_data(conn)
+        except Exception:
+            continue
+        for deck in person_decks:
+            decks.append({
+                **deck,
+                "owner_user_id": person["user_id"],
+                "owner_display_name": person["display_name"],
+                "owner_icon": person["icon"],
+            })
+
+    return {
+        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "people": people,
+        "decks": decks,
+    }

@@ -42,6 +42,9 @@
   #sale-grid-wrap { flex: 1; min-width: 0; }
 
   /* DECKS */
+  #decks-body { display: flex; gap: var(--space-4); align-items: flex-start; }
+  #decks-content { flex: 1; min-width: 0; }
+  .deck-owner-tag { font-size: 11px; color: color-mix(in srgb, var(--color-text) 55%, transparent); margin-bottom: 2px; }
   .box-section { margin-bottom: var(--space-8); }
   .box-title { font-family: var(--font-heading); font-weight: 800; font-size: 15px; margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-divider); }
   .deck-item { border-bottom: 1px solid var(--color-divider); }
@@ -137,7 +140,12 @@
 <div id="page-decks" class="page">
   <div class="auth-gate" id="decks-auth-gate" style="display:none">Log in to view your decks.</div>
   <div class="loading" id="decks-loading">Loading decks…</div>
-  <div id="decks-content"></div>
+  <div id="decks-body" style="display:none">
+    <div class="link-rail" id="decks-people-sidebar">
+      <div id="decks-people-list"></div>
+    </div>
+    <div id="decks-content"></div>
+  </div>
 </div>
 
 <!-- MISSING -->
@@ -259,6 +267,10 @@ let activeGroup = 'all';
 let viewScope = 'me';          // 'me' | 'all' | a specific owner_user_id
 let combinedData = null;       // lazily fetched /api/collection/group payload
 
+let myDecks = [];
+let deckViewScope = 'me';      // 'me' | 'all' | a specific owner_user_id
+let combinedDeckData = null;   // lazily fetched /api/decks/group payload
+
 let saleForSale = [];
 let saleExtras = [];
 let saleWants = [];
@@ -371,6 +383,8 @@ function applyAuthState(whoamiData) {
   if (peopleSidebar) peopleSidebar.style.display = 'none';
   const salePeopleSidebar = document.getElementById('sale-people-sidebar');
   if (salePeopleSidebar) salePeopleSidebar.style.display = 'none';
+  const decksPeopleSidebar = document.getElementById('decks-people-sidebar');
+  if (decksPeopleSidebar) decksPeopleSidebar.style.display = 'none';
 }
 
 async function init() {
@@ -422,7 +436,9 @@ async function init() {
 
     buildStatsBanner();
     renderCollection(collectionCards);
-    renderDecks(deckData.decks);
+    myDecks = deckData.decks;
+    renderDecks(myDecks);
+    renderDeckPeopleSidebar();
 
     saleForSale = saleData.for_sale || [];
     saleExtras = saleData.extras || [];
@@ -679,6 +695,7 @@ async function setViewScope(scope) {
 
 function renderDecks(decks) {
   document.getElementById('decks-loading').style.display = 'none';
+  document.getElementById('decks-body').style.display = 'flex';
   const container = document.getElementById('decks-content');
   container.innerHTML = '';
 
@@ -702,6 +719,9 @@ function renderDecks(decks) {
       const proxies = deck.cards.filter(c => c.is_proxy).reduce((s, c) => s + c.quantity, 0);
       const proxyNote = proxies ? ` · ${proxies} prox${proxies === 1 ? 'y' : 'ies'}` : '';
       const builtDate = deck.built_at ? deck.built_at.slice(0, 10) : '';
+      const ownerTag = deck.owner_display_name
+        ? `<div class="deck-owner-tag">${deck.owner_icon || ''} ${deck.owner_display_name}</div>`
+        : '';
 
       const item = document.createElement('div');
       item.className = 'deck-item';
@@ -709,6 +729,7 @@ function renderDecks(decks) {
         <div class="deck-header" onclick="toggleDeck(this)">
           <span class="chevron">&#9656;</span>
           <div>
+            ${ownerTag}
             <div class="deck-name">${deck.deck_name}</div>
             <div class="deck-meta">Built ${builtDate} · ${total} cards${proxyNote}</div>
           </div>
@@ -729,6 +750,47 @@ function renderDecks(decks) {
 
 function toggleDeck(header) {
   header.closest('.deck-item').classList.toggle('open');
+}
+
+function currentDecks() {
+  if (deckViewScope === 'me') return myDecks;
+  if (!combinedDeckData) return [];
+  if (deckViewScope === 'all') return combinedDeckData.decks;
+  return combinedDeckData.decks.filter(d => d.owner_user_id === deckViewScope);
+}
+
+function renderDeckPeopleSidebar() {
+  const list = document.getElementById('decks-people-list');
+  list.innerHTML = '';
+
+  function makeItem(scope, label) {
+    const item = document.createElement('div');
+    item.className = 'link-rail-item' + (deckViewScope === scope ? ' active' : '');
+    item.textContent = label;
+    item.onclick = () => setDeckViewScope(scope);
+    return item;
+  }
+
+  list.appendChild(makeItem('me', 'Just Me'));
+  list.appendChild(makeItem('all', 'All'));
+
+  if (combinedDeckData) {
+    for (const p of combinedDeckData.people) {
+      list.appendChild(makeItem(p.user_id, p.display_name || p.user_id));
+    }
+  }
+}
+
+async function setDeckViewScope(scope) {
+  deckViewScope = scope;
+
+  if (scope !== 'me' && !combinedDeckData) {
+    const res = await fetch('/api/decks/group');
+    if (res.ok) combinedDeckData = await res.json();
+  }
+
+  renderDeckPeopleSidebar();
+  renderDecks(currentDecks());
 }
 
 // ─── For Sale tab ────────────────────────────────────────────────────────────
